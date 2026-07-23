@@ -1,0 +1,733 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1713412389DA7B2E50DEE2A2 /* LANDiscoveryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */; };
+		1A2648A7B4CE58A08BAF01DF /* PublicIPViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */; };
+		1CBB40D18A23D72C1EF2F06E /* PublicIPInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */; };
+		1D1B4A54865D0FF1B5812705 /* ConnectivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB774A369416686F15FAF88A /* ConnectivityService.swift */; };
+		27294805AD0DDD2730248294 /* NetworkMonitorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0BD43A49F012CCBB22891FB /* NetworkMonitorViewModel.swift */; };
+		33EE4DB4AC98C14C70867A5D /* LocationAuthorizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */; };
+		34494EDBB5E90BF4C31DAD76 /* ConnectivityCheckRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCCA4C00A80DF9239C01822B /* ConnectivityCheckRecord.swift */; };
+		34D54BBA9C4B17C70C108862 /* DiscoveredDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BED4A5F9F57903D749127B2 /* DiscoveredDevice.swift */; };
+		51CC49DBBF436B4ACC72E722 /* CorrelationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42BB4540A8635C0F040E0B47 /* CorrelationService.swift */; };
+		6331472B943A654CF2CE9EAC /* WiFiSSIDService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E04033B756D18EC8053449 /* WiFiSSIDService.swift */; };
+		78AE4318B1A522633190D852 /* WiFiSSIDViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */; };
+		798844BEAB89859456265169 /* NetworkSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244C43C3AD33E78FCBD2AF1D /* NetworkSnapshot.swift */; };
+		A0E14469AFA1E06B053788EA /* LANDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */; };
+		A2714517BB98FF185DF8FE04 /* ConnectivityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D94487A41159A06254163F /* ConnectivityViewModel.swift */; };
+		AA91466491D4E5EF5E19BD75 /* PublicIPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83C4CA09836D7D3883805DF /* PublicIPService.swift */; };
+		B20543DAA2CFC04A70E355D4 /* PublicIPRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254144959B8BB08B08A831D6 /* PublicIPRecord.swift */; };
+		B6E4481EBF75AB88A32828AD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1804D16989D136B8272E7D9 /* ContentView.swift */; };
+		C5F74CAC8701D7D3E18EFD99 /* DiscoveredDeviceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD434F0B89A9959C87F56CD6 /* DiscoveredDeviceRecord.swift */; };
+		DA9E4A229A9E8F0A176D0C0C /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */; };
+		DDBB487386CC935798B256C9 /* NetworkIdentityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F84AB283B9F7C62E15B32A /* NetworkIdentityViewModel.swift */; };
+		E3484D22869F23E82C3392A2 /* ConnectivityCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */; };
+		F7F240A6B038046B3AD22AB7 /* KnownNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */; };
+		FF9B4ADF8626CE757DFC339C /* SystemConfigurationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E3A4B07B1BE0F930CA38D26 /* SystemConfigurationService.swift */; };
+		FFB94525A2F0A4184B379DF8 /* NetworkInterfaceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1DDFCF1B3011D12C0069C74C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1DDFCF033011D12A0069C74C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1DDFCF0A3011D12A0069C74C;
+			remoteInfo = NMS;
+		};
+		1DDFCF253011D12C0069C74C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1DDFCF033011D12A0069C74C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1DDFCF0A3011D12A0069C74C;
+			remoteInfo = NMS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPViewModel.swift; path = PublicIPViewModel.swift; sourceTree = "<group>"; };
+		17D94487A41159A06254163F /* ConnectivityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityViewModel.swift; path = ConnectivityViewModel.swift; sourceTree = "<group>"; };
+		1DDFCF0B3011D12A0069C74C /* NMS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NMS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1DDFCF1A3011D12C0069C74C /* NMSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1DDFCF243011D12C0069C74C /* NMSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		244C43C3AD33E78FCBD2AF1D /* NetworkSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkSnapshot.swift; path = NetworkSnapshot.swift; sourceTree = "<group>"; };
+		254144959B8BB08B08A831D6 /* PublicIPRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPRecord.swift; path = PublicIPRecord.swift; sourceTree = "<group>"; };
+		2BED4A5F9F57903D749127B2 /* DiscoveredDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveredDevice.swift; path = DiscoveredDevice.swift; sourceTree = "<group>"; };
+		364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SnapshotStore.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
+		3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkInterfaceInfo.swift; path = NetworkInterfaceInfo.swift; sourceTree = "<group>"; };
+		42BB4540A8635C0F040E0B47 /* CorrelationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CorrelationService.swift; path = CorrelationService.swift; sourceTree = "<group>"; };
+		53E04033B756D18EC8053449 /* WiFiSSIDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSSIDService.swift; path = WiFiSSIDService.swift; sourceTree = "<group>"; };
+		54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LANDiscoveryViewModel.swift; path = LANDiscoveryViewModel.swift; sourceTree = "<group>"; };
+		5E3A4B07B1BE0F930CA38D26 /* SystemConfigurationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SystemConfigurationService.swift; path = SystemConfigurationService.swift; sourceTree = "<group>"; };
+		80F84AB283B9F7C62E15B32A /* NetworkIdentityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkIdentityViewModel.swift; path = NetworkIdentityViewModel.swift; sourceTree = "<group>"; };
+		8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSSIDViewModel.swift; path = WiFiSSIDViewModel.swift; sourceTree = "<group>"; };
+		A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityCheck.swift; path = ConnectivityCheck.swift; sourceTree = "<group>"; };
+		C1804D16989D136B8272E7D9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ContentView.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		CB774A369416686F15FAF88A /* ConnectivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityService.swift; path = ConnectivityService.swift; sourceTree = "<group>"; };
+		DD434F0B89A9959C87F56CD6 /* DiscoveredDeviceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveredDeviceRecord.swift; path = DiscoveredDeviceRecord.swift; sourceTree = "<group>"; };
+		E0BD43A49F012CCBB22891FB /* NetworkMonitorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkMonitorViewModel.swift; path = NetworkMonitorViewModel.swift; sourceTree = "<group>"; };
+		E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPInfo.swift; path = PublicIPInfo.swift; sourceTree = "<group>"; };
+		E83C4CA09836D7D3883805DF /* PublicIPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPService.swift; path = PublicIPService.swift; sourceTree = "<group>"; };
+		F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LANDiscoveryService.swift; path = LANDiscoveryService.swift; sourceTree = "<group>"; };
+		F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KnownNetwork.swift; path = KnownNetwork.swift; sourceTree = "<group>"; };
+		FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LocationAuthorizationService.swift; path = LocationAuthorizationService.swift; sourceTree = "<group>"; };
+		FCCA4C00A80DF9239C01822B /* ConnectivityCheckRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityCheckRecord.swift; path = ConnectivityCheckRecord.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1DDFCF0D3011D12A0069C74C /* NMS */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NMS; sourceTree = "<group>"; };
+		1DDFCF1D3011D12C0069C74C /* NMSTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NMSTests; sourceTree = "<group>"; };
+		1DDFCF273011D12C0069C74C /* NMSUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NMSUITests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1DDFCF083011D12A0069C74C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1DDFCF173011D12C0069C74C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1DDFCF213011D12C0069C74C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1DDFCF023011D12A0069C74C = {
+			isa = PBXGroup;
+			children = (
+				1DDFCF0D3011D12A0069C74C /* NMS */,
+				1DDFCF1D3011D12C0069C74C /* NMSTests */,
+				1DDFCF273011D12C0069C74C /* NMSUITests */,
+				1DDFCF0C3011D12A0069C74C /* Products */,
+				5EC64443B027525251778AFF /* Models */,
+				75A646CE8E6999EF16CACB55 /* Services */,
+				920C493DA50A6619AAB08A1A /* ViewModels */,
+				589A466388F9B15916044D23 /* Views */,
+			);
+			sourceTree = "<group>";
+		};
+		1DDFCF0C3011D12A0069C74C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1DDFCF0B3011D12A0069C74C /* NMS.app */,
+				1DDFCF1A3011D12C0069C74C /* NMSTests.xctest */,
+				1DDFCF243011D12C0069C74C /* NMSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		589A466388F9B15916044D23 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				C1804D16989D136B8272E7D9 /* ContentView.swift */,
+			);
+			name = Views;
+			path = NMS/Views;
+			sourceTree = "<group>";
+		};
+		5EC64443B027525251778AFF /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */,
+				2BED4A5F9F57903D749127B2 /* DiscoveredDevice.swift */,
+				DD434F0B89A9959C87F56CD6 /* DiscoveredDeviceRecord.swift */,
+				254144959B8BB08B08A831D6 /* PublicIPRecord.swift */,
+				FCCA4C00A80DF9239C01822B /* ConnectivityCheckRecord.swift */,
+				244C43C3AD33E78FCBD2AF1D /* NetworkSnapshot.swift */,
+				3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */,
+				A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */,
+				F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */,
+			);
+			name = Models;
+			path = NMS/Models;
+			sourceTree = "<group>";
+		};
+		75A646CE8E6999EF16CACB55 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				5E3A4B07B1BE0F930CA38D26 /* SystemConfigurationService.swift */,
+				CB774A369416686F15FAF88A /* ConnectivityService.swift */,
+				F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */,
+				42BB4540A8635C0F040E0B47 /* CorrelationService.swift */,
+				53E04033B756D18EC8053449 /* WiFiSSIDService.swift */,
+				E83C4CA09836D7D3883805DF /* PublicIPService.swift */,
+				364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */,
+				FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */,
+			);
+			name = Services;
+			path = NMS/Services;
+			sourceTree = "<group>";
+		};
+		920C493DA50A6619AAB08A1A /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */,
+				80F84AB283B9F7C62E15B32A /* NetworkIdentityViewModel.swift */,
+				E0BD43A49F012CCBB22891FB /* NetworkMonitorViewModel.swift */,
+				17D94487A41159A06254163F /* ConnectivityViewModel.swift */,
+				0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */,
+				54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */,
+			);
+			name = ViewModels;
+			path = NMS/ViewModels;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1DDFCF0A3011D12A0069C74C /* NMS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1DDFCF2E3011D12C0069C74C /* Build configuration list for PBXNativeTarget "NMS" */;
+			buildPhases = (
+				1DDFCF073011D12A0069C74C /* Sources */,
+				1DDFCF083011D12A0069C74C /* Frameworks */,
+				1DDFCF093011D12A0069C74C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1DDFCF0D3011D12A0069C74C /* NMS */,
+			);
+			name = NMS;
+			packageProductDependencies = (
+			);
+			productName = NMS;
+			productReference = 1DDFCF0B3011D12A0069C74C /* NMS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1DDFCF193011D12C0069C74C /* NMSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1DDFCF313011D12C0069C74C /* Build configuration list for PBXNativeTarget "NMSTests" */;
+			buildPhases = (
+				1DDFCF163011D12C0069C74C /* Sources */,
+				1DDFCF173011D12C0069C74C /* Frameworks */,
+				1DDFCF183011D12C0069C74C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1DDFCF1C3011D12C0069C74C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1DDFCF1D3011D12C0069C74C /* NMSTests */,
+			);
+			name = NMSTests;
+			packageProductDependencies = (
+			);
+			productName = NMSTests;
+			productReference = 1DDFCF1A3011D12C0069C74C /* NMSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		1DDFCF233011D12C0069C74C /* NMSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1DDFCF343011D12C0069C74C /* Build configuration list for PBXNativeTarget "NMSUITests" */;
+			buildPhases = (
+				1DDFCF203011D12C0069C74C /* Sources */,
+				1DDFCF213011D12C0069C74C /* Frameworks */,
+				1DDFCF223011D12C0069C74C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1DDFCF263011D12C0069C74C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1DDFCF273011D12C0069C74C /* NMSUITests */,
+			);
+			name = NMSUITests;
+			packageProductDependencies = (
+			);
+			productName = NMSUITests;
+			productReference = 1DDFCF243011D12C0069C74C /* NMSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1DDFCF033011D12A0069C74C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					1DDFCF0A3011D12A0069C74C = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					1DDFCF193011D12C0069C74C = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 1DDFCF0A3011D12A0069C74C;
+					};
+					1DDFCF233011D12C0069C74C = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 1DDFCF0A3011D12A0069C74C;
+					};
+				};
+			};
+			buildConfigurationList = 1DDFCF063011D12A0069C74C /* Build configuration list for PBXProject "NMS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1DDFCF023011D12A0069C74C;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1DDFCF0C3011D12A0069C74C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1DDFCF0A3011D12A0069C74C /* NMS */,
+				1DDFCF193011D12C0069C74C /* NMSTests */,
+				1DDFCF233011D12C0069C74C /* NMSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1DDFCF093011D12A0069C74C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1DDFCF183011D12C0069C74C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1DDFCF223011D12C0069C74C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1DDFCF073011D12A0069C74C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1CBB40D18A23D72C1EF2F06E /* PublicIPInfo.swift in Sources */,
+				34D54BBA9C4B17C70C108862 /* DiscoveredDevice.swift in Sources */,
+				C5F74CAC8701D7D3E18EFD99 /* DiscoveredDeviceRecord.swift in Sources */,
+				B20543DAA2CFC04A70E355D4 /* PublicIPRecord.swift in Sources */,
+				34494EDBB5E90BF4C31DAD76 /* ConnectivityCheckRecord.swift in Sources */,
+				798844BEAB89859456265169 /* NetworkSnapshot.swift in Sources */,
+				FFB94525A2F0A4184B379DF8 /* NetworkInterfaceInfo.swift in Sources */,
+				E3484D22869F23E82C3392A2 /* ConnectivityCheck.swift in Sources */,
+				F7F240A6B038046B3AD22AB7 /* KnownNetwork.swift in Sources */,
+				FF9B4ADF8626CE757DFC339C /* SystemConfigurationService.swift in Sources */,
+				1D1B4A54865D0FF1B5812705 /* ConnectivityService.swift in Sources */,
+				A0E14469AFA1E06B053788EA /* LANDiscoveryService.swift in Sources */,
+				51CC49DBBF436B4ACC72E722 /* CorrelationService.swift in Sources */,
+				6331472B943A654CF2CE9EAC /* WiFiSSIDService.swift in Sources */,
+				AA91466491D4E5EF5E19BD75 /* PublicIPService.swift in Sources */,
+				DA9E4A229A9E8F0A176D0C0C /* SnapshotStore.swift in Sources */,
+				33EE4DB4AC98C14C70867A5D /* LocationAuthorizationService.swift in Sources */,
+				78AE4318B1A522633190D852 /* WiFiSSIDViewModel.swift in Sources */,
+				DDBB487386CC935798B256C9 /* NetworkIdentityViewModel.swift in Sources */,
+				27294805AD0DDD2730248294 /* NetworkMonitorViewModel.swift in Sources */,
+				A2714517BB98FF185DF8FE04 /* ConnectivityViewModel.swift in Sources */,
+				1A2648A7B4CE58A08BAF01DF /* PublicIPViewModel.swift in Sources */,
+				1713412389DA7B2E50DEE2A2 /* LANDiscoveryViewModel.swift in Sources */,
+				B6E4481EBF75AB88A32828AD /* ContentView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1DDFCF163011D12C0069C74C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1DDFCF203011D12C0069C74C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1DDFCF1C3011D12C0069C74C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1DDFCF0A3011D12A0069C74C /* NMS */;
+			targetProxy = 1DDFCF1B3011D12C0069C74C /* PBXContainerItemProxy */;
+		};
+		1DDFCF263011D12C0069C74C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1DDFCF0A3011D12A0069C74C /* NMS */;
+			targetProxy = 1DDFCF253011D12C0069C74C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1DDFCF2C3011D12C0069C74C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		1DDFCF2D3011D12C0069C74C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		1DDFCF2F3011D12C0069C74C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/NMS/Models",
+					"$(SRCROOT)/NMS/Services",
+					"$(SRCROOT)/NMS/ViewModels",
+					"$(SRCROOT)/NMS/Views",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Thistle.NMS;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		1DDFCF303011D12C0069C74C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/NMS/Models",
+					"$(SRCROOT)/NMS/Services",
+					"$(SRCROOT)/NMS/ViewModels",
+					"$(SRCROOT)/NMS/Views",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Thistle.NMS;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		1DDFCF323011D12C0069C74C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/NMS/Models",
+					"$(SRCROOT)/NMS/Services",
+					"$(SRCROOT)/NMS/ViewModels",
+					"$(SRCROOT)/NMS/Views",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Thistle.NMSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NMS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/NMS";
+			};
+			name = Debug;
+		};
+		1DDFCF333011D12C0069C74C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/NMS/Models",
+					"$(SRCROOT)/NMS/Services",
+					"$(SRCROOT)/NMS/ViewModels",
+					"$(SRCROOT)/NMS/Views",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Thistle.NMSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NMS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/NMS";
+			};
+			name = Release;
+		};
+		1DDFCF353011D12C0069C74C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/NMS/Models",
+					"$(SRCROOT)/NMS/Services",
+					"$(SRCROOT)/NMS/ViewModels",
+					"$(SRCROOT)/NMS/Views",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Thistle.NMSUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = NMS;
+			};
+			name = Debug;
+		};
+		1DDFCF363011D12C0069C74C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/NMS/Models",
+					"$(SRCROOT)/NMS/Services",
+					"$(SRCROOT)/NMS/ViewModels",
+					"$(SRCROOT)/NMS/Views",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Thistle.NMSUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = NMS;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1DDFCF063011D12A0069C74C /* Build configuration list for PBXProject "NMS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1DDFCF2C3011D12C0069C74C /* Debug */,
+				1DDFCF2D3011D12C0069C74C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1DDFCF2E3011D12C0069C74C /* Build configuration list for PBXNativeTarget "NMS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1DDFCF2F3011D12C0069C74C /* Debug */,
+				1DDFCF303011D12C0069C74C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1DDFCF313011D12C0069C74C /* Build configuration list for PBXNativeTarget "NMSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1DDFCF323011D12C0069C74C /* Debug */,
+				1DDFCF333011D12C0069C74C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1DDFCF343011D12C0069C74C /* Build configuration list for PBXNativeTarget "NMSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1DDFCF353011D12C0069C74C /* Debug */,
+				1DDFCF363011D12C0069C74C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 1DDFCF033011D12A0069C74C /* Project object */;
+}

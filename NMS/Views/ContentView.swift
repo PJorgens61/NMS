@@ -4,6 +4,11 @@ struct ContentView: View {
     @ObservedObject var viewModel: NetworkMonitorViewModel
     @ObservedObject var lanDiscovery: LANDiscoveryViewModel
     @ObservedObject var connectivity: ConnectivityViewModel
+    @ObservedObject var networkIdentity: NetworkIdentityViewModel
+    @ObservedObject var publicIP: PublicIPViewModel
+    @ObservedObject var wifiSSID: WiFiSSIDViewModel
+
+    @State private var labelDraft: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -12,16 +17,31 @@ struct ContentView: View {
 
             if let info = viewModel.currentInterface {
                 Group {
-                    row("Interface", info.displayName ?? info.interfaceName)
+                    if let label = networkIdentity.currentNetwork?.label, !label.isEmpty {
+                        row("Network", label)
+                    } else if let ssid = wifiSSID.currentSSID {
+                        row("Network", ssid)
+                    } else {
+                        row("Interface", info.displayName ?? info.interfaceName)
+                    }
                     row("Type", info.isWiFi ? "Wi-Fi" : "Ethernet")
                     row("IP Address", info.ipAddress ?? "—")
                     row("Subnet Mask", info.subnetMask ?? "—")
                     row("Router", info.routerAddress ?? "—")
+                    row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
                 }
             } else {
                 Text("No active network connection")
                     .foregroundStyle(.secondary)
             }
+
+            if let error = publicIP.lastError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+
+            networkIdentitySection
 
             Divider()
 
@@ -61,6 +81,8 @@ struct ContentView: View {
             HStack {
                 Button("Refresh") {
                     viewModel.refresh()
+                    publicIP.check()
+                    wifiSSID.refresh(isWiFi: viewModel.currentInterface?.isWiFi ?? false)
                 }
                 Spacer()
                 Button("Quit") {
@@ -70,6 +92,30 @@ struct ContentView: View {
         }
         .padding(12)
         .frame(width: 280)
+    }
+
+    @ViewBuilder
+    private var networkIdentitySection: some View {
+        if let network = networkIdentity.currentNetwork {
+            HStack {
+                Text(networkIdentity.isNewNetwork ? "New network" : "Known network")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("seen \(network.timesSeen)×")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            TextField(wifiSSID.currentSSID ?? "Label this network (e.g. Home)", text: $labelDraft)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .onSubmit {
+                    networkIdentity.setLabel(labelDraft)
+                }
+                .onChange(of: network.fingerprint, initial: true) {
+                    labelDraft = network.label ?? ""
+                }
+        }
     }
 
     @ViewBuilder

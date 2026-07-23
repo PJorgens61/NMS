@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @MainActor
 final class LANDiscoveryViewModel: ObservableObject {
@@ -8,6 +9,11 @@ final class LANDiscoveryViewModel: ObservableObject {
 
     private let discoveryService = LANDiscoveryService()
     private let snapshotStore: SnapshotStore
+
+    /// Fired with the freshly-scanned devices after every scan (automatic or
+    /// manual) — this is what lets `NetworkIdentityViewModel` find the
+    /// router's MAC without a second `arp` call.
+    var onScanCompleted: (([DiscoveredDevice]) -> Void)?
 
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
@@ -23,6 +29,7 @@ final class LANDiscoveryViewModel: ObservableObject {
             lastScanAt = Date()
             lastError = nil
             snapshotStore.saveDiscoveredDevices(found, for: snapshot ?? snapshotStore.latestSnapshot())
+            onScanCompleted?(found)
         } catch {
             lastError = error.localizedDescription
         }
