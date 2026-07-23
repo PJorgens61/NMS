@@ -7,6 +7,9 @@ struct ContentView: View {
     @ObservedObject var networkIdentity: NetworkIdentityViewModel
     @ObservedObject var publicIP: PublicIPViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
+    @ObservedObject var eventLog: EventLogViewModel
+    @ObservedObject var traceroute: TracerouteViewModel
+    @ObservedObject var bonjourDiscovery: BonjourDiscoveryViewModel
 
     @State private var labelDraft: String = ""
 
@@ -65,6 +68,20 @@ struct ContentView: View {
             Divider()
 
             HStack {
+                Text("Bonjour Devices")
+                    .font(.headline)
+                Spacer()
+                Button("Scan") {
+                    bonjourDiscovery.scan()
+                }
+                .disabled(bonjourDiscovery.isScanning)
+            }
+
+            bonjourDeviceList
+
+            Divider()
+
+            HStack {
                 Text("Connectivity")
                     .font(.headline)
                 Spacer()
@@ -75,6 +92,27 @@ struct ContentView: View {
             }
 
             connectivityList
+
+            Divider()
+
+            Text("Events")
+                .font(.headline)
+
+            eventList
+
+            Divider()
+
+            HStack {
+                Text("Path to Internet")
+                    .font(.headline)
+                Spacer()
+                Button("Trace Now") {
+                    traceroute.run()
+                }
+                .disabled(traceroute.isRunning)
+            }
+
+            tracerouteSection
 
             Divider()
 
@@ -131,8 +169,44 @@ struct ContentView: View {
                         row(device.hostname ?? device.ipAddress, device.hostname == nil ? (device.macAddress ?? "—") : device.ipAddress)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 140)
+            // A fixed (not max) height — as with the event log earlier,
+            // `maxHeight` alone can collapse this ScrollView to zero
+            // visible height in this MenuBarExtra popover even with real
+            // content (confirmed directly: a screenshot showed this
+            // section completely blank while the same devices were
+            // visibly in use elsewhere in the popover, proving the
+            // underlying data wasn't actually empty).
+            .frame(height: 140)
+        }
+    }
+
+    @ViewBuilder
+    private var bonjourDeviceList: some View {
+        if bonjourDiscovery.devices.isEmpty {
+            Text(bonjourDiscovery.isScanning ? "Scanning…" : (bonjourDiscovery.lastScanAt == nil ? "Not scanned yet" : "No devices found"))
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(bonjourDiscovery.devices) { device in
+                        HStack {
+                            Text(device.name)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(device.serviceLabel)
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.system(size: 12))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Same fixed-height fix as `deviceList` above.
+            .frame(height: 140)
         }
     }
 
@@ -163,6 +237,135 @@ struct ContentView: View {
                     .foregroundStyle(.orange)
             }
         }
+    }
+
+    @ViewBuilder
+    private var eventList: some View {
+        if eventLog.events.isEmpty {
+            Text("No events yet")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .frame(height: 300, alignment: .top)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(eventLog.events) { event in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(event.message)
+                                .font(.system(size: 12))
+                                .foregroundStyle(eventColor(for: event))
+                            Text(event.occurredAt, format: .dateTime.month().day().hour().minute())
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // A fixed (not max) height — `maxHeight` alone lets the
+            // ScrollView shrink to fit however few rows currently exist,
+            // which is why a single event looked identical to before.
+            .frame(height: 300)
+        }
+    }
+
+    @ViewBuilder
+    private var tracerouteSection: some View {
+        if let monitored = traceroute.monitoredHop {
+            row("ISP Edge Router", monitored.hostname ?? monitored.address ?? "—")
+            Button("Stop monitoring hop \(monitored.hopNumber)") {
+                traceroute.monitorHop(nil)
+            }
+            .font(.system(size: 11))
+        } else if let suggested = traceroute.suggestedEdgeHop {
+            row("Suggested (unconfirmed)", suggested.hostname ?? suggested.address ?? "—")
+            Text("Tap ★ next to the real ISP hop below to confirm — the first non-local hop isn't always right on networks with their own public IP space (e.g. campus/enterprise).")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        } else if traceroute.isRunning {
+            Text("Tracing…")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else if traceroute.hops.isEmpty {
+            Text("Not traced yet")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        }
+
+        if let error = traceroute.lastError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
+        }
+
+        if !traceroute.hops.isEmpty {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(displayedHops) { hop in
+                        HStack {
+                            Text("\(hop.hopNumber)")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 16, alignment: .trailing)
+                            Text(hopLabel(for: hop))
+                                .foregroundStyle(hopColor(for: hop))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(hopRTT(for: hop))
+                                .foregroundStyle(.secondary)
+                            Button {
+                                let isMonitored = traceroute.monitoredHopNumber == hop.hopNumber
+                                traceroute.monitorHop(isMonitored ? nil : hop.hopNumber)
+                            } label: {
+                                Image(systemName: traceroute.monitoredHopNumber == hop.hopNumber ? "star.fill" : "star")
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(hop.address == nil)
+                        }
+                        .font(.system(size: 11))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 160)
+        }
+    }
+
+    /// Once a hop is confirmed as the one to monitor, hops beyond it (closer
+    /// to the actual destination, e.g. `1.1.1.1`) aren't relevant to "the
+    /// path to my ISP" and just add noise — so they're hidden. Before
+    /// confirmation, the full path still shows, since you need to see hops
+    /// beyond the auto-suggested one to pick a different, correct one on
+    /// networks where the suggestion doesn't hold (see `suggestedEdgeHop`).
+    private var displayedHops: [TracerouteHop] {
+        guard let monitoredHopNumber = traceroute.monitoredHopNumber else { return traceroute.hops }
+        return traceroute.hops.filter { $0.hopNumber <= monitoredHopNumber }
+    }
+
+    private func hopLabel(for hop: TracerouteHop) -> String {
+        guard let address = hop.address else { return "* (no response)" }
+        return hop.hostname ?? address
+    }
+
+    private func hopColor(for hop: TracerouteHop) -> Color {
+        if traceroute.monitoredHopNumber == hop.hopNumber {
+            return .blue
+        }
+        switch hop.isLocal {
+        case true: return .secondary
+        case false: return .primary
+        case nil: return .secondary
+        }
+    }
+
+    private func hopRTT(for hop: TracerouteHop) -> String {
+        guard let rtt = hop.roundTripMs else { return "—" }
+        return String(format: "%.0f ms", rtt)
+    }
+
+    private func eventColor(for event: AppEventRecord) -> Color {
+        guard let kind = AppEventKind(rawValue: event.kind) else { return .primary }
+        return kind.isPositive ? .green : .red
     }
 
     private func statusText(for check: ConnectivityCheck) -> String {

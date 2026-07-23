@@ -42,6 +42,13 @@ final class SnapshotStore {
         try? context.save()
     }
 
+    func saveBonjourDevices(_ devices: [BonjourDevice], for snapshot: NetworkSnapshot?) {
+        for device in devices {
+            context.insert(BonjourDeviceRecord(from: device, snapshot: snapshot))
+        }
+        try? context.save()
+    }
+
     /// Persists `checks`, first stamping each failure with whether it landed
     /// near a topology change (see `CorrelationService`), and returns the
     /// enriched values so callers can reflect the flag in the UI too.
@@ -125,6 +132,50 @@ final class SnapshotStore {
     func recordPublicIPIfChanged(_ info: PublicIPInfo) -> Bool {
         guard latestPublicIP()?.ipAddress != info.ipAddress else { return false }
         context.insert(PublicIPRecord(from: info))
+        try? context.save()
+        return true
+    }
+
+    @discardableResult
+    func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date()) -> AppEventRecord {
+        let event = AppEventRecord(kind: kind, message: message, occurredAt: date)
+        context.insert(event)
+        try? context.save()
+        return event
+    }
+
+    func fetchRecentEvents(limit: Int = 50) -> [AppEventRecord] {
+        var descriptor = FetchDescriptor<AppEventRecord>(
+            sortBy: [SortDescriptor(\.occurredAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    func latestProviderEdge() -> ProviderEdgeRecord? {
+        var descriptor = FetchDescriptor<ProviderEdgeRecord>(
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    func fetchProviderEdgeHistory(limit: Int = 100) -> [ProviderEdgeRecord] {
+        var descriptor = FetchDescriptor<ProviderEdgeRecord>(
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Persists a new row only if the ISP edge router's address actually
+    /// changed since the last recorded value — mirrors
+    /// `recordPublicIPIfChanged`: a timeline of real changes, not a
+    /// per-traceroute-run log. Returns whether it changed.
+    @discardableResult
+    func recordProviderEdgeIfChanged(address: String, hostname: String?, at date: Date = Date()) -> Bool {
+        guard latestProviderEdge()?.address != address else { return false }
+        context.insert(ProviderEdgeRecord(address: address, hostname: hostname, observedAt: date))
         try? context.save()
         return true
     }

@@ -14,6 +14,10 @@ final class NetworkMonitorViewModel: ObservableObject {
     /// work to the same topology-change event.
     var onChangePersisted: ((NetworkSnapshot) -> Void)?
 
+    /// Fired whenever an `AppEventRecord` gets logged (interface down or back
+    /// up), so the event log view can refresh.
+    var onEventLogged: (() -> Void)?
+
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         refresh()
@@ -38,11 +42,30 @@ final class NetworkMonitorViewModel: ObservableObject {
     private func handleObservedChange() {
         let updated = service.currentPrimaryInterface()
         let didChange = updated != currentInterface
+        let previous = currentInterface
         currentInterface = updated
         lastUpdated = Date()
-        if didChange, let updated {
+        guard didChange else { return }
+
+        if let updated {
             let snapshot = snapshotStore.save(updated)
             onChangePersisted?(snapshot)
+            if previous == nil {
+                // Recovering from having no connection at all — pairs with
+                // the interfaceDown event logged when that happened, so the
+                // log shows outage start and end, not just start.
+                let label = updated.displayName ?? updated.interfaceName
+                snapshotStore.logEvent(.interfaceUp, message: "Interface back up (\(label))")
+                onEventLogged?()
+            }
+        } else if let previous {
+            // Transitioned from having a connection to having none — this
+            // was previously silently dropped (the old code only handled
+            // the `let updated` case), so "interface went down" never made
+            // it into any persisted history at all.
+            let label = previous.displayName ?? previous.interfaceName
+            snapshotStore.logEvent(.interfaceDown, message: "Interface went down (was \(label))")
+            onEventLogged?()
         }
     }
 

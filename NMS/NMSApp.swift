@@ -19,6 +19,9 @@ struct NMSApp: App {
     @StateObject private var networkIdentity: NetworkIdentityViewModel
     @StateObject private var publicIP: PublicIPViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
+    @StateObject private var eventLog: EventLogViewModel
+    @StateObject private var traceroute: TracerouteViewModel
+    @StateObject private var bonjourDiscovery: BonjourDiscoveryViewModel
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -36,6 +39,10 @@ struct NMSApp: App {
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
         let publicIP = PublicIPViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel()
+        let eventLog = EventLogViewModel(snapshotStore: store)
+        let traceroute = TracerouteViewModel(snapshotStore: store)
+        let bonjourDiscovery = BonjourDiscoveryViewModel(snapshotStore: store)
+        let connectivity = ConnectivityViewModel(networkMonitor: networkMonitor, lanDiscovery: lanDiscovery, snapshotStore: store)
         // Tie a LAN scan to every observed topology change, not just the
         // manual "Scan" button.
         networkMonitor.onChangePersisted = { snapshot in
@@ -47,39 +54,87 @@ struct NMSApp: App {
             // Same for the Wi-Fi SSID — e.g. unplugging Ethernet and
             // falling back to Wi-Fi is exactly this kind of change.
             wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+            // The path to the internet (and the ISP edge router) can change
+            // along with the topology change itself, so re-trace now rather
+            // than waiting up to 10 minutes for the next periodic run.
+            traceroute.run()
         }
+        // Refresh the event log whenever either producer logs a new event
+        // (interface down, or router/internet became unreachable).
+        networkMonitor.onEventLogged = { eventLog.refresh() }
+        connectivity.onEventLogged = { eventLog.refresh() }
         // Recognizing the current network depends on the router's MAC,
         // which only comes from a LAN scan — so identity recognition rides
         // along with every scan, automatic or manual.
         lanDiscovery.onScanCompleted = { devices in
             networkIdentity.recognize(routerAddress: networkMonitor.currentInterface?.routerAddress, from: devices)
         }
-        let connectivity = ConnectivityViewModel(networkMonitor: networkMonitor, lanDiscovery: lanDiscovery, snapshotStore: store)
         _networkMonitor = StateObject(wrappedValue: networkMonitor)
         _lanDiscovery = StateObject(wrappedValue: lanDiscovery)
         _connectivity = StateObject(wrappedValue: connectivity)
         _networkIdentity = StateObject(wrappedValue: networkIdentity)
         _publicIP = StateObject(wrappedValue: publicIP)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
+        _eventLog = StateObject(wrappedValue: eventLog)
+        _traceroute = StateObject(wrappedValue: traceroute)
+        _bonjourDiscovery = StateObject(wrappedValue: bonjourDiscovery)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
         lanDiscovery.scan()
         wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+        // Bonjour discovery takes a few seconds (unlike the near-instant
+        // ARP scan), but launch is a reasonable one-time cost to have
+        // something to show without waiting for a manual "Scan" click.
+        bonjourDiscovery.scan()
+    }
+
+    /// The at-a-glance severity: interface down and router/internet/DNS/HTTP
+    /// failures are critical (red); a monitored LAN device being down is
+    /// marginal (yellow); anything else is normal (green).
+    private var overallStatus: OverallStatus {
+        OverallStatus.compute(interfaceIsDown: networkMonitor.currentInterface == nil, checks: connectivity.checks)
     }
 
     var body: some Scene {
-        MenuBarExtra("NMS", systemImage: networkMonitor.statusSymbolName) {
+        MenuBarExtra {
             ContentView(
                 viewModel: networkMonitor,
                 lanDiscovery: lanDiscovery,
                 connectivity: connectivity,
                 networkIdentity: networkIdentity,
                 publicIP: publicIP,
-                wifiSSID: wifiSSID
+                wifiSSID: wifiSSID,
+                eventLog: eventLog,
+                traceroute: traceroute,
+                bonjourDiscovery: bonjourDiscovery
             )
+        } label: {
+            Image(nsImage: Self.statusIcon(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color))
         }
         .menuBarExtraStyle(.window)
+    }
+
+    /// macOS forces menu bar icons to render as monochrome "template"
+    /// images by default — a plain SwiftUI `Image` with `.foregroundStyle`
+    /// gets that treatment too, silently ignoring the color (confirmed:
+    /// the color didn't show up at all with that approach). Rasterizing
+    /// the symbol into an `NSImage` and explicitly setting `isTemplate =
+    /// false` is the standard way to bypass that.
+    private static func statusIcon(symbolName: String, color: Color) -> NSImage {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let base = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) ?? NSImage()
+
+        let tinted = NSImage(size: base.size)
+        tinted.lockFocus()
+        NSColor(color).set()
+        let rect = NSRect(origin: .zero, size: base.size)
+        base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+        rect.fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        tinted.isTemplate = false
+        return tinted
     }
 
     /// Falls back to an in-memory store if the on-disk store can't be
@@ -92,7 +147,10 @@ struct NMSApp: App {
             DiscoveredDeviceRecord.self,
             ConnectivityCheckRecord.self,
             KnownNetwork.self,
-            PublicIPRecord.self
+            PublicIPRecord.self,
+            AppEventRecord.self,
+            ProviderEdgeRecord.self,
+            BonjourDeviceRecord.self
         ])
         do {
             return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema)])

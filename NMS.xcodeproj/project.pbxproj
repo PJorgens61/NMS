@@ -7,28 +7,42 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		046E45DBBA89EFDD9DCA4E9D /* BonjourDiscoveryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38484B33B89A2EB45E8D2A7B /* BonjourDiscoveryViewModel.swift */; };
 		1713412389DA7B2E50DEE2A2 /* LANDiscoveryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */; };
 		1A2648A7B4CE58A08BAF01DF /* PublicIPViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */; };
 		1CBB40D18A23D72C1EF2F06E /* PublicIPInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */; };
 		1D1B4A54865D0FF1B5812705 /* ConnectivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB774A369416686F15FAF88A /* ConnectivityService.swift */; };
+		1DFD437C9B94FCD59B3842B6 /* TracerouteHop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 385B444D98AC5D2E72AB964C /* TracerouteHop.swift */; };
 		27294805AD0DDD2730248294 /* NetworkMonitorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0BD43A49F012CCBB22891FB /* NetworkMonitorViewModel.swift */; };
+		2CE640FAA96088B909DC8265 /* TracerouteViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22C4809ADF8153488EF09E3 /* TracerouteViewModel.swift */; };
+		30FC4243A3466D557355FD2A /* ProviderEdgeRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C24E22AA45E8508D7A2339 /* ProviderEdgeRecord.swift */; };
 		33EE4DB4AC98C14C70867A5D /* LocationAuthorizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */; };
 		34494EDBB5E90BF4C31DAD76 /* ConnectivityCheckRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCCA4C00A80DF9239C01822B /* ConnectivityCheckRecord.swift */; };
 		34D54BBA9C4B17C70C108862 /* DiscoveredDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BED4A5F9F57903D749127B2 /* DiscoveredDevice.swift */; };
+		45DA4D20A2BA10174F00C031 /* IPClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B040FC88C9B94F9ECED868 /* IPClassifier.swift */; };
+		4AC0451EB03C8FF26EC5502B /* EventLogViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B34202BA4A1478A0747511 /* EventLogViewModel.swift */; };
 		51CC49DBBF436B4ACC72E722 /* CorrelationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42BB4540A8635C0F040E0B47 /* CorrelationService.swift */; };
+		5D004C66B21E6FD15D3F108F /* BonjourDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536C4C1DB3C70A4AF47E6E47 /* BonjourDevice.swift */; };
 		6331472B943A654CF2CE9EAC /* WiFiSSIDService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E04033B756D18EC8053449 /* WiFiSSIDService.swift */; };
+		6D694B509DBB9E6BEEEA3EA6 /* AppEventRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE34D0F897CC7D8F893DD76 /* AppEventRecord.swift */; };
+		6F034FF9B5BA2F9AEF06857D /* BonjourDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F86C422F9A02CCB87F01E9BD /* BonjourDiscoveryService.swift */; };
 		78AE4318B1A522633190D852 /* WiFiSSIDViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */; };
 		798844BEAB89859456265169 /* NetworkSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244C43C3AD33E78FCBD2AF1D /* NetworkSnapshot.swift */; };
+		8D8543D9A02210241A81675C /* HTTPCheckService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491D4F2A959AF7E5F4F1261F /* HTTPCheckService.swift */; };
 		A0E14469AFA1E06B053788EA /* LANDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */; };
 		A2714517BB98FF185DF8FE04 /* ConnectivityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D94487A41159A06254163F /* ConnectivityViewModel.swift */; };
 		AA91466491D4E5EF5E19BD75 /* PublicIPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83C4CA09836D7D3883805DF /* PublicIPService.swift */; };
 		B20543DAA2CFC04A70E355D4 /* PublicIPRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254144959B8BB08B08A831D6 /* PublicIPRecord.swift */; };
 		B6E4481EBF75AB88A32828AD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1804D16989D136B8272E7D9 /* ContentView.swift */; };
+		C2F6433B89050D67568988FA /* TracerouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83645979AEEEB2BAF036670 /* TracerouteService.swift */; };
+		C5A64F24ABD13283514FD06B /* OverallStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE174E3488BB7597EE0288E4 /* OverallStatus.swift */; };
 		C5F74CAC8701D7D3E18EFD99 /* DiscoveredDeviceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD434F0B89A9959C87F56CD6 /* DiscoveredDeviceRecord.swift */; };
 		DA9E4A229A9E8F0A176D0C0C /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */; };
 		DDBB487386CC935798B256C9 /* NetworkIdentityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F84AB283B9F7C62E15B32A /* NetworkIdentityViewModel.swift */; };
+		DE4141798CCD3886A5F716D1 /* DNSResolutionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826B414E8DF0592CA95CE5D6 /* DNSResolutionService.swift */; };
 		E3484D22869F23E82C3392A2 /* ConnectivityCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */; };
 		F7F240A6B038046B3AD22AB7 /* KnownNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */; };
+		FD9447BAA67CAC025EEC9D33 /* BonjourDeviceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95AF4648BAD28ECEA353BB95 /* BonjourDeviceRecord.swift */; };
 		FF9B4ADF8626CE757DFC339C /* SystemConfigurationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E3A4B07B1BE0F930CA38D26 /* SystemConfigurationService.swift */; };
 		FFB94525A2F0A4184B379DF8 /* NetworkInterfaceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */; };
 /* End PBXBuildFile section */
@@ -51,33 +65,47 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPViewModel.swift; path = PublicIPViewModel.swift; sourceTree = "<group>"; };
-		17D94487A41159A06254163F /* ConnectivityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityViewModel.swift; path = ConnectivityViewModel.swift; sourceTree = "<group>"; };
+		0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicIPViewModel.swift; sourceTree = "<group>"; };
+		10B34202BA4A1478A0747511 /* EventLogViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EventLogViewModel.swift; path = NMS/ViewModels/EventLogViewModel.swift; sourceTree = SOURCE_ROOT; };
+		17D94487A41159A06254163F /* ConnectivityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityViewModel.swift; sourceTree = "<group>"; };
 		1DDFCF0B3011D12A0069C74C /* NMS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NMS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1DDFCF1A3011D12C0069C74C /* NMSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1DDFCF243011D12C0069C74C /* NMSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		244C43C3AD33E78FCBD2AF1D /* NetworkSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkSnapshot.swift; path = NetworkSnapshot.swift; sourceTree = "<group>"; };
-		254144959B8BB08B08A831D6 /* PublicIPRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPRecord.swift; path = PublicIPRecord.swift; sourceTree = "<group>"; };
-		2BED4A5F9F57903D749127B2 /* DiscoveredDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveredDevice.swift; path = DiscoveredDevice.swift; sourceTree = "<group>"; };
-		364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SnapshotStore.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
-		3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkInterfaceInfo.swift; path = NetworkInterfaceInfo.swift; sourceTree = "<group>"; };
-		42BB4540A8635C0F040E0B47 /* CorrelationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CorrelationService.swift; path = CorrelationService.swift; sourceTree = "<group>"; };
-		53E04033B756D18EC8053449 /* WiFiSSIDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSSIDService.swift; path = WiFiSSIDService.swift; sourceTree = "<group>"; };
-		54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LANDiscoveryViewModel.swift; path = LANDiscoveryViewModel.swift; sourceTree = "<group>"; };
-		5E3A4B07B1BE0F930CA38D26 /* SystemConfigurationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SystemConfigurationService.swift; path = SystemConfigurationService.swift; sourceTree = "<group>"; };
-		80F84AB283B9F7C62E15B32A /* NetworkIdentityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkIdentityViewModel.swift; path = NetworkIdentityViewModel.swift; sourceTree = "<group>"; };
-		8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSSIDViewModel.swift; path = WiFiSSIDViewModel.swift; sourceTree = "<group>"; };
-		A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityCheck.swift; path = ConnectivityCheck.swift; sourceTree = "<group>"; };
-		C1804D16989D136B8272E7D9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ContentView.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		CB774A369416686F15FAF88A /* ConnectivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityService.swift; path = ConnectivityService.swift; sourceTree = "<group>"; };
-		DD434F0B89A9959C87F56CD6 /* DiscoveredDeviceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveredDeviceRecord.swift; path = DiscoveredDeviceRecord.swift; sourceTree = "<group>"; };
-		E0BD43A49F012CCBB22891FB /* NetworkMonitorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NetworkMonitorViewModel.swift; path = NetworkMonitorViewModel.swift; sourceTree = "<group>"; };
-		E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPInfo.swift; path = PublicIPInfo.swift; sourceTree = "<group>"; };
-		E83C4CA09836D7D3883805DF /* PublicIPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PublicIPService.swift; path = PublicIPService.swift; sourceTree = "<group>"; };
-		F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LANDiscoveryService.swift; path = LANDiscoveryService.swift; sourceTree = "<group>"; };
-		F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KnownNetwork.swift; path = KnownNetwork.swift; sourceTree = "<group>"; };
-		FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LocationAuthorizationService.swift; path = LocationAuthorizationService.swift; sourceTree = "<group>"; };
-		FCCA4C00A80DF9239C01822B /* ConnectivityCheckRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectivityCheckRecord.swift; path = ConnectivityCheckRecord.swift; sourceTree = "<group>"; };
+		244C43C3AD33E78FCBD2AF1D /* NetworkSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkSnapshot.swift; sourceTree = "<group>"; };
+		254144959B8BB08B08A831D6 /* PublicIPRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicIPRecord.swift; sourceTree = "<group>"; };
+		2BE34D0F897CC7D8F893DD76 /* AppEventRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppEventRecord.swift; path = NMS/Models/AppEventRecord.swift; sourceTree = SOURCE_ROOT; };
+		2BED4A5F9F57903D749127B2 /* DiscoveredDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveredDevice.swift; sourceTree = "<group>"; };
+		364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
+		38484B33B89A2EB45E8D2A7B /* BonjourDiscoveryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BonjourDiscoveryViewModel.swift; path = NMS/ViewModels/BonjourDiscoveryViewModel.swift; sourceTree = SOURCE_ROOT; };
+		385B444D98AC5D2E72AB964C /* TracerouteHop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TracerouteHop.swift; path = NMS/Models/TracerouteHop.swift; sourceTree = SOURCE_ROOT; };
+		3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkInterfaceInfo.swift; sourceTree = "<group>"; };
+		42BB4540A8635C0F040E0B47 /* CorrelationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrelationService.swift; sourceTree = "<group>"; };
+		491D4F2A959AF7E5F4F1261F /* HTTPCheckService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HTTPCheckService.swift; path = NMS/Services/HTTPCheckService.swift; sourceTree = SOURCE_ROOT; };
+		536C4C1DB3C70A4AF47E6E47 /* BonjourDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BonjourDevice.swift; path = NMS/Models/BonjourDevice.swift; sourceTree = SOURCE_ROOT; };
+		53E04033B756D18EC8053449 /* WiFiSSIDService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSSIDService.swift; sourceTree = "<group>"; };
+		54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANDiscoveryViewModel.swift; sourceTree = "<group>"; };
+		5E3A4B07B1BE0F930CA38D26 /* SystemConfigurationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemConfigurationService.swift; sourceTree = "<group>"; };
+		80F84AB283B9F7C62E15B32A /* NetworkIdentityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkIdentityViewModel.swift; sourceTree = "<group>"; };
+		826B414E8DF0592CA95CE5D6 /* DNSResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DNSResolutionService.swift; path = NMS/Services/DNSResolutionService.swift; sourceTree = SOURCE_ROOT; };
+		8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSSIDViewModel.swift; sourceTree = "<group>"; };
+		95AF4648BAD28ECEA353BB95 /* BonjourDeviceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BonjourDeviceRecord.swift; path = NMS/Models/BonjourDeviceRecord.swift; sourceTree = SOURCE_ROOT; };
+		A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityCheck.swift; sourceTree = "<group>"; };
+		C1804D16989D136B8272E7D9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C3B040FC88C9B94F9ECED868 /* IPClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = IPClassifier.swift; path = NMS/Services/IPClassifier.swift; sourceTree = SOURCE_ROOT; };
+		CB774A369416686F15FAF88A /* ConnectivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityService.swift; sourceTree = "<group>"; };
+		D22C4809ADF8153488EF09E3 /* TracerouteViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TracerouteViewModel.swift; path = NMS/ViewModels/TracerouteViewModel.swift; sourceTree = SOURCE_ROOT; };
+		D83645979AEEEB2BAF036670 /* TracerouteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TracerouteService.swift; path = NMS/Services/TracerouteService.swift; sourceTree = SOURCE_ROOT; };
+		DD434F0B89A9959C87F56CD6 /* DiscoveredDeviceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveredDeviceRecord.swift; sourceTree = "<group>"; };
+		E0BD43A49F012CCBB22891FB /* NetworkMonitorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitorViewModel.swift; sourceTree = "<group>"; };
+		E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicIPInfo.swift; sourceTree = "<group>"; };
+		E83C4CA09836D7D3883805DF /* PublicIPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicIPService.swift; sourceTree = "<group>"; };
+		F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANDiscoveryService.swift; sourceTree = "<group>"; };
+		F3C24E22AA45E8508D7A2339 /* ProviderEdgeRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProviderEdgeRecord.swift; path = NMS/Models/ProviderEdgeRecord.swift; sourceTree = SOURCE_ROOT; };
+		F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownNetwork.swift; sourceTree = "<group>"; };
+		F86C422F9A02CCB87F01E9BD /* BonjourDiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BonjourDiscoveryService.swift; path = NMS/Services/BonjourDiscoveryService.swift; sourceTree = SOURCE_ROOT; };
+		FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationAuthorizationService.swift; sourceTree = "<group>"; };
+		FCCA4C00A80DF9239C01822B /* ConnectivityCheckRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityCheckRecord.swift; sourceTree = "<group>"; };
+		FE174E3488BB7597EE0288E4 /* OverallStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OverallStatus.swift; path = NMS/Services/OverallStatus.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -156,6 +184,11 @@
 				3A56480E9645B209B1F041E6 /* NetworkInterfaceInfo.swift */,
 				A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */,
 				F60D443FA8065F5D1B0E63CE /* KnownNetwork.swift */,
+				2BE34D0F897CC7D8F893DD76 /* AppEventRecord.swift */,
+				385B444D98AC5D2E72AB964C /* TracerouteHop.swift */,
+				F3C24E22AA45E8508D7A2339 /* ProviderEdgeRecord.swift */,
+				536C4C1DB3C70A4AF47E6E47 /* BonjourDevice.swift */,
+				95AF4648BAD28ECEA353BB95 /* BonjourDeviceRecord.swift */,
 			);
 			name = Models;
 			path = NMS/Models;
@@ -172,6 +205,12 @@
 				E83C4CA09836D7D3883805DF /* PublicIPService.swift */,
 				364A42ED864BAC0C53890AA5 /* SnapshotStore.swift */,
 				FA214A9CA7D87264AB899E64 /* LocationAuthorizationService.swift */,
+				C3B040FC88C9B94F9ECED868 /* IPClassifier.swift */,
+				D83645979AEEEB2BAF036670 /* TracerouteService.swift */,
+				826B414E8DF0592CA95CE5D6 /* DNSResolutionService.swift */,
+				491D4F2A959AF7E5F4F1261F /* HTTPCheckService.swift */,
+				FE174E3488BB7597EE0288E4 /* OverallStatus.swift */,
+				F86C422F9A02CCB87F01E9BD /* BonjourDiscoveryService.swift */,
 			);
 			name = Services;
 			path = NMS/Services;
@@ -186,6 +225,9 @@
 				17D94487A41159A06254163F /* ConnectivityViewModel.swift */,
 				0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */,
 				54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */,
+				10B34202BA4A1478A0747511 /* EventLogViewModel.swift */,
+				D22C4809ADF8153488EF09E3 /* TracerouteViewModel.swift */,
+				38484B33B89A2EB45E8D2A7B /* BonjourDiscoveryViewModel.swift */,
 			);
 			name = ViewModels;
 			path = NMS/ViewModels;
@@ -359,6 +401,20 @@
 				1A2648A7B4CE58A08BAF01DF /* PublicIPViewModel.swift in Sources */,
 				1713412389DA7B2E50DEE2A2 /* LANDiscoveryViewModel.swift in Sources */,
 				B6E4481EBF75AB88A32828AD /* ContentView.swift in Sources */,
+				6D694B509DBB9E6BEEEA3EA6 /* AppEventRecord.swift in Sources */,
+				4AC0451EB03C8FF26EC5502B /* EventLogViewModel.swift in Sources */,
+				1DFD437C9B94FCD59B3842B6 /* TracerouteHop.swift in Sources */,
+				30FC4243A3466D557355FD2A /* ProviderEdgeRecord.swift in Sources */,
+				45DA4D20A2BA10174F00C031 /* IPClassifier.swift in Sources */,
+				C2F6433B89050D67568988FA /* TracerouteService.swift in Sources */,
+				2CE640FAA96088B909DC8265 /* TracerouteViewModel.swift in Sources */,
+				DE4141798CCD3886A5F716D1 /* DNSResolutionService.swift in Sources */,
+				8D8543D9A02210241A81675C /* HTTPCheckService.swift in Sources */,
+				C5A64F24ABD13283514FD06B /* OverallStatus.swift in Sources */,
+				5D004C66B21E6FD15D3F108F /* BonjourDevice.swift in Sources */,
+				FD9447BAA67CAC025EEC9D33 /* BonjourDeviceRecord.swift in Sources */,
+				6F034FF9B5BA2F9AEF06857D /* BonjourDiscoveryService.swift in Sources */,
+				046E45DBBA89EFDD9DCA4E9D /* BonjourDiscoveryViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -523,6 +579,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS discovers devices on your local network via Bonjour (mDNS) to show printers, file servers, and other advertised services, alongside its ARP-based LAN device list.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -562,6 +619,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS discovers devices on your local network via Bonjour (mDNS) to show printers, file servers, and other advertised services, alongside its ARP-based LAN device list.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				LD_RUNPATH_SEARCH_PATHS = (
