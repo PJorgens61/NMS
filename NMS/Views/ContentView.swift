@@ -11,11 +11,16 @@ struct ContentView: View {
     @ObservedObject var traceroute: TracerouteViewModel
     @ObservedObject var bonjourDiscovery: BonjourDiscoveryViewModel
 
-    @State private var labelDraft: String = ""
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("NMS")
+            Text("Network Health")
+                .font(.headline)
+
+            connectionHealthSection
+
+            Divider()
+
+            Text("Info")
                 .font(.headline)
 
             if let info = viewModel.currentInterface {
@@ -44,7 +49,28 @@ struct ContentView: View {
                     .foregroundStyle(.red)
             }
 
-            networkIdentitySection
+            networkIdentityStatus
+
+            Divider()
+
+            Text("Events")
+                .font(.headline)
+
+            eventList
+
+            Divider()
+
+            HStack {
+                Text("Path to Internet")
+                    .font(.headline)
+                Spacer()
+                Button("Trace Now") {
+                    traceroute.run()
+                }
+                .disabled(traceroute.isRunning)
+            }
+
+            tracerouteSection
 
             Divider()
 
@@ -82,41 +108,6 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text("Connectivity")
-                    .font(.headline)
-                Spacer()
-                Button("Check Now") {
-                    connectivity.runChecks()
-                }
-                .disabled(connectivity.isChecking)
-            }
-
-            connectivityList
-
-            Divider()
-
-            Text("Events")
-                .font(.headline)
-
-            eventList
-
-            Divider()
-
-            HStack {
-                Text("Path to Internet")
-                    .font(.headline)
-                Spacer()
-                Button("Trace Now") {
-                    traceroute.run()
-                }
-                .disabled(traceroute.isRunning)
-            }
-
-            tracerouteSection
-
-            Divider()
-
-            HStack {
                 Button("Refresh") {
                     viewModel.refresh()
                     publicIP.check()
@@ -132,8 +123,12 @@ struct ContentView: View {
         .frame(width: 280)
     }
 
+    /// The label-entry input is hidden entirely now — this is read-only
+    /// recognition status. A label, once set, still shows via the "Network"
+    /// row in Info; there's just no in-popover way to enter/change one
+    /// anymore.
     @ViewBuilder
-    private var networkIdentitySection: some View {
+    private var networkIdentityStatus: some View {
         if let network = networkIdentity.currentNetwork {
             HStack {
                 Text(networkIdentity.isNewNetwork ? "New network" : "Known network")
@@ -144,16 +139,139 @@ struct ContentView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            TextField(wifiSSID.currentSSID ?? "Label this network (e.g. Home)", text: $labelDraft)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
-                .onSubmit {
-                    networkIdentity.setLabel(labelDraft)
-                }
-                .onChange(of: network.fingerprint, initial: true) {
-                    labelDraft = network.label ?? ""
-                }
         }
+    }
+
+    /// Ordered low (most fundamental) to high (most dependent on
+    /// everything below it working first).
+    private var connectionLayersLowToHigh: [ConnectionLayer] {
+        let info = viewModel.currentInterface
+        let interfaceHealthy = info != nil
+
+        let interfaceLayer = ConnectionLayer(
+            id: "interface",
+            label: "Interface",
+            detail: info.map { $0.displayName ?? $0.interfaceName } ?? "Down",
+            status: interfaceHealthy ? .healthy : .unhealthy
+        )
+
+        let networkLayer: ConnectionLayer
+        if let info {
+            if !info.isWiFi {
+                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Ethernet", status: .healthy)
+            } else if let ssid = wifiSSID.currentSSID {
+                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: ssid, status: .healthy)
+            } else {
+                // Wi-Fi but no SSID resolved (e.g. Location permission not
+                // granted yet) isn't a connectivity failure — just missing
+                // information — so this is "unknown," not "unhealthy."
+                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Wi-Fi (SSID unknown)", status: .unknown)
+            }
+        } else {
+            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "—", status: .unknown)
+        }
+
+        let routerCheck = connectivity.checks.first { $0.label == OverallStatus.routerLabel }
+        let localRouterLayer = ConnectionLayer(
+            id: "localRouter",
+            label: "Local Router",
+            detail: routerCheck.map(checkDetail) ?? "Not checked",
+            status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: routerCheck?.correlatedWithChange ?? false
+        )
+
+        let peRouterLayer: ConnectionLayer
+        if let hop = traceroute.monitoredHop {
+            if hop.address != nil {
+                peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Router", detail: hopLabel(for: hop), status: .healthy)
+            } else {
+                peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Router", detail: "no response", status: .unhealthy)
+            }
+        } else {
+            // Not a failure — you haven't confirmed which traceroute hop is
+            // the ISP's edge yet (see the Path to Internet section).
+            peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Router", detail: "Not confirmed", status: .unknown)
+        }
+
+        let internetCheck = connectivity.checks.first { $0.label == OverallStatus.internetLabel }
+        let internetLayer = ConnectionLayer(
+            id: "internet",
+            label: "Internet",
+            detail: internetCheck.map(checkDetail) ?? "Not checked",
+            status: internetCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: internetCheck?.correlatedWithChange ?? false
+        )
+
+        let dnsCheck = connectivity.checks.first { $0.label == OverallStatus.dnsLabel }
+        let dnsLayer = ConnectionLayer(
+            id: "dns",
+            label: "DNS",
+            detail: dnsCheck.map(checkDetail) ?? "Not checked",
+            status: dnsCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: dnsCheck?.correlatedWithChange ?? false
+        )
+
+        let httpCheck = connectivity.checks.first { $0.label == OverallStatus.httpLabel }
+        let httpLayer = ConnectionLayer(
+            id: "http",
+            label: "HTTP",
+            detail: httpCheck.map(checkDetail) ?? "Not checked",
+            status: httpCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: httpCheck?.correlatedWithChange ?? false
+        )
+
+        return [interfaceLayer, networkLayer, localRouterLayer, peRouterLayer, internetLayer, dnsLayer, httpLayer]
+    }
+
+    /// The lowest (most fundamental) unhealthy layer — everything failing
+    /// *above* this one is presumed to be a consequence of this, not an
+    /// independent problem, since each layer depends on the ones below it.
+    private var rootCauseLayerID: String? {
+        connectionLayersLowToHigh.first { $0.status == .unhealthy }?.id
+    }
+
+    @ViewBuilder
+    private var connectionHealthSection: some View {
+        let layers = connectionLayersLowToHigh
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(layers.reversed()) { layer in
+                HStack {
+                    Circle()
+                        .fill(layerColor(for: layer))
+                        .frame(width: 8, height: 8)
+                    Text(layer.label)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
+                        .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.system(size: 12))
+            }
+
+            if layers.contains(where: { $0.status == .unhealthy && $0.correlatedWithChange }) {
+                Text("* possibly related to a recent network change")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func layerColor(for layer: ConnectionLayer) -> Color {
+        switch layer.status {
+        case .healthy: return .green
+        case .unknown: return .gray
+        case .unhealthy:
+            // Full red for the actual root cause; a dimmed red for
+            // anything failing above it, which is probably just a
+            // consequence rather than its own separate problem.
+            return layer.id == rootCauseLayerID ? .red : Color.red.opacity(0.4)
+        }
+    }
+
+    private func checkDetail(for check: ConnectivityCheck) -> String {
+        check.success ? String(format: "%.0f ms", check.latencyMs ?? 0) : "unreachable"
     }
 
     @ViewBuilder
@@ -177,8 +295,9 @@ struct ContentView: View {
             // content (confirmed directly: a screenshot showed this
             // section completely blank while the same devices were
             // visibly in use elsewhere in the popover, proving the
-            // underlying data wasn't actually empty).
-            .frame(height: 140)
+            // underlying data wasn't actually empty). Shrunk from 140 to
+            // fit more sections in the popover's limited vertical space.
+            .frame(height: 90)
         }
     }
 
@@ -205,37 +324,8 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Same fixed-height fix as `deviceList` above.
-            .frame(height: 140)
-        }
-    }
-
-    @ViewBuilder
-    private var connectivityList: some View {
-        if connectivity.checks.isEmpty {
-            Text(connectivity.isChecking ? "Checking…" : "Not checked yet")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(connectivity.checks) { check in
-                    HStack {
-                        Text(check.label)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(statusText(for: check))
-                            .foregroundStyle(statusColor(for: check))
-                            .textSelection(.enabled)
-                    }
-                    .font(.system(size: 12))
-                }
-            }
-
-            if connectivity.checks.contains(where: { $0.correlatedWithChange }) {
-                Text("* possibly related to a recent network change")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-            }
+            // Same fixed-height fix as `deviceList` above, also shrunk.
+            .frame(height: 90)
         }
     }
 
@@ -327,7 +417,10 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 160)
+            // Sized for ~3 visible rows at this font size/row spacing —
+            // just enough to see a few hops without scrolling for the
+            // common case.
+            .frame(height: 60)
         }
     }
 
@@ -365,19 +458,11 @@ struct ContentView: View {
 
     private func eventColor(for event: AppEventRecord) -> Color {
         guard let kind = AppEventKind(rawValue: event.kind) else { return .primary }
-        return kind.isPositive ? .green : .red
-    }
-
-    private func statusText(for check: ConnectivityCheck) -> String {
-        guard check.success else {
-            return check.correlatedWithChange ? "unreachable *" : "unreachable"
+        switch kind.polarity {
+        case .positive: return .green
+        case .negative: return .red
+        case .neutral: return .primary
         }
-        return String(format: "%.0f ms", check.latencyMs ?? 0)
-    }
-
-    private func statusColor(for check: ConnectivityCheck) -> Color {
-        guard !check.success else { return .primary }
-        return check.correlatedWithChange ? .orange : .red
     }
 
     private func row(_ label: String, _ value: String) -> some View {

@@ -16,7 +16,16 @@ struct HTTPCheckService {
     private static let expectedBodyFragment = "Success"
 
     func check() async throws -> Void {
-        let (data, response) = try await URLSession.shared.data(from: Self.endpoint)
+        // `URLSession.shared`'s default cache policy can serve this request
+        // from `URLCache` without touching the network at all — Apple's
+        // probe page doesn't send cache-preventing headers. That made this
+        // check report "reachable" (implausibly fast, ~1ms) even with the
+        // interface down, since it was replaying a cached response instead
+        // of actually testing anything. Forcing the request to ignore the
+        // cache makes this a real network round trip every time.
+        var request = URLRequest(url: Self.endpoint)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard
             let http = response as? HTTPURLResponse, http.statusCode == 200,
             let body = String(data: data, encoding: .utf8),

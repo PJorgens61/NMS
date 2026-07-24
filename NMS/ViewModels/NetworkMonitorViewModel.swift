@@ -57,6 +57,19 @@ final class NetworkMonitorViewModel: ObservableObject {
                 let label = updated.displayName ?? updated.interfaceName
                 snapshotStore.logEvent(.interfaceUp, message: "Interface back up (\(label))")
                 onEventLogged?()
+            } else if let previous, previous.interfaceName != updated.interfaceName {
+                // A different physical interface took over as primary (e.g.
+                // Ethernet <-> Wi-Fi failover) without ever fully losing
+                // connectivity in between — macOS prefers Ethernet whenever
+                // it's available, so this handoff can happen fast enough
+                // that `currentInterface` never actually goes nil, and
+                // interfaceDown/interfaceUp never fire around it. Worth its
+                // own event since that failover is exactly the kind of
+                // change worth noticing.
+                let fromLabel = previous.displayName ?? previous.interfaceName
+                let toLabel = updated.displayName ?? updated.interfaceName
+                snapshotStore.logEvent(.interfaceChanged, message: "Interface changed from \(fromLabel) to \(toLabel)")
+                onEventLogged?()
             }
         } else if let previous {
             // Transitioned from having a connection to having none — this

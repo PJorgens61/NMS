@@ -58,11 +58,19 @@ struct NMSApp: App {
             // along with the topology change itself, so re-trace now rather
             // than waiting up to 10 minutes for the next periodic run.
             traceroute.run()
+            // Router/internet/DNS/HTTP reachability is exactly what just
+            // changed too (e.g. an interface coming back up, or a failover
+            // to a different one) — re-check now instead of leaving Network
+            // Health showing stale router/internet/DNS/HTTP status for up
+            // to 30s until the next periodic round.
+            connectivity.runChecks()
         }
-        // Refresh the event log whenever either producer logs a new event
-        // (interface down, or router/internet became unreachable).
+        // Refresh the event log whenever any producer logs a new event
+        // (interface down, router/internet/DNS/HTTP unreachable, or the
+        // public IP changed).
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
+        publicIP.onEventLogged = { eventLog.refresh() }
         // Recognizing the current network depends on the router's MAC,
         // which only comes from a LAN scan — so identity recognition rides
         // along with every scan, automatic or manual.

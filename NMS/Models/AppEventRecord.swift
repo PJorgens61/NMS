@@ -9,6 +9,7 @@ import SwiftData
 enum AppEventKind: String, Codable {
     case interfaceDown
     case interfaceUp
+    case interfaceChanged
     case routerUnreachable
     case routerReachable
     case internetUnreachable
@@ -17,15 +18,24 @@ enum AppEventKind: String, Codable {
     case dnsReachable
     case httpUnreachable
     case httpReachable
+    case publicIPChanged
 
-    /// Recoveries render as positive (green); everything else as negative
-    /// (red) — see `ContentView.eventColor`.
-    var isPositive: Bool {
+    enum Polarity {
+        case positive, negative, neutral
+    }
+
+    /// Recoveries render as positive (green), bad states as negative (red);
+    /// a public IP change or an interface failover is neither — it's just
+    /// information, not a problem or a fix — so both render neutral. See
+    /// `ContentView.eventColor`.
+    var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable:
-            return true
+            return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable:
-            return false
+            return .negative
+        case .publicIPChanged, .interfaceChanged:
+            return .neutral
         }
     }
 }

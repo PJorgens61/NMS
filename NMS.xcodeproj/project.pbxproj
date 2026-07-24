@@ -32,6 +32,7 @@
 		A0E14469AFA1E06B053788EA /* LANDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36C4F8580392E4007AAFA91 /* LANDiscoveryService.swift */; };
 		A2714517BB98FF185DF8FE04 /* ConnectivityViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D94487A41159A06254163F /* ConnectivityViewModel.swift */; };
 		AA91466491D4E5EF5E19BD75 /* PublicIPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83C4CA09836D7D3883805DF /* PublicIPService.swift */; };
+		AE6E4D67A6493012A2AD2555 /* ConnectionLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1D4CF981045951E937FBDA /* ConnectionLayer.swift */; };
 		B20543DAA2CFC04A70E355D4 /* PublicIPRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 254144959B8BB08B08A831D6 /* PublicIPRecord.swift */; };
 		B6E4481EBF75AB88A32828AD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1804D16989D136B8272E7D9 /* ContentView.swift */; };
 		C2F6433B89050D67568988FA /* TracerouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83645979AEEEB2BAF036670 /* TracerouteService.swift */; };
@@ -89,6 +90,7 @@
 		826B414E8DF0592CA95CE5D6 /* DNSResolutionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DNSResolutionService.swift; path = NMS/Services/DNSResolutionService.swift; sourceTree = SOURCE_ROOT; };
 		8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSSIDViewModel.swift; sourceTree = "<group>"; };
 		95AF4648BAD28ECEA353BB95 /* BonjourDeviceRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BonjourDeviceRecord.swift; path = NMS/Models/BonjourDeviceRecord.swift; sourceTree = SOURCE_ROOT; };
+		9A1D4CF981045951E937FBDA /* ConnectionLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConnectionLayer.swift; path = NMS/Models/ConnectionLayer.swift; sourceTree = SOURCE_ROOT; };
 		A0D44432AA4856D76BAF112F /* ConnectivityCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityCheck.swift; sourceTree = "<group>"; };
 		C1804D16989D136B8272E7D9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C3B040FC88C9B94F9ECED868 /* IPClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = IPClassifier.swift; path = NMS/Services/IPClassifier.swift; sourceTree = SOURCE_ROOT; };
@@ -189,6 +191,7 @@
 				F3C24E22AA45E8508D7A2339 /* ProviderEdgeRecord.swift */,
 				536C4C1DB3C70A4AF47E6E47 /* BonjourDevice.swift */,
 				95AF4648BAD28ECEA353BB95 /* BonjourDeviceRecord.swift */,
+				9A1D4CF981045951E937FBDA /* ConnectionLayer.swift */,
 			);
 			name = Models;
 			path = NMS/Models;
@@ -415,6 +418,7 @@
 				FD9447BAA67CAC025EEC9D33 /* BonjourDeviceRecord.swift in Sources */,
 				6F034FF9B5BA2F9AEF06857D /* BonjourDiscoveryService.swift in Sources */,
 				046E45DBBA89EFDD9DCA4E9D /* BonjourDiscoveryViewModel.swift in Sources */,
+				AE6E4D67A6493012A2AD2555 /* ConnectionLayer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

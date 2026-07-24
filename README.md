@@ -80,6 +80,17 @@ NMS/
 3. A network icon (📶 or 🔌) appears in the menu bar. Click it to see the
    current interface, IP, subnet, router, and public IP.
 
+The popover is arranged top to bottom as: **Network Health**, **Info**
+(the interface/IP/subnet/router/public-IP details — this section used to
+be titled "NMS"), **Events**, **Path to Internet**, **LAN Devices**,
+**Bonjour Devices**, then Refresh/Quit. There's no separate Connectivity
+section anymore — its raw IP-layer check was folded into Network Health,
+and the rest of what it showed was already covered there too. The
+scrollable lists for Path to Internet, LAN Devices, and Bonjour Devices are
+deliberately short (60/90/90px — Path to Internet sized for ~3 visible
+rows) to leave room for everything else to fit in the popover's limited
+vertical space.
+
 Requires macOS 14+ (for `SwiftData`; `MenuBarExtra` itself only needs 13+)
 and Xcode 15+.
 
@@ -217,19 +228,58 @@ re-prompt for both — expected during development, not a bug.
   `apple.com`, a real captive-portal-probe fetch, both against actual
   network traffic, both succeeding with real latency numbers.
   `ConnectivityViewModel` runs a round of checks every 30s — router, up to
-  2 currently-known LAN devices, IP, DNS, HTTP — plus once at launch and on
-  demand via the popover's "Check Now" button. Ping and DNS resolution
-  block for up to a couple of seconds each, so they run on a background
-  queue; the HTTP fetch is genuinely async and doesn't need that. Checks
-  aren't tied to a `NetworkSnapshot` by relationship — correlation (below)
-  matches them up by comparing timestamps instead.
+  2 currently-known LAN devices, IP, DNS, HTTP — plus once at launch and
+  immediately on every observed topology change (`NMSApp`'s
+  `onChangePersisted`), rather than leaving Network Health's router/
+  internet/DNS/HTTP layers showing stale status for up to 30s after an
+  interface comes back up or fails over to a different one. Ping
+  and DNS resolution block for up to a couple of seconds each, so they run
+  on a background queue; the HTTP fetch is genuinely async and doesn't
+  need that. Checks aren't tied to a `NetworkSnapshot` by relationship —
+  correlation (below) matches them up by comparing timestamps instead.
+  There's no dedicated Connectivity section in the popover anymore (see
+  "Network Health" below) — these checks still run on the same schedule.
+  The LAN device pings still aren't surfaced anywhere in the UI (there's
+  no layer for them in Network Health), but the `correlatedWithChange` `*`
+  flag is — it moved to the Network Health rows instead.
+- **Network Health (layered hierarchy view)**: `ConnectionLayer` models
+  "is the internet actually working" as a dependency chain, ordered low
+  (most fundamental) to high (most dependent on everything below it):
+  Interface → Network (SSID/Ethernet) → Local Router → ISP Router →
+  Internet → DNS → HTTP. The raw IP-layer check (ping to `1.1.1.1`) used
+  to only appear in the separate Connectivity list; it's now folded in
+  here as its own layer between ISP Router and DNS, and the standalone
+  Connectivity section was removed from the popover since Network Health
+  already covered everything else it showed. Each layer is `.healthy`,
+  `.unhealthy`, or `.unknown` (not a failure — e.g. the ISP router hop
+  hasn't been confirmed yet, or Wi-Fi's SSID couldn't be read).
+  `ContentView.rootCauseLayerID` scans low-to-high for the *first*
+  unhealthy layer and treats it as the actual root cause; anything
+  unhealthy *above* that is rendered as a dimmed red (not full red) rather
+  than an independent problem, since each layer's failure is the expected
+  consequence of whatever's already broken below it — e.g. if DNS is
+  down, HTTP will obviously fail too, but DNS is "the" problem, not HTTP.
+  An HTTP-only failure (DNS/router/interface all healthy — a captive
+  portal, say) correctly renders as full red since it's the lowest (only)
+  failing layer. Verified against 8 scenarios (all healthy, single-layer
+  failures at different depths, multiple simultaneous failures with
+  correct root-cause selection and dimming, unknown layers correctly not
+  interfering with root-cause detection) before the Internet layer was
+  added; not independently re-verified against the 7-layer version beyond
+  a build/launch check.
 - **Correlation**: `CorrelationService` flags a connectivity failure as
   `correlatedWithChange` when it lands within 90 seconds (either
   direction) of some `NetworkSnapshot.capturedAt` — a coarse
   time-proximity heuristic, not causal proof. `SnapshotStore` computes
   this at write time (only for failures; successes are never flagged) and
-  looks back over the last 50 snapshots. The popover shows correlated
-  failures in orange with a `*`, plain failures in red.
+  looks back over the last 50 snapshots. Only the four Network Health
+  layers backed by a `ConnectivityCheck` (Local Router, Internet, DNS,
+  HTTP) can carry this — Interface/Network/ISP Router aren't derived from
+  one, so `ConnectionLayer.correlatedWithChange` defaults to `false` for
+  them. A correlated, currently-unhealthy layer gets a `*` appended to its
+  detail text (still colored by the existing root-cause/dimming rules,
+  not a separate color), with a footnote below the list — "* possibly
+  related to a recent network change" — shown whenever any layer has one.
 - **Network recognition**: `KnownNetwork` fingerprints a network by its
   gateway's MAC address (not SSID — see "Notes on network identity"
   below), since MAC survives DHCP lease changes and IP/subnet coincidences
@@ -237,9 +287,13 @@ re-prompt for both — expected during development, not a bug.
   same `192.168.1.1`). `NetworkIdentityViewModel.recognize` runs after
   every LAN scan (it needs that scan's ARP data to find the router's MAC),
   looks up or creates the matching `KnownNetwork`, and bumps its
-  `timesSeen`/`lastSeenAt`. The popover shows "New network" vs "Known
-  network (seen N×)" and a text field to give it a friendly label (e.g.
-  "Home") — that label round-trips through `SnapshotStore.setLabel`.
+  `timesSeen`/`lastSeenAt`. The popover shows read-only "New network" vs
+  "Known network (seen N×)" status — there's no in-popover way to enter or
+  change a label anymore (the text field/Edit button were removed
+  entirely). `NetworkIdentityViewModel.setLabel`/`SnapshotStore.setLabel`
+  still exist and still work if a label is set some other way — a label,
+  once set, still shows via the "Info" section's "Network" row — but
+  nothing in the UI currently calls them.
 - **Public IP tracking**: `PublicIPService` asks `api.ipify.org` (a no-auth,
   plain-text "what's my IP" endpoint — there's no way to learn your
   WAN-facing address purely locally, since it's whatever your network's
@@ -248,7 +302,13 @@ re-prompt for both — expected during development, not a bug.
   change (the likeliest moment it'd actually change), and on the popover's
   "Refresh" button. Like `NetworkSnapshot`, `SnapshotStore` only persists a
   `PublicIPRecord` row when the IP actually changed — a change timeline,
-  not a per-check log.
+  not a per-check log. A real change also logs a neutral (not positive or
+  negative — it's information, not a problem or a fix) `publicIPChanged`
+  event with the from/to addresses, except on the very first-ever check
+  (nothing to compare against yet). Verified directly: seeded a fake
+  "previous" IP in the database, let the app fetch the real one on launch,
+  and confirmed both the new `PublicIPRecord` and the correctly-worded
+  event were written.
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as
@@ -257,11 +317,10 @@ re-prompt for both — expected during development, not a bug.
   location permission grant (confirmed directly: even
   `system_profiler SPAirPortDataType`, a command-line tool, redacts the
   SSID without it). `WiFiSSIDViewModel.refresh` runs at launch, after
-  every observed topology change, and on manual "Refresh." The popover's
-  top row shows, in order of preference: your manual label (if you've set
-  one) → the live SSID (if on Wi-Fi and authorized) → the generic
-  interface name. The label text field's placeholder also suggests the
-  live SSID as a starting point instead of "Home" when one's available.
+  every observed topology change, and on manual "Refresh." The "Info"
+  section's top row shows, in order of preference: your manual label (if
+  one is set some other way) → the live SSID (if on Wi-Fi and authorized)
+  → the generic interface name.
 - **Event log**: `AppEventRecord` is a narrow, curated timeline — five bad
   states (`interfaceDown`, `routerUnreachable`, `internetUnreachable`,
   `dnsUnreachable`, `httpUnreachable`), each paired with a recovery
@@ -276,18 +335,32 @@ re-prompt for both — expected during development, not a bug.
   failure at launch, simultaneous router+internet recovery, unrelated LAN
   device change out of scope). `NetworkMonitorViewModel` logs
   `interfaceDown`/`interfaceUp` around the interface having no connection
-  at all — not around ordinary network-to-network switches, which aren't
-  outages and are already visible via network recognition/labeling.
-  `interfaceDown` was previously silently dropped entirely (the old code
-  only handled "now have an interface," never "now have none"), so that
-  transition never appeared in any persisted history until this feature
-  added the missing branch. `ConnectivityViewModel` logs
+  at all. `interfaceDown` was previously silently dropped entirely (the
+  old code only handled "now have an interface," never "now have none"),
+  so that transition never appeared in any persisted history until this
+  feature added the missing branch. A separate `interfaceChanged` (neutral
+  — not a failure or recovery) fires when the *primary* interface itself
+  switches — e.g. an Ethernet/Wi-Fi failover on a Mac with both connected
+  — without ever going through a `nil` gap in between: confirmed this was
+  otherwise invisible on a Mac with Ethernet (macOS's higher-priority
+  interface) and Wi-Fi both enabled, since disabling/re-enabling either
+  one just hands primary status to the other fast enough that
+  `currentInterface` never actually goes nil, so `interfaceDown`/
+  `interfaceUp` never had anything to fire on. Compares
+  `NetworkInterfaceInfo.interfaceName` (the underlying BSD name, e.g.
+  `en0` vs `en1`) specifically, not the full struct equality already used
+  for change detection, so an ordinary IP/subnet change on the *same*
+  interface (a DHCP lease renewal, say) doesn't also fire this.
+  `ConnectivityViewModel` logs
   `routerUnreachable`/`internetUnreachable`/`dnsUnreachable`/
   `httpUnreachable`/their recovery counterparts by comparing each check
-  round against the previous one, per-label. Both post through
-  `onEventLogged` callbacks so `EventLogViewModel` can refresh. The popover
-  shows recent events in a fixed-height (~10 rows), scrollable list —
-  recoveries in green, bad states in red — with timestamps.
+  round against the previous one, per-label. `PublicIPViewModel` logs
+  `publicIPChanged` the same way — a real change, not a first-ever
+  reading. All post through `onEventLogged` callbacks so
+  `EventLogViewModel` can refresh. The popover shows recent events in a
+  fixed-height (~10 rows), scrollable list — recoveries in green, bad
+  states in red, `publicIPChanged`/`interfaceChanged` in the default text
+  color (neither is a problem or a fix) — with timestamps.
 - **Overall status (menu bar color)**: `OverallStatus` reduces everything
   down to one at-a-glance signal on the menu bar icon itself — green
   (normal), yellow (marginal), or red (critical) — verified against 10

@@ -17,6 +17,10 @@ final class PublicIPViewModel: ObservableObject {
     /// `NMSApp`), so this doesn't need connectivity-check-level frequency.
     private static let checkInterval: TimeInterval = 300
 
+    /// Fired when an `AppEventRecord` gets logged (public IP changed), so
+    /// the event log view can refresh.
+    var onEventLogged: (() -> Void)?
+
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         currentIP = snapshotStore.latestPublicIP()?.ipAddress
@@ -50,10 +54,20 @@ final class PublicIPViewModel: ObservableObject {
     }
 
     private func apply(_ info: PublicIPInfo) {
+        // Captured before `currentIP` is overwritten below, so the event
+        // message can say what it changed *from*. `nil` on a genuinely
+        // first-ever check (nothing to compare against, so no event) —
+        // handled by the `let previousIP` in the guard below.
+        let previousIP = currentIP
         currentIP = info.ipAddress
         lastCheckedAt = info.checkedAt
         lastError = nil
         isChecking = false
-        snapshotStore.recordPublicIPIfChanged(info)
+
+        let changed = snapshotStore.recordPublicIPIfChanged(info)
+        if changed, let previousIP {
+            snapshotStore.logEvent(.publicIPChanged, message: "Public IP changed from \(previousIP) to \(info.ipAddress)")
+            onEventLogged?()
+        }
     }
 }
