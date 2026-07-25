@@ -6,6 +6,19 @@ public IP, monitors Internet connectivity at every layer from interface
 to HTTP, persists the history, and correlates outages with the changes
 that preceded them.
 
+> **Status: early.** This is a personal project, published so other people
+> can try it — not a finished product. It works against the hardware and
+> network it was developed on; expect rough edges elsewhere. There's no
+> support commitment and no stability guarantee, and because the SwiftData
+> models have no migration path yet, a schema change may mean deleting
+> accumulated history to get the app to start again.
+>
+> **The `v0.1.0` download is ad-hoc signed, so Gatekeeper rejects it**
+> (confirmed with `spctl -a -t install`). It predates the signing setup
+> below. To run it anyway: right-click `NMS.app` → Open, or `xattr -cr`
+> the copy you installed. Releases built with `script/release.sh` are
+> Developer ID-signed and notarized and won't need the workaround.
+
 All four original build-plan steps have a first working version: interface
 monitoring, persistence, LAN discovery, connectivity testing, and
 correlation. Plus two later additions: network recognition/labeling and
