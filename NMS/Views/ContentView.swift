@@ -90,38 +90,11 @@ struct ContentView: View {
 
             infrastructureList
 
-            Divider()
-
-            HStack {
-                Text("LAN Devices")
-                    .font(.headline)
-                Spacer()
-                Button("Scan") {
-                    lanDiscovery.scan()
-                }
-            }
-
-            deviceList
-
-            if let error = lanDiscovery.lastError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-            }
-
-            Divider()
-
-            HStack {
-                Text("Bonjour Devices")
-                    .font(.headline)
-                Spacer()
-                Button("Scan") {
-                    bonjourDiscovery.scan()
-                }
-                .disabled(bonjourDiscovery.isScanning)
-            }
-
-            bonjourDeviceList
+            // LAN Devices and Bonjour Devices sections are hidden — the
+            // popover was too tall for a 13" MacBook screen. The
+            // underlying scans aren't both still running for their own
+            // sake: see `LANDiscoveryViewModel`/`BonjourDiscoveryViewModel`
+            // for what each still feeds now that neither has a UI list.
 
             Divider()
 
@@ -362,7 +335,10 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Same fixed-height pattern as the other lists (see `deviceList`).
+            // Same fixed-height ScrollView pattern used throughout this
+            // popover — `.frame(maxHeight:)` alone can collapse to zero
+            // visible height even with real content in this MenuBarExtra
+            // context (confirmed directly earlier in this app's history).
             .frame(height: 90)
         }
 
@@ -418,61 +394,6 @@ struct ContentView: View {
     private func commitCommunity() {
         snmp.setCommunities(communityDraft)
         isEditingCommunity = false
-    }
-
-    @ViewBuilder
-    private var deviceList: some View {
-        if lanDiscovery.devices.isEmpty {
-            Text(lanDiscovery.lastScanAt == nil ? "Not scanned yet" : "No devices found")
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(lanDiscovery.devices) { device in
-                        row(device.hostname ?? device.ipAddress, device.hostname == nil ? (device.macAddress ?? "—") : device.ipAddress)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            // A fixed (not max) height — as with the event log earlier,
-            // `maxHeight` alone can collapse this ScrollView to zero
-            // visible height in this MenuBarExtra popover even with real
-            // content (confirmed directly: a screenshot showed this
-            // section completely blank while the same devices were
-            // visibly in use elsewhere in the popover, proving the
-            // underlying data wasn't actually empty). Shrunk from 140 to
-            // fit more sections in the popover's limited vertical space.
-            .frame(height: 90)
-        }
-    }
-
-    @ViewBuilder
-    private var bonjourDeviceList: some View {
-        if bonjourDiscovery.devices.isEmpty {
-            Text(bonjourDiscovery.isScanning ? "Scanning…" : (bonjourDiscovery.lastScanAt == nil ? "Not scanned yet" : "No devices found"))
-                .foregroundStyle(.secondary)
-                .font(.system(size: 12))
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(bonjourDiscovery.devices) { device in
-                        HStack {
-                            Text(device.name)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
-                            Text(device.serviceLabel)
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.system(size: 12))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            // Same fixed-height fix as `deviceList` above, also shrunk.
-            .frame(height: 90)
-        }
     }
 
     @ViewBuilder

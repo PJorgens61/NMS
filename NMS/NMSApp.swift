@@ -111,10 +111,14 @@ struct NMSApp: App {
         // than waiting for the next topology change to fire a scan.
         lanDiscovery.scan()
         wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
-        // Bonjour discovery takes a few seconds (unlike the near-instant
-        // ARP scan), but launch is a reasonable one-time cost to have
-        // something to show without waiting for a manual "Scan" click.
-        bonjourDiscovery.scan()
+        // Bonjour Devices no longer has a UI section (see ContentView —
+        // hidden to fit a 13" screen), and its only other consumer,
+        // `SNMPViewModel`'s candidate list, gains nothing from it: Bonjour
+        // only ever finds link-local/same-subnet devices, which the SNMP
+        // sweep already covers directly. Several real seconds of mDNS
+        // scanning for now-redundant data isn't worth it, so this no
+        // longer runs at launch. `bonjourDiscovery`/`BonjourDiscoveryService`
+        // are otherwise untouched if the section comes back later.
     }
 
     /// The at-a-glance severity: interface down and router/internet/DNS/HTTP

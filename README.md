@@ -103,13 +103,28 @@ NMS/
 The popover is arranged top to bottom as: **Network Health**, **Info**
 (the interface/IP/subnet/router/public-IP details — this section used to
 be titled "NMS"), **Events**, **Path to Internet**, **Infrastructure**
-(SNMP devices), **LAN Devices**, **Bonjour Devices**, then Refresh/Quit. There's no separate Connectivity
+(SNMP devices), then Refresh/Quit. There's no separate Connectivity
 section anymore — its raw IP-layer check was folded into Network Health,
 and the rest of what it showed was already covered there too. The
-scrollable lists for Path to Internet, LAN Devices, and Bonjour Devices are
-deliberately short (60/90/90px — Path to Internet sized for ~3 visible
-rows) to leave room for everything else to fit in the popover's limited
-vertical space.
+scrollable list for Path to Internet is deliberately short (60px, ~3
+visible rows) to leave room for everything else to fit in the popover's
+limited vertical space.
+
+**LAN Devices and Bonjour Devices are hidden** (their view code was
+removed, not just collapsed) — even after every other space-saving pass
+in this app's history, the popover was still too tall for a 13" MacBook
+screen. `LANDiscoveryViewModel`'s scan keeps running exactly as before:
+it's cheap (`arp -a`, no network I/O beyond reading the kernel's table)
+and still feeds network recognition (the router-MAC fingerprint) and
+`SNMPViewModel`'s discovery candidates, independent of whether its list
+displays anywhere. `BonjourDiscoveryViewModel`'s launch-time scan, by
+contrast, no longer runs at all: with its UI gone, its only remaining
+consumer was also SNMP candidate-sourcing, but Bonjour only ever finds
+link-local/same-subnet devices — exactly the address space `SNMPService`'s
+own subnet sweep already covers directly — so several real seconds of
+mDNS scanning was buying nothing once it wasn't for display. Neither
+service was deleted, just no longer driven automatically, so either
+section could come back by re-adding its view code.
 
 ## Building a universal (Intel + Apple Silicon) binary
 
@@ -193,11 +208,12 @@ The first time you're on Wi-Fi, macOS will show a system permission
 prompt asking to grant NMS access to Location Services — required to read
 the Wi-Fi network name (SSID), no other purpose in this app. If you
 decline, the popover falls back to the generic interface name instead.
-Separately, the first Bonjour scan will prompt for Local Network access —
-decline and the Bonjour Devices section just stays empty, everything else
-keeps working. Because local Xcode debug builds are ad-hoc signed (no
-stable Developer ID), macOS may treat each rebuild as a "new" app and
-re-prompt for both — expected during development, not a bug.
+Separately, if the Bonjour Devices section is ever re-added and scanning
+resumes, the first scan will prompt for Local Network access — declining
+just leaves that section empty, everything else keeps working. Because
+local Xcode debug builds are ad-hoc signed (no stable Developer ID),
+macOS may treat each rebuild as a "new" app and re-prompt for both —
+expected during development, not a bug.
 
 ## What's implemented
 
@@ -280,10 +296,12 @@ re-prompt for both — expected during development, not a bug.
   concurrently at startup. Confirmed by widening the browse/resolve
   windows (3s/2s → 4s/3s) and re-running the exact same scenario 3
   consecutive times with consistent, complete results afterward. Takes a
-  few seconds total (windows run in parallel across service types), so
-  `BonjourDiscoveryViewModel` only scans once at launch and on the
-  popover's "Scan" button — not tied to every topology change the way the
-  near-instant ARP scan is. Requires the `NSLocalNetworkUsageDescription`
+  few seconds total (windows run in parallel across service types) — not
+  tied to every topology change the way the near-instant ARP scan is, and
+  since the popover's own Bonjour Devices section and "Scan" button were
+  later hidden (see "Running it" above), nothing currently triggers this
+  scan automatically at all; `BonjourDiscoveryViewModel.scan()` still
+  works if called. Requires the `NSLocalNetworkUsageDescription`
   Info.plist key (see below) — without it, discovery silently returns zero
   results, no error, no permission prompt at all (confirmed directly: a
   bare test executable with no Info.plist found nothing on a network with
