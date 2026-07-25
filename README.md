@@ -14,10 +14,13 @@ that preceded them.
 > accumulated history to get the app to start again.
 >
 > **The `v0.1.0` download is ad-hoc signed, so Gatekeeper rejects it**
-> (confirmed with `spctl -a -t install`). It predates the signing setup
-> below. To run it anyway: right-click `NMS.app` → Open, or `xattr -cr`
-> the copy you installed. Releases built with `script/release.sh` are
-> Developer ID-signed and notarized and won't need the workaround.
+> (confirmed with `spctl -a -t install`). To run it anyway: right-click
+> `NMS.app` → Open, or `xattr -cr` the copy you installed.
+> `script/release.sh` (see "Signed and notarized releases" below) would
+> avoid this, but needs a paid Apple Developer Program membership that
+> isn't currently active on either machine this project runs on — so for
+> now, ad-hoc-plus-workaround is the actual distribution path, not a
+> temporary gap this predates.
 
 All four original build-plan steps have a first working version: interface
 monitoring, persistence, LAN discovery, connectivity testing, and
@@ -169,11 +172,13 @@ ditto -c -k --keepParent /path/to/NMS.app ~/Desktop/NMS.zip
 
 Because local builds are ad-hoc signed (no Developer ID), Gatekeeper
 blocks the first launch on another Mac: right-click `NMS.app` → Open, or
-`xattr -cr /Applications/NMS.app` after copying it over. For builds you
-intend to hand to other people, use `script/release.sh` instead and skip
-the warning entirely — see "Signed and notarized releases" below. Note
-also that the SNMP community list lives in `UserDefaults`, so it does
-*not* travel with the app bundle — it has to be set again on each
+`xattr -cr /Applications/NMS.app` after copying it over. `script/release.sh`
+would skip this entirely, but see "Signed and notarized releases" below —
+it currently needs a paid Apple Developer Program membership that isn't
+active on either machine this project runs on, so ad-hoc-plus-workaround
+is the real path for now. Note also that the SNMP community list lives in
+`UserDefaults`, so it does *not* travel with the app bundle — it has to be
+set again on each
 machine.
 
 Requires macOS 14+ (for `SwiftData`; `MenuBarExtra` itself only needs 13+)
@@ -829,6 +834,17 @@ with TTL control), rather than trying to sandbox the `arp`/`ping`/
 `traceroute` shell-outs directly.
 
 ## Signed and notarized releases
+
+> **Not currently usable — requires a paid Apple Developer Program
+> membership ($99/yr).** Both prerequisites below need one; a free Apple ID
+> can't generate a "Developer ID Application" certificate or notarize
+> anything, no matter which Mac you're on. Confirmed directly on both
+> machines actually used for this project: `security find-identity -v -p
+> codesigning` reports `0 valid identities found` on each, and no
+> `NMS-notary` keychain profile exists on either. `script/release.sh` is
+> real, working code — the gap is the Apple account tier, not the script —
+> but until that's resolved, `v0.1.0`-style ad-hoc builds (see the status
+> note at the top of this README) remain the actual distribution path.
 
 `script/release.sh` produces a universal, Developer ID-signed, notarized,
 stapled `NMS.app` plus a `ditto` zip ready to publish. Without this, anyone
