@@ -96,6 +96,53 @@ deliberately short (60/90/90px — Path to Internet sized for ~3 visible
 rows) to leave room for everything else to fit in the popover's limited
 vertical space.
 
+## Building a universal (Intel + Apple Silicon) binary
+
+**In Xcode: Product → Archive.** That's it — the archive product is
+universal (`x86_64 arm64`) with no extra settings. In the Organizer window
+that opens, use Distribute App → Custom → Copy App to export it, or
+right-click the archive → Show in Finder → Show Package Contents →
+`Products/Applications/NMS.app`.
+
+Equivalently, from the command line:
+
+```bash
+cd ~/Developer/NMS && xcodebuild -project NMS.xcodeproj -scheme NMS -configuration Release -archivePath ~/Desktop/NMS.xcarchive archive
+```
+
+**The gotcha worth knowing**: a plain `xcodebuild ... build` (rather than
+`archive`) produces a binary for the *host* architecture only — verified
+directly, an ordinary Release build on an Intel Mac came out x86_64-only
+and would not have run natively on Apple Silicon. This is not a project
+misconfiguration: `-showBuildSettings` correctly reports
+`ARCHS = arm64 x86_64` and `ONLY_ACTIVE_ARCH = NO`, but the destination
+`build` resolves narrows it to the native arch anyway. `archive` doesn't
+do that. If you do want `build` specifically, force it:
+
+```bash
+xcodebuild -project NMS.xcodeproj -scheme NMS -configuration Release ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
+```
+
+Confirm the result either way with `lipo`, which should list both:
+
+```bash
+lipo -info /path/to/NMS.app/Contents/MacOS/NMS
+```
+
+To package it for another Mac, use `ditto` rather than the Finder's
+Compress or a plain `zip` — it preserves the bundle's symlinks and
+extended attributes correctly:
+
+```bash
+ditto -c -k --keepParent /path/to/NMS.app ~/Desktop/NMS.zip
+```
+
+Because local builds are ad-hoc signed (no Developer ID), Gatekeeper
+blocks the first launch on another Mac: right-click `NMS.app` → Open, or
+`xattr -cr /Applications/NMS.app` after copying it over. Note also that
+the SNMP community list lives in `UserDefaults`, so it does *not* travel
+with the app bundle — it has to be set again on each machine.
+
 Requires macOS 14+ (for `SwiftData`; `MenuBarExtra` itself only needs 13+)
 and Xcode 15+.
 
