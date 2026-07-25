@@ -1,0 +1,48 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so newly published queries run against unchanged code.
+    - cron: '27 6 * * 1'
+
+jobs:
+  analyze:
+    name: Analyze Swift
+    # Swift analysis requires a macOS runner with Xcode.
+    runs-on: macos-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+          build-mode: manual
+
+      # Built by target rather than scheme: this project has no shared
+      # scheme in xcshareddata, so `-scheme NMS` is not resolvable in CI.
+      - name: Build
+        run: |
+          xcodebuild build \
+            -project NMS.xcodeproj \
+            -target NMS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:swift"

@@ -785,3 +785,49 @@ instead of true ping latency, but sandbox-safe), `LANDiscoveryService` for
 (there's no sandbox-safe equivalent — it fundamentally needs raw ICMP/UDP
 with TTL control), rather than trying to sandbox the `arp`/`ping`/
 `traceroute` shell-outs directly.
+
+## Network activity and privacy
+
+Nearly everything the app does stays on the local network: `arp -a`,
+Bonjour browsing, SNMP GETs to LAN devices, and ping/traceroute to the
+targets you configure. Persistence is local SwiftData; nothing is uploaded
+anywhere. Two checks do leave your network, both on a timer rather than
+on demand:
+
+- **`https://api.ipify.org`** — public-IP lookup, used to detect WAN
+  address changes. This necessarily reveals your public IP to a third
+  party; review [ipify's terms](https://www.ipify.org/) if that matters to
+  you. `PublicIPService` holds the endpoint in a single constant and is
+  straightforward to repoint at your own service.
+- **`http://captive.apple.com/hotspot-detect.html`** — captive-portal
+  detection, the same endpoint macOS itself uses. Plain HTTP is
+  deliberate: a captive portal is detected precisely by its interception
+  of the response, which TLS would prevent.
+
+SNMP community strings you enter are stored with the app's other
+configuration rather than in the Keychain. That's a deliberate call —
+they're shared, read-only, and usually the well-known default (`public`) —
+but if you use SNMP v2c community strings as a real access control on your
+network, be aware they aren't protected at rest here.
+
+## Contributing
+
+Issues and pull requests are welcome. There's no CLA and no formal style
+guide; matching the surrounding code is enough.
+
+Two workflows run on every push and PR, and weekly on a schedule:
+
+- **CodeQL** (`.github/workflows/codeql.yml`) — static analysis for Swift.
+  Runs on a macOS runner and builds the target directly, since this
+  project has no shared scheme.
+- **gitleaks** (`.github/workflows/gitleaks.yml`) — scans full history for
+  committed secrets. Free for public repositories.
+
+## License
+
+[MIT](LICENSE) © 2026 Paul Jorgensen.
+
+The app has no third-party dependencies — everything it uses is an Apple
+system framework (SwiftUI, SwiftData, Network, CoreLocation) or a standard
+macOS command-line tool invoked at runtime (`ping`, `traceroute`, `arp`,
+`snmpget`). So there are no bundled third-party licenses to comply with.
