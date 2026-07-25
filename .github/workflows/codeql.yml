@@ -1,22 +1,27 @@
 name: CodeQL
 
 on:
-  # Swift analysis takes ~20 minutes on a macOS runner, so skip it for
-  # changes that cannot affect the result. Docs-only commits otherwise burn
-  # two full runs: one for the PR, one for the push on merge.
+  # A run takes ~20 minutes, and measured on this project roughly 17 of
+  # those are a cold, extractor-instrumented Xcode build -- the CodeQL
+  # query evaluation itself is under a minute. So the only lever that
+  # matters is running it less often.
   #
+  # No push trigger: a squash merge onto linear history produces the same
+  # tree the pull_request run already analyzed, so re-running on main
+  # duplicates the full ~20 minutes for an identical result. The tradeoff
+  # is that default-branch alerts in the Security tab come from the weekly
+  # run rather than immediately on merge.
+  #
+  # paths-ignore: markdown cannot change Swift analysis results.
   # Deliberately not applied to gitleaks -- a credential pasted into a
   # README is entirely possible, so that workflow still scans everything.
-  push:
-    branches: [main]
-    paths-ignore: ['**/*.md', 'LICENSE', '.gitignore']
   pull_request:
     branches: [main]
     paths-ignore: ['**/*.md', 'LICENSE', '.gitignore']
   schedule:
-    # Weekly, so newly published queries run against unchanged code.
-    # No paths filter here: this is the safety net that catches anything
-    # the filters above skipped.
+    # No paths filter here: this is the safety net that eventually analyzes
+    # whatever the filter skipped, and runs newly published queries against
+    # code that has not changed.
     - cron: '27 6 * * 1'
 
 jobs:
