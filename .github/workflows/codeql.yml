@@ -1,12 +1,22 @@
 name: CodeQL
 
 on:
+  # Swift analysis takes ~20 minutes on a macOS runner, so skip it for
+  # changes that cannot affect the result. Docs-only commits otherwise burn
+  # two full runs: one for the PR, one for the push on merge.
+  #
+  # Deliberately not applied to gitleaks -- a credential pasted into a
+  # README is entirely possible, so that workflow still scans everything.
   push:
     branches: [main]
+    paths-ignore: ['**/*.md', 'LICENSE', '.gitignore']
   pull_request:
     branches: [main]
+    paths-ignore: ['**/*.md', 'LICENSE', '.gitignore']
   schedule:
     # Weekly, so newly published queries run against unchanged code.
+    # No paths filter here: this is the safety net that catches anything
+    # the filters above skipped.
     - cron: '27 6 * * 1'
 
 jobs:
