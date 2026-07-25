@@ -1,9 +1,10 @@
 # NMS
 
-A menu bar network monitor for macOS homelabs — discovers what's on your
-LAN, finds and monitors your ISP's edge router and public IP, tests
-connectivity at every layer from interface to HTTP, persists the history,
-and correlates outages with the changes that preceded them.
+A macOS menu bar network monitor for small networks and home labs —
+automatically discovers LAN devices, your ISP's edge router, and your
+public IP, monitors Internet connectivity at every layer from interface
+to HTTP, persists the history, and correlates outages with the changes
+that preceded them.
 
 All four original build-plan steps have a first working version: interface
 monitoring, persistence, LAN discovery, connectivity testing, and
