@@ -25,6 +25,12 @@ struct HTTPCheckService {
         // cache makes this a real network round trip every time.
         var request = URLRequest(url: Self.endpoint)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        // Unset, this inherits `URLRequest`'s 60s default — during a real
+        // outage this could block the whole connectivity round for up to a
+        // minute before failing (the same category of bug just found and
+        // fixed in `DNSResolutionService`). 2s matches ping's `-t 2` and
+        // the DNS probe's own timeout.
+        request.timeoutInterval = 2
         let (data, response) = try await URLSession.shared.data(for: request)
         guard
             let http = response as? HTTPURLResponse, http.statusCode == 200,

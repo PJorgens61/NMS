@@ -42,8 +42,29 @@ struct ConnectivityService {
         )
     }
 
+    /// Runs all targets' pings concurrently, not sequentially — with up to
+    /// 5 targets (router, 2 LAN devices, internet, ISP edge router) each
+    /// capable of blocking for the full 2s timeout during a real outage,
+    /// running them one after another could add up to 10s just for pings,
+    /// on top of whatever DNS/HTTP then add after. Concurrently, the whole
+    /// batch is bounded by the single slowest ping (~2s), not their sum.
     func check(targets: [Target]) -> [ConnectivityCheck] {
-        targets.map(check)
+        guard !targets.isEmpty else { return [] }
+        var results = [ConnectivityCheck?](repeating: nil, count: targets.count)
+        let lock = NSLock()
+        let group = DispatchGroup()
+        for (index, target) in targets.enumerated() {
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                let result = self.check(target)
+                lock.lock()
+                results[index] = result
+                lock.unlock()
+                group.leave()
+            }
+        }
+        group.wait()
+        return results.compactMap { $0 }
     }
 
     private static let latencyRegex = try! NSRegularExpression(pattern: #"time=([0-9.]+) ms"#)

@@ -136,6 +136,65 @@ final class SnapshotStore {
         return true
     }
 
+    /// What changed about an SNMP device since the last time it was polled.
+    /// `uptimeTicks` is a 32-bit hundredths-of-a-second counter, so it wraps
+    /// roughly every 497 days — a wrap looks exactly like a restart here and
+    /// will be reported as one. Rare enough (and a 497-day-uptime device
+    /// wrapping is arguably worth surfacing anyway) that it isn't worth
+    /// special-casing.
+    enum SNMPDeviceChange {
+        case firstSeen
+        case unchanged
+        case restarted
+        /// Carries the previous descriptor so the event message can show
+        /// what it changed *from*. `restarted` is whether the uptime also
+        /// reset — a reboot accompanying an upgrade, rather than a
+        /// software change with no restart.
+        case softwareChanged(previousDescr: String, restarted: Bool)
+    }
+
+    /// Upserts the device's current state (one row per device, keyed by IP —
+    /// mirrors `recordNetworkSeen`, not an observation log) and reports what
+    /// changed relative to the previously stored state.
+    @discardableResult
+    func recordSNMPDevice(_ device: SNMPDevice) -> SNMPDeviceChange {
+        let ipAddress = device.ipAddress
+        var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.ipAddress == ipAddress }
+        )
+        descriptor.fetchLimit = 1
+
+        guard let existing = (try? context.fetch(descriptor))?.first else {
+            context.insert(SNMPDeviceRecord(from: device))
+            try? context.save()
+            return .firstSeen
+        }
+
+        let previousDescr = existing.sysDescr
+        let previousTicks = existing.uptimeTicks
+        let restarted = device.uptimeTicks < previousTicks
+        let softwareChanged = device.sysDescr != previousDescr
+
+        existing.sysDescr = device.sysDescr
+        existing.sysName = device.sysName
+        existing.uptimeTicks = device.uptimeTicks
+        existing.lastSeenAt = device.polledAt
+        try? context.save()
+
+        if softwareChanged {
+            return .softwareChanged(previousDescr: previousDescr, restarted: restarted)
+        }
+        return restarted ? .restarted : .unchanged
+    }
+
+    func fetchSNMPDevices(limit: Int = 100) -> [SNMPDeviceRecord] {
+        var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+            sortBy: [SortDescriptor(\.lastSeenAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     @discardableResult
     func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date()) -> AppEventRecord {
         let event = AppEventRecord(kind: kind, message: message, occurredAt: date)

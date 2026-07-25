@@ -41,7 +41,9 @@ NMS/
 │   │   ├── TracerouteHop.swift            # One hop's value type (+ RFC1918 classification)
 │   │   ├── ProviderEdgeRecord.swift       # SwiftData model, persisted ISP edge router history
 │   │   ├── BonjourDevice.swift            # Bonjour-discovered device value type
-│   │   └── BonjourDeviceRecord.swift      # SwiftData model, persisted per-snapshot Bonjour list
+│   │   ├── BonjourDeviceRecord.swift      # SwiftData model, persisted per-snapshot Bonjour list
+│   │   ├── SNMPDevice.swift               # SNMP-discovered infrastructure device value type
+│   │   └── SNMPDeviceRecord.swift         # SwiftData model, current state per SNMP device
 │   ├── Services/
 │   │   ├── SystemConfigurationService.swift  # Reads/observes network state
 │   │   ├── SnapshotStore.swift            # Reads/writes all persisted history
@@ -52,6 +54,8 @@ NMS/
 │   │   ├── LocationAuthorizationService.swift  # Requests Core Location auth (for SSID)
 │   │   ├── WiFiSSIDService.swift          # Reads current Wi-Fi SSID via CoreWLAN
 │   │   ├── IPClassifier.swift             # RFC 1918 private-address classification
+│   │   ├── SubnetCalculator.swift         # IPv4 subnet host enumeration (with a size guard)
+│   │   ├── SNMPService.swift              # SNMP GET/sweep via /usr/bin/snmpget
 │   │   ├── TracerouteService.swift        # Walks the path via `/usr/sbin/traceroute`
 │   │   ├── DNSResolutionService.swift      # Resolves a hostname via `getaddrinfo`
 │   │   ├── HTTPCheckService.swift         # Real HTTP fetch via Apple's captive-portal probe
@@ -66,7 +70,8 @@ NMS/
 │   │   ├── WiFiSSIDViewModel.swift        # Bridges WiFiSSIDService -> SwiftUI
 │   │   ├── EventLogViewModel.swift        # Fetches/exposes the event log
 │   │   ├── TracerouteViewModel.swift      # Bridges TracerouteService -> SwiftUI
-│   │   └── BonjourDiscoveryViewModel.swift  # Bridges BonjourDiscoveryService -> SwiftUI
+│   │   ├── BonjourDiscoveryViewModel.swift  # Bridges BonjourDiscoveryService -> SwiftUI
+│   │   └── SNMPViewModel.swift            # SNMP discovery, polling, restart/upgrade events
 │   └── Views/
 │       └── ContentView.swift              # Menu bar popover UI
 ├── NMSTests/                              # Default template test target (unused so far)
@@ -82,8 +87,8 @@ NMS/
 
 The popover is arranged top to bottom as: **Network Health**, **Info**
 (the interface/IP/subnet/router/public-IP details — this section used to
-be titled "NMS"), **Events**, **Path to Internet**, **LAN Devices**,
-**Bonjour Devices**, then Refresh/Quit. There's no separate Connectivity
+be titled "NMS"), **Events**, **Path to Internet**, **Infrastructure**
+(SNMP devices), **LAN Devices**, **Bonjour Devices**, then Refresh/Quit. There's no separate Connectivity
 section anymore — its raw IP-layer check was folded into Network Health,
 and the rest of what it showed was already covered there too. The
 scrollable lists for Path to Internet, LAN Devices, and Bonjour Devices are
@@ -218,39 +223,150 @@ re-prompt for both — expected during development, not a bug.
   on sandboxing" below for the tradeoff this implies). Three layers of "is
   the internet actually usable" are checked independently, since each can
   fail while the others still work: **IP** (the existing ping to `1.1.1.1`),
-  **DNS** (`DNSResolutionService` resolves `apple.com` via the POSIX
-  `getaddrinfo` call — a real system-resolver lookup, isolated from any
-  other network I/O), and **HTTP** (`HTTPCheckService` fetches Apple's own
-  captive-portal probe, `http://captive.apple.com/hotspot-detect.html` —
-  deliberately plain HTTP, not HTTPS, since captive portals intercept port
-  80 to inject their redirect — and checks for its known 200/"Success"
-  response). All three verified directly: real DNS resolution of
-  `apple.com`, a real captive-portal-probe fetch, both against actual
-  network traffic, both succeeding with real latency numbers.
+  **DNS** (`DNSResolutionService.probe()`, via the POSIX `getaddrinfo`
+  call — a real system-resolver lookup, isolated from any other network
+  I/O), and **HTTP** (`HTTPCheckService` fetches Apple's own captive-portal
+  probe, `http://captive.apple.com/hotspot-detect.html` — deliberately
+  plain HTTP, not HTTPS, since captive portals intercept port 80 to inject
+  their redirect — and checks for its known 200/"Success" response). All
+  three verified directly: real DNS resolution, a real captive-portal-probe
+  fetch, both against actual network traffic, both succeeding with real
+  latency numbers.
+
+  **DNS check caching bug, found and fixed**: the original version resolved
+  a fixed hostname (`apple.com`) and treated success as "reachable" — but
+  macOS's system resolver caches successful answers for their record's
+  TTL, so once `apple.com` had resolved once, later calls could be served
+  entirely from that cache with zero actual network traffic. Confirmed
+  directly: disabling an upstream switch (between the local router and the
+  ISP) didn't make this check report unreachable at all, since `apple.com`
+  had already resolved and cached before the outage started — the same
+  category of bug as the HTTP cache issue above, one layer down in DNS
+  instead. Unlike HTTP, there's no simple "bypass cache" flag for
+  `getaddrinfo`. The fix: `probe()` queries a *freshly randomized*
+  subdomain of `apple.com` every call (e.g. `nms-check-<random>.apple.com`)
+  and treats the resulting `EAI_NONAME` — a genuine NXDOMAIN-equivalent —
+  as success, not failure. A label that's never been queried before can't
+  possibly be served from a prior cache entry (a cache can only serve a
+  hit for an exact name it's already seen), so this forces a real round
+  trip every time; the negative answer itself is proof resolution reached
+  real authority and got a definitive response. `EAI_AGAIN` (returned when
+  no DNS server could be reached at all) is still a real failure. One
+  wrong turn along the way, corrected before landing: RFC 2606's
+  reserved-for-failure TLDs (`.invalid`, `.test`, `.example`) seemed like a
+  cleaner base domain at first, since they're guaranteed to never resolve
+  — but measured directly, macOS's resolver short-circuits those locally
+  in ~1-2ms with no real network round trip at all, which would report
+  "reachable" identically whether the network was actually up or down. A
+  real, ordinary domain's nonexistent random subdomain measured ~5ms in
+  the same test, consistent with an actual round trip to real DNS
+  infrastructure — confirming an ordinary domain, not a reserved TLD, is
+  the right base.
+
+  Randomizing the label alone still wasn't enough: a real upstream-outage
+  test showed `getaddrinfo` blocking for ~30s (retrying across configured
+  resolvers internally) and *still* ultimately returning `EAI_NONAME` at
+  the end — reported as "reachable" with an implausible ~30000ms latency,
+  not the failure this exists to catch. `probe()` now races the call
+  against an explicit 2s timeout (`getaddrinfo` has no native
+  cancellation, so the underlying call is simply left to finish on its own
+  in the background and its result discarded) and treats not finishing in
+  time as failure regardless of what `getaddrinfo` eventually decides —
+  the same principle as `ping`'s own `-t 2`, applied here explicitly since
+  `getaddrinfo` doesn't bound itself the same way. The same 30s-style gap
+  existed for the HTTP check too, just less visibly: an unset
+  `URLRequest.timeoutInterval` defaults to 60s, so `HTTPCheckService` could
+  have blocked for up to a minute during a real outage before failing —
+  fixed the same way, an explicit 2s timeout. And `ConnectivityService
+  .check(targets:)` ran pings sequentially (`targets.map(check)`) — with
+  up to 5 targets (router, 2 LAN devices, internet, ISP edge router) each
+  capable of blocking for their own full 2s timeout, that could add up to
+  10s just for pings alone. Now runs them concurrently via `DispatchGroup`,
+  bounding the whole batch to the single slowest ping (~2s) instead of
+  their sum. All three together matter because of how `runChecks()` is
+  structured: it only calls `apply()` — the point where results actually
+  reach the UI — once *all* of a round's checks finish, so one slow check
+  used to silently stall the whole round (confirmed directly: the same
+  upstream-outage test showed the popover not updating at all — not just
+  DNS's status, everything's — until a manual "Refresh" click, since
+  ISP-edge-router and internet had almost certainly already finished
+  correctly but stayed unapplied, queued up behind the ~30s DNS call).
+
+  **A second, subtler variant of the same bug class**, found testing the
+  interface fully down (not just an upstream outage) rather than assuming
+  the earlier fixes covered every case: with zero interfaces up at all,
+  the randomized-label DNS probe still returned "success" — `EAI_NONAME`
+  in ~1ms, the same code used elsewhere in this app as proof of a genuine
+  round trip, but ~1ms is implausibly fast for one (matches the earlier
+  `.invalid`-TLD measurement, not the ~5ms real-round-trip one). With no
+  interface at all, `getaddrinfo` apparently takes some local shortcut and
+  still returns the same "success" code — not a real answer, but
+  indistinguishable from one by return code alone. Rather than chase
+  another return-code-based heuristic, `ConnectivityViewModel.runChecks()`
+  now checks `networkMonitor.currentInterface` *before* attempting
+  Internet/DNS/HTTP/ISP-edge-router at all: with no interface,
+  `SCDynamicStore` (see `SystemConfigurationService`) already gives
+  definitive ground truth that none of them can possibly be reachable, so
+  there's nothing to gain — and, confirmed directly, real risk — in asking
+  the network layer to confirm what's already known. All four are marked
+  unreachable immediately instead, skipping the underlying checks (and
+  their OS-shortcut risk) entirely.
+
+  This surfaced one more inconsistency worth fixing at the same time: in
+  `ContentView.connectionLayersLowToHigh`, Network and Local Router used to
+  fall back to `.unknown` (gray, "not evaluated") whenever there was no
+  interface — but that's not genuine uncertainty the way it is when, say,
+  a connectivity round just hasn't run yet. With Interface itself already
+  down, Network and Local Router being down too is a certain consequence,
+  not an open question, so they now report `.unhealthy` in that specific
+  case (still `.unknown` otherwise, e.g. before the first check completes)
+  and correctly join the existing root-cause dimming — Interface renders
+  full red as the actual root cause, everything above it (now including
+  Network and Local Router) renders dimmed red as a consequence, instead
+  of an inconsistent mix of red/gray/(previously, buggy green) that read
+  as unrelated rather than cascading from one cause.
   `ConnectivityViewModel` runs a round of checks every 30s — router, up to
-  2 currently-known LAN devices, IP, DNS, HTTP — plus once at launch and
-  immediately on every observed topology change (`NMSApp`'s
-  `onChangePersisted`), rather than leaving Network Health's router/
-  internet/DNS/HTTP layers showing stale status for up to 30s after an
-  interface comes back up or fails over to a different one. Ping
-  and DNS resolution block for up to a couple of seconds each, so they run
-  on a background queue; the HTTP fetch is genuinely async and doesn't
-  need that. Checks aren't tied to a `NetworkSnapshot` by relationship —
-  correlation (below) matches them up by comparing timestamps instead.
-  There's no dedicated Connectivity section in the popover anymore (see
-  "Network Health" below) — these checks still run on the same schedule.
-  The LAN device pings still aren't surfaced anywhere in the UI (there's
-  no layer for them in Network Health), but the `correlatedWithChange` `*`
-  flag is — it moved to the Network Health rows instead.
+  2 currently-known LAN devices, IP, DNS, HTTP, and (once a hop is
+  confirmed — see "Path to internet" below) the ISP edge router itself —
+  plus once at launch and immediately on every observed topology change
+  (`NMSApp`'s `onChangePersisted`), rather than leaving Network Health's
+  router/internet/DNS/HTTP/ISP-edge-router layers showing stale status for
+  up to 30s after an interface comes back up or fails over to a different
+  one. The 30s cadence itself is reactive, not fixed: whenever any of
+  those five currently has an unhealthy result, the *next* round is
+  scheduled 5s later instead of 30s, so Network Health catches a recovery
+  (or confirms it's still down) much sooner during an actual outage — it
+  drops back to the 30s cadence once everything's healthy again. Scoped to
+  just those five checks (`OverallStatus.criticalLabels`), not the LAN
+  device ones also in the same round, so a single sleeping/offline LAN
+  device (not a real outage) can't pin polling to the fast interval
+  indefinitely. Implemented as a one-shot `Timer` that reschedules itself
+  after every round (replacing a fixed repeating one), since the delay
+  before the next round now depends on the result of the round that just
+  finished. Ping and DNS resolution block for up to a couple of seconds
+  each, so they run on a background queue; the HTTP fetch is genuinely
+  async and doesn't need that. Checks aren't tied to a `NetworkSnapshot`
+  by relationship — correlation (below) matches them up by comparing
+  timestamps instead. There's no dedicated Connectivity section in the
+  popover anymore (see "Network Health" below) — these checks still run
+  on the same schedule. The LAN device pings still aren't surfaced
+  anywhere in the UI (there's no layer for them in Network Health), but
+  the `correlatedWithChange` `*` flag is — it moved to the Network Health
+  rows instead.
 - **Network Health (layered hierarchy view)**: `ConnectionLayer` models
   "is the internet actually working" as a dependency chain, ordered low
   (most fundamental) to high (most dependent on everything below it):
-  Interface → Network (SSID/Ethernet) → Local Router → ISP Router →
+  Interface → Network (SSID/Ethernet) → Local Router → ISP Edge Router →
   Internet → DNS → HTTP. The raw IP-layer check (ping to `1.1.1.1`) used
   to only appear in the separate Connectivity list; it's now folded in
-  here as its own layer between ISP Router and DNS, and the standalone
+  here as its own layer between ISP Edge Router and DNS, and the standalone
   Connectivity section was removed from the popover since Network Health
-  already covered everything else it showed. Each layer is `.healthy`,
+  already covered everything else it showed. The ISP Edge Router row
+  reports a ping round-trip time now, not a re-trace's resolved hostname —
+  every other row already reported timing, the hostname is still visible
+  in the Path to Internet section, and (see "Path to internet" below)
+  ongoing health of that hop is `ConnectivityViewModel`'s job now, not
+  `TracerouteViewModel`'s. Each layer is `.healthy`,
   `.unhealthy`, or `.unknown` (not a failure — e.g. the ISP router hop
   hasn't been confirmed yet, or Wi-Fi's SSID couldn't be read).
   `ContentView.rootCauseLayerID` scans low-to-high for the *first*
@@ -274,7 +390,7 @@ re-prompt for both — expected during development, not a bug.
   this at write time (only for failures; successes are never flagged) and
   looks back over the last 50 snapshots. Only the four Network Health
   layers backed by a `ConnectivityCheck` (Local Router, Internet, DNS,
-  HTTP) can carry this — Interface/Network/ISP Router aren't derived from
+  HTTP) can carry this — Interface/Network/ISP Edge Router aren't derived from
   one, so `ConnectionLayer.correlatedWithChange` defaults to `false` for
   them. A correlated, currently-unhealthy layer gets a `*` appended to its
   detail text (still colored by the existing root-cause/dimming rules,
@@ -361,15 +477,136 @@ re-prompt for both — expected during development, not a bug.
   fixed-height (~10 rows), scrollable list — recoveries in green, bad
   states in red, `publicIPChanged`/`interfaceChanged` in the default text
   color (neither is a problem or a fix) — with timestamps.
+- **SNMP infrastructure discovery**: SNMP devices are, almost by
+  definition, the managed infrastructure whose failure explains the
+  outages the rest of this app tracks — switches, APs, routers, printers,
+  UPSes. `SNMPService` shells out to `/usr/bin/snmpget`: macOS bundles
+  net-snmp, so this needs no third-party dependency and no hand-rolled
+  ASN.1/UDP, the same free ride already taken with `ping`/`arp`/
+  `traceroute`. Three OIDs are fetched in one GET — `sysDescr.0` (model
+  *and* running software version, e.g. "Alta Route10 1.5b"), `sysName.0`
+  (configured hostname), and `sysUpTime.0` (restart detection).
+
+  Three things were measured against the real tool before any code was
+  written, rather than assumed. **The default timeout is ~6s per
+  unresponsive host** (1s × 5 retries) — unusable across a 254-host sweep,
+  and exactly the class of unbounded-timeout bug that had already bitten
+  this app three separate times (DNS, HTTP, sequential pings); `-t 1 -r 1`
+  brings it to ~2s. **`-Oqvt` is the parse-friendly output format**:
+  values only, no OID or type prefix, and TimeTicks as a raw integer
+  (`287237340`) instead of `"33 days, 5:52:37.22"` — essential, since
+  restart detection is a numeric comparison. **Failure semantics are
+  clean**: exit 0 with values one-per-line in requested order, or exit 1
+  with empty stdout and the error on stderr.
+
+  **Discovery and monitoring are deliberately separate**, the same split
+  applied to traceroute (see "Path to internet"), but here it's three
+  tiers rather than two. *Discovery* (`scan()`) sweeps the local subnet
+  plus every address the app already knows — gateway, ARP entries,
+  Bonjour IPs, and private traceroute hops (routers by definition, and
+  possibly on a different subnet than ours, so the sweep alone would miss
+  them). *Reachability* is a plain ping on the existing fast/reactive
+  5s/30s connectivity cadence — SNMP responders replaced the old
+  "first 2 arbitrary ARP entries" as ping targets, which is a strict
+  improvement: a managed switch going quiet is a real event, a random
+  laptop from the ARP cache going to sleep is not. That also finally gives
+  those pings a reason to exist in the UI, having been write-only before.
+  *SNMP data* (`poll()`, 60s) re-queries only known responders for uptime
+  and descriptor changes.
+
+  **`sysUpTime` and `sysDescr` are more useful together than separately**,
+  which is what the event logic keys on: uptime going *backwards* means a
+  restart, `sysDescr` changing means the software changed, and the two
+  *together* mean a reboot that followed an upgrade — explained, rather
+  than mysterious. So a bare restart logs `snmpDeviceRestarted` (negative,
+  red — the genuinely unplanned case), while a restart accompanying a
+  descriptor change logs `snmpDeviceSoftwareChanged` (neutral) with a
+  "restarted after software change: <old> → <new>" message. Deliberately
+  no "device discovered" event: the first sweep would log one per device
+  and flood a 10-row event list with things that aren't changes.
+
+  **Sweep safety.** `SubnetCalculator` refuses to enumerate anything
+  larger than 512 hosts (`maxSweepHosts`), so a /24 (254) and /23 (510)
+  sweep but a /22 or /16 returns `nil` and falls back to known addresses
+  only — at ~2s per silent host, nobody wants to start a 65,534-host
+  sweep by accident. Verified against 17 cases including the /16 and /22
+  refusals, /30 /31 /32 edges, network/broadcast exclusion, and
+  top-of-range (255.255.255.254) overflow. Probes run concurrently
+  bounded by a semaphore at 32 — a ceiling on forked processes, not just
+  traffic. Measured on a real /24: **253 hosts in 2.5s**, far faster than
+  the ~16s worst case, because most hosts reject the UDP packet
+  immediately rather than timing out silently.
+
+  **Community strings (plural).** SNMP v1/v2c authenticates with a
+  community string; `public` is the near-universal read-only default.
+  Real networks routinely mix vendors or eras of gear using different
+  strings, so this takes an *ordered list* rather than a single value —
+  entered comma-separated in the popover, stored in `UserDefaults`
+  (alongside the monitored-hop setting), with the pre-existing
+  single-string key read once on upgrade so an old setting carries over.
+
+  Order is meaningful and worth getting right: strings are tried in
+  sequence, so every one ahead of the correct one costs a full ~2s
+  timeout on a silent host, and on a device that *is* listening but
+  rejects it, typically leaves an `authenticationFailure` entry in that
+  device's own log. Which is why **the string a device actually answered
+  on is remembered per device** (`SNMPDevice.community`, persisted on
+  `SNMPDeviceRecord`): only *discovery* tries the whole list, since which
+  one works is exactly what's unknown then. The 60s re-poll queries each
+  known device on its own string alone — measured at **0.12s versus 2.2s**
+  when a wrong string would otherwise be tried first, and, more
+  importantly, generating no recurring auth-failure noise on someone
+  else's console.
+
+  These are deliberately *not* treated as Keychain-grade secrets: they're
+  shared read-only passwords, usually the well-known default, and putting
+  them in the Keychain would imply a confidentiality guarantee SNMPv2c
+  itself doesn't provide — the string crosses the wire in cleartext on
+  every query. Changing the list discards the current device list, since
+  devices found under the old strings may not answer under the new ones.
+  Duplicates and blanks are dropped; an empty input falls back to the
+  default rather than leaving nothing to try. SNMPv3 (real auth/privacy)
+  is not supported.
+
+  Multi-community behavior verified against a real device: correct string
+  alone succeeds; a wrong string *first* still finds the device and
+  records the winner (not the failure); an all-wrong list correctly
+  returns nothing rather than a false positive; and a two-string /24
+  discovery sweep took 4.8s against 2.5s for one string, as expected.
+
+  **Not auto-run at launch.** Unlike Bonjour, discovery is manual — a full
+  sweep during startup, alongside the LAN scan, Bonjour discovery,
+  traceroute, connectivity checks and location auth, is precisely the
+  launch-time contention that already produced an intermittent
+  empty-results bug in Bonjour. Instead, previously-found devices are
+  rehydrated from SwiftData at init, so they display, poll, and get pinged
+  immediately, while the sweep itself waits for the "Scan" button.
+
+  **Dependency risk worth knowing**: the bundled net-snmp is 5.6.2.1
+  (~2011) and Apple hasn't updated it in over a decade — it has been
+  deprecation-listed for a while. `SNMPService.isAvailable` checks for the
+  binary so the feature degrades to a clear "snmpget unavailable on this
+  macOS version" message rather than silently breaking if a future macOS
+  drops it. This is a higher removal risk than `arp`/`ping`/`traceroute`.
+
+  **Verified on a real network**: the sweep found the gateway (an Alta
+  Route10 running 1.5b, 33 days uptime) with `sysDescr`, `sysName` and
+  raw uptime ticks all parsed correctly. Only that one device answered on
+  the network tested — other hosts either have SNMP disabled (a common
+  default) or use a non-default community. Restart and software-change
+  event generation is logic-verified but has *not* been observed against a
+  real device reboot or firmware upgrade yet.
 - **Overall status (menu bar color)**: `OverallStatus` reduces everything
   down to one at-a-glance signal on the menu bar icon itself — green
   (normal), yellow (marginal), or red (critical) — verified against 10
   severity scenarios (interface down overriding everything, each of
   router/IP/DNS/HTTP failing alone, a LAN device failing alone, and
-  critical+marginal failing together). **Critical** (red): the interface
-  is down, or router/IP/DNS/HTTP is unreachable — these mean the network
-  is actually broken. **Marginal** (yellow): a monitored LAN device (not
-  the router) is unreachable — worth noting, not itself a real problem.
+  critical+marginal failing together; predates the ISP edge router ping
+  joining `criticalLabels`, not independently re-verified since). **Critical**
+  (red): the interface is down, or router/IP/DNS/HTTP/ISP-edge-router is
+  unreachable — these mean the network is actually broken. **Marginal**
+  (yellow): a monitored LAN device (not the router) is unreachable —
+  worth noting, not itself a real problem.
   **Normal** (green): everything else. `NMSApp` computes this from
   `networkMonitor.currentInterface` and `connectivity.checks`. Getting the
   color to actually show up took a second pass: a plain SwiftUI `Image`
@@ -413,11 +650,40 @@ re-prompt for both — expected during development, not a bug.
   `TracerouteViewModel` runs at launch, after every observed topology
   change (the path can change along with the network), every 10 minutes
   (traceroute is much heavier than a ping or HTTP lookup — up to 20 hops,
-  each potentially waiting out a timeout — so it runs far less often), and
-  on the popover's "Trace Now" button. The popover shows the confirmed (or
-  suggested) edge router plus the hop list — local hops greyed out, the
-  confirmed hop in blue, unresponsive hops shown as "no response." Once a
-  hop is confirmed, `ContentView.displayedHops` hides everything beyond
+  each potentially waiting out a timeout — so it runs far less often than
+  connectivity checks), and on the popover's "Trace Now" button. **This
+  view model is deliberately discovery-only** — finding the path and
+  letting you confirm which hop is the ISP edge — not ongoing health
+  monitoring of that hop. Re-running a full multi-hop trace on a fast
+  cadence just to check whether one already-known address still responds
+  turned out to be both slow and the wrong tool for the job (see
+  "Connectivity testing" above): actual monitoring of the confirmed hop is
+  a plain ping, run by `ConnectivityViewModel` on the same fast/reactive
+  cadence as router/internet/DNS/HTTP (`OverallStatus.peRouterLabel`;
+  failures/recoveries log `peRouterUnreachable`/`peRouterReachable`
+  events, same as the other three). `ContentView`'s star-button handler
+  calls `connectivity.runChecks()` right after confirming or clearing a
+  hop, so the new ping target takes effect immediately rather than waiting
+  up to 30s. This split was prompted by a real gap: disabling an
+  *upstream* switch (between the local router and the ISP, not the Mac's
+  own interface) doesn't change the Mac's interface/IP/router at all, so
+  `onChangePersisted` above never fires for it, and re-tracing only every
+  10 minutes made that kind of outage slow to notice. `ConnectivityViewModel
+  .onInternetUnreachable` fires specifically when the raw IP check (ping
+  to `1.1.1.1`) transitions to unreachable — not router/DNS/HTTP, and not
+  recoveries — and `NMSApp` wires that straight to an immediate
+  `traceroute.run()`, since a real path change (not just the same hop
+  going quiet) still needs a fresh trace to detect, and that's the
+  earliest signal something broke upstream. Once a hop is confirmed, the
+  Path to
+  Internet section just shows a "Stop monitoring hop N" button plus the hop
+  list (local hops greyed out, the confirmed hop in blue, unresponsive hops
+  shown as "no response") — it used to also show a separate "ISP Edge
+  Router: <hostname>" summary row above that, but that was purely
+  redundant with the same hop's starred row right below it in the list,
+  so it was cut as a spare line. Before confirmation (just a suggestion),
+  the equivalent summary row is still shown, since there's no starred row
+  yet to fall back on. `ContentView.displayedHops` hides everything beyond
   it — hops further toward the actual destination (e.g. `1.1.1.1`) aren't
   relevant to "the path to my ISP" once you've told the app which one that
   is. Before confirmation, the full path still shows, since you need to

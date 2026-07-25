@@ -25,11 +25,12 @@ enum OverallStatus {
     static let internetLabel = "Internet"
     static let dnsLabel = "DNS"
     static let httpLabel = "HTTP"
+    static let peRouterLabel = "ISP Edge Router"
 
     /// Labels whose failure means the network is actually broken (red), as
     /// opposed to a lesser/marginal problem (yellow) — anything else (e.g.
     /// a monitored LAN device) isn't in this set.
-    static let criticalLabels: Set<String> = [routerLabel, internetLabel, dnsLabel, httpLabel]
+    static let criticalLabels: Set<String> = [routerLabel, internetLabel, dnsLabel, httpLabel, peRouterLabel]
 
     /// `interfaceIsDown` overrides everything else — no interface means
     /// nothing else can be meaningfully checked anyway.

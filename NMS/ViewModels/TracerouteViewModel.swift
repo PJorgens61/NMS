@@ -18,7 +18,14 @@ final class TracerouteViewModel: ObservableObject {
     private static let target = "1.1.1.1"
     // Traceroute is much heavier than a ping or an HTTP lookup (up to 20
     // hops, each potentially waiting out a timeout), so this runs far less
-    // often than connectivity checks or public-IP lookups.
+    // often than connectivity checks or public-IP lookups. This view model
+    // is purely discovery now — finding the path and letting you confirm
+    // which hop is the ISP edge — not ongoing health monitoring of that
+    // hop, which `ConnectivityViewModel` does by ping on its own much
+    // faster/reactive cadence (see `OverallStatus.peRouterLabel`). That
+    // split is deliberate: re-running a full multi-hop trace just to check
+    // whether one already-known address still responds was both slow and
+    // the wrong tool for the job.
     private static let runInterval: TimeInterval = 600
     private static let monitoredHopDefaultsKey = "NMS.monitoredHopNumber"
 

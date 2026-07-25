@@ -18,23 +18,40 @@ enum AppEventKind: String, Codable {
     case dnsReachable
     case httpUnreachable
     case httpReachable
+    case peRouterUnreachable
+    case peRouterReachable
     case publicIPChanged
+    case infrastructureUnreachable
+    case infrastructureReachable
+    /// An SNMP device's uptime counter went *backwards* — it restarted.
+    /// Logged only when nothing explains it (see
+    /// `snmpDeviceSoftwareChanged`), so this is the genuinely unplanned
+    /// case worth alarming about.
+    case snmpDeviceRestarted
+    /// An SNMP device's `sysDescr` changed, meaning its software/firmware
+    /// version did. Also covers a restart that happened *together* with
+    /// such a change — a reboot that follows an upgrade is explained, not
+    /// mysterious, so it's deliberately not the alarming
+    /// `snmpDeviceRestarted`.
+    case snmpDeviceSoftwareChanged
 
     enum Polarity {
         case positive, negative, neutral
     }
 
     /// Recoveries render as positive (green), bad states as negative (red);
-    /// a public IP change or an interface failover is neither — it's just
-    /// information, not a problem or a fix — so both render neutral. See
-    /// `ContentView.eventColor`.
+    /// a public IP change, an interface failover, or an SNMP device's
+    /// software changing is neither — it's just information, not a problem
+    /// or a fix — so those render neutral. See `ContentView.eventColor`.
     var polarity: Polarity {
         switch self {
-        case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable:
+        case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
+             .infrastructureReachable:
             return .positive
-        case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable:
+        case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
+             .infrastructureUnreachable, .snmpDeviceRestarted:
             return .negative
-        case .publicIPChanged, .interfaceChanged:
+        case .publicIPChanged, .interfaceChanged, .snmpDeviceSoftwareChanged:
             return .neutral
         }
     }

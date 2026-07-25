@@ -54,10 +54,11 @@ final class PublicIPViewModel: ObservableObject {
     }
 
     private func apply(_ info: PublicIPInfo) {
-        // Captured before `currentIP` is overwritten below, so the event
-        // message can say what it changed *from*. `nil` on a genuinely
-        // first-ever check (nothing to compare against, so no event) —
-        // handled by the `let previousIP` in the guard below.
+        // Captured before `currentIP` is overwritten below — `nil` means
+        // this is a genuinely first-ever check (nothing to compare
+        // against yet, so no event), handled by the `let previousIP` guard
+        // below. Only used as an existence check now; the message itself
+        // only reports the new value, not the old one, to keep it short.
         let previousIP = currentIP
         currentIP = info.ipAddress
         lastCheckedAt = info.checkedAt
@@ -65,8 +66,8 @@ final class PublicIPViewModel: ObservableObject {
         isChecking = false
 
         let changed = snapshotStore.recordPublicIPIfChanged(info)
-        if changed, let previousIP {
-            snapshotStore.logEvent(.publicIPChanged, message: "Public IP changed from \(previousIP) to \(info.ipAddress)")
+        if changed, previousIP != nil {
+            snapshotStore.logEvent(.publicIPChanged, message: "Public IP changed to \(info.ipAddress)")
             onEventLogged?()
         }
     }

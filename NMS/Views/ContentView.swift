@@ -10,9 +10,13 @@ struct ContentView: View {
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
     @ObservedObject var bonjourDiscovery: BonjourDiscoveryViewModel
+    @ObservedObject var snmp: SNMPViewModel
+
+    @State private var communityDraft: String = ""
+    @State private var isEditingCommunity = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Network Health")
                 .font(.headline)
 
@@ -24,7 +28,7 @@ struct ContentView: View {
                 .font(.headline)
 
             if let info = viewModel.currentInterface {
-                Group {
+                VStack(alignment: .leading, spacing: 2) {
                     if let label = networkIdentity.currentNetwork?.label, !label.isEmpty {
                         row("Network", label)
                     } else if let ssid = wifiSSID.currentSSID {
@@ -75,6 +79,20 @@ struct ContentView: View {
             Divider()
 
             HStack {
+                Text("Infrastructure")
+                    .font(.headline)
+                Spacer()
+                Button(snmp.isScanning ? "Scanning…" : "Scan") {
+                    snmp.scan()
+                }
+                .disabled(snmp.isScanning || !snmp.isAvailable)
+            }
+
+            infrastructureList
+
+            Divider()
+
+            HStack {
                 Text("LAN Devices")
                     .font(.headline)
                 Spacer()
@@ -120,7 +138,15 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        .frame(width: 280)
+        // Event messages no longer carry IP/DNS targets, so the widest one
+        // is now "Interface changed from <name> to <name>" — measured at
+        // ~305pt of text (e.g. "Thunderbolt Ethernet" to "Wi-Fi") plus 24pt
+        // padding. Unlike the old IP-based messages this isn't a hard
+        // bound (interface display names are user-renameable in System
+        // Settings), so this covers the realistic case, not every
+        // possible one — event text still has `.lineLimit(1)` truncation
+        // as a fallback for anything longer.
+        .frame(width: 335)
     }
 
     /// The label-entry input is hidden entirely now — this is read-only
@@ -168,29 +194,52 @@ struct ContentView: View {
                 networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Wi-Fi (SSID unknown)", status: .unknown)
             }
         } else {
-            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "—", status: .unknown)
+            // Not genuine uncertainty — with no interface at all, Network
+            // is *definitely* down too, not merely unevaluated. `.unknown`
+            // here used to read as "not checked" when it should cascade
+            // from the Interface root cause like every other layer above
+            // it does.
+            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "—", status: .unhealthy)
         }
 
         let routerCheck = connectivity.checks.first { $0.label == OverallStatus.routerLabel }
-        let localRouterLayer = ConnectionLayer(
-            id: "localRouter",
-            label: "Local Router",
-            detail: routerCheck.map(checkDetail) ?? "Not checked",
-            status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-            correlatedWithChange: routerCheck?.correlatedWithChange ?? false
-        )
-
-        let peRouterLayer: ConnectionLayer
-        if let hop = traceroute.monitoredHop {
-            if hop.address != nil {
-                peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Router", detail: hopLabel(for: hop), status: .healthy)
-            } else {
-                peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Router", detail: "no response", status: .unhealthy)
-            }
+        let localRouterLayer: ConnectionLayer
+        if info == nil {
+            // Same reasoning as Network above: no interface means no
+            // router address was ever known to check, but that's a
+            // certain consequence of the root cause, not genuine
+            // uncertainty — cascade as unhealthy instead of `.unknown`.
+            localRouterLayer = ConnectionLayer(id: "localRouter", label: "Local Router", detail: "—", status: .unhealthy)
         } else {
+            localRouterLayer = ConnectionLayer(
+                id: "localRouter",
+                label: "Local Router",
+                detail: routerCheck.map(checkDetail) ?? "Not checked",
+                status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: routerCheck?.correlatedWithChange ?? false
+            )
+        }
+
+        // Discovery (which hop is the ISP edge) and monitoring (is it still
+        // reachable) are deliberately separate: `TracerouteViewModel` only
+        // owns confirming *which* hop this is; `ConnectivityViewModel`
+        // pings that hop's address on the same fast/reactive cadence as
+        // Router/Internet/DNS/HTTP, so this reads like every other layer
+        // here (a response time, not a re-trace's resolved hostname).
+        let peRouterLayer: ConnectionLayer
+        if traceroute.monitoredHop == nil {
             // Not a failure — you haven't confirmed which traceroute hop is
             // the ISP's edge yet (see the Path to Internet section).
-            peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Router", detail: "Not confirmed", status: .unknown)
+            peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Edge Router", detail: "Not confirmed", status: .unknown)
+        } else {
+            let peRouterCheck = connectivity.checks.first { $0.label == OverallStatus.peRouterLabel }
+            peRouterLayer = ConnectionLayer(
+                id: "peRouter",
+                label: "ISP Edge Router",
+                detail: peRouterCheck.map(checkDetail) ?? "Not checked",
+                status: peRouterCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: peRouterCheck?.correlatedWithChange ?? false
+            )
         }
 
         let internetCheck = connectivity.checks.first { $0.label == OverallStatus.internetLabel }
@@ -233,7 +282,7 @@ struct ContentView: View {
     @ViewBuilder
     private var connectionHealthSection: some View {
         let layers = connectionLayersLowToHigh
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(layers.reversed()) { layer in
                 HStack {
                     Circle()
@@ -274,6 +323,103 @@ struct ContentView: View {
         check.success ? String(format: "%.0f ms", check.latencyMs ?? 0) : "unreachable"
     }
 
+    /// SNMP-discovered infrastructure: each row is name + software
+    /// descriptor + uptime, since those are what identify the device and
+    /// reveal a restart. Reachability isn't shown here — these devices are
+    /// ping-monitored via `ConnectivityViewModel`, and a failure surfaces
+    /// as an Events entry rather than a second status column.
+    @ViewBuilder
+    private var infrastructureList: some View {
+        if !snmp.isAvailable {
+            Text("snmpget unavailable on this macOS version")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else if snmp.devices.isEmpty {
+            Text(snmp.isScanning ? "Sweeping subnet…" : (snmp.lastScanAt == nil ? "Not scanned yet" : "No SNMP devices found"))
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(snmp.devices) { device in
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack {
+                                Text(device.displayName)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer()
+                                Text(device.uptimeDescription)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.system(size: 12))
+                            Text(device.sysDescr)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Same fixed-height pattern as the other lists (see `deviceList`).
+            .frame(height: 90)
+        }
+
+        if let error = snmp.lastError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
+        }
+
+        communityRow
+    }
+
+    /// Community strings are shared read-only passwords, not per-user
+    /// secrets, and "public" is the near-universal default — so they're
+    /// editable inline rather than hidden behind a settings window this app
+    /// doesn't have. Comma-separated, and the order shown is the order
+    /// they're tried in.
+    @ViewBuilder
+    private var communityRow: some View {
+        if isEditingCommunity {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    TextField("public, private", text: $communityDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                        .onSubmit { commitCommunity() }
+                    Button("Set") { commitCommunity() }
+                        .font(.system(size: 11))
+                }
+                Text("Comma-separated, tried in order — put the most common first.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+        } else if snmp.isAvailable {
+            HStack {
+                Text("Community: \(snmp.communities.joined(separator: ", "))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("Change") {
+                    communityDraft = snmp.communities.joined(separator: ", ")
+                    isEditingCommunity = true
+                }
+                .font(.system(size: 10))
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func commitCommunity() {
+        snmp.setCommunities(communityDraft)
+        isEditingCommunity = false
+    }
+
     @ViewBuilder
     private var deviceList: some View {
         if lanDiscovery.devices.isEmpty {
@@ -282,7 +428,7 @@ struct ContentView: View {
                 .font(.system(size: 12))
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(lanDiscovery.devices) { device in
                         row(device.hostname ?? device.ipAddress, device.hostname == nil ? (device.macAddress ?? "—") : device.ipAddress)
                     }
@@ -309,7 +455,7 @@ struct ContentView: View {
                 .font(.system(size: 12))
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(bonjourDiscovery.devices) { device in
                         HStack {
                             Text(device.name)
@@ -335,15 +481,18 @@ struct ContentView: View {
             Text("No events yet")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-                .frame(height: 300, alignment: .top)
+                .frame(height: 170, alignment: .top)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(eventLog.events) { event in
-                        VStack(alignment: .leading, spacing: 1) {
+                        HStack {
                             Text(event.message)
                                 .font(.system(size: 12))
                                 .foregroundStyle(eventColor(for: event))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
                             Text(event.occurredAt, format: .dateTime.month().day().hour().minute())
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
@@ -355,16 +504,25 @@ struct ContentView: View {
             // A fixed (not max) height — `maxHeight` alone lets the
             // ScrollView shrink to fit however few rows currently exist,
             // which is why a single event looked identical to before.
-            .frame(height: 300)
+            // Message and timestamp now share one row instead of two, so
+            // this is sized for ~10 single-line rows, not ~10 two-line ones.
+            .frame(height: 170)
         }
     }
 
     @ViewBuilder
     private var tracerouteSection: some View {
         if let monitored = traceroute.monitoredHop {
-            row("ISP Edge Router", monitored.hostname ?? monitored.address ?? "—")
+            // No summary row here for the monitored hop's name/address —
+            // that's already shown in Network Health above (as a response
+            // time, not a name) and in the starred row in the hops list
+            // below, so a third copy was just a spare line.
             Button("Stop monitoring hop \(monitored.hopNumber)") {
                 traceroute.monitorHop(nil)
+                // Drops the ISP Edge Router ping target on the next round —
+                // check right away instead of leaving Network Health
+                // showing its last (now stale) status for up to 30s.
+                connectivity.runChecks()
             }
             .font(.system(size: 11))
         } else if let suggested = traceroute.suggestedEdgeHop {
@@ -389,38 +547,55 @@ struct ContentView: View {
         }
 
         if !traceroute.hops.isEmpty {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(displayedHops) { hop in
-                        HStack {
-                            Text("\(hop.hopNumber)")
-                                .foregroundStyle(.secondary)
-                                .frame(width: 16, alignment: .trailing)
-                            Text(hopLabel(for: hop))
-                                .foregroundStyle(hopColor(for: hop))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
-                            Text(hopRTT(for: hop))
-                                .foregroundStyle(.secondary)
-                            Button {
-                                let isMonitored = traceroute.monitoredHopNumber == hop.hopNumber
-                                traceroute.monitorHop(isMonitored ? nil : hop.hopNumber)
-                            } label: {
-                                Image(systemName: traceroute.monitoredHopNumber == hop.hopNumber ? "star.fill" : "star")
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(hop.address == nil)
-                        }
-                        .font(.system(size: 11))
+            // A fixed-height ScrollView only earns its keep when there are
+            // actually more rows than fit — with a confirmed hop (the
+            // common case), `displayedHops` is usually just 1-2 entries,
+            // and a `.frame(height: 60)` sized for the worst case (3+ rows,
+            // before confirmation) left visible blank space below them. A
+            // plain VStack sizes to exactly what's there instead.
+            if displayedHops.count > 3 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        hopRows
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 60)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    hopRows
+                }
             }
-            // Sized for ~3 visible rows at this font size/row spacing —
-            // just enough to see a few hops without scrolling for the
-            // common case.
-            .frame(height: 60)
+        }
+    }
+
+    @ViewBuilder
+    private var hopRows: some View {
+        ForEach(displayedHops) { hop in
+            HStack {
+                Text("\(hop.hopNumber)")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, alignment: .trailing)
+                Text(hopLabel(for: hop))
+                    .foregroundStyle(hopColor(for: hop))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(hopRTT(for: hop))
+                    .foregroundStyle(.secondary)
+                Button {
+                    let isMonitored = traceroute.monitoredHopNumber == hop.hopNumber
+                    traceroute.monitorHop(isMonitored ? nil : hop.hopNumber)
+                    // New/changed ISP Edge Router ping target — check right
+                    // away instead of waiting up to 30s for the next round.
+                    connectivity.runChecks()
+                } label: {
+                    Image(systemName: traceroute.monitoredHopNumber == hop.hopNumber ? "star.fill" : "star")
+                }
+                .buttonStyle(.plain)
+                .disabled(hop.address == nil)
+            }
+            .font(.system(size: 11))
         }
     }
 
@@ -472,6 +647,8 @@ struct ContentView: View {
             Spacer()
             Text(value)
                 .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .font(.system(size: 12))
     }

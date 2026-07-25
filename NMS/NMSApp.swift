@@ -22,6 +22,7 @@ struct NMSApp: App {
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
     @StateObject private var bonjourDiscovery: BonjourDiscoveryViewModel
+    @StateObject private var snmp: SNMPViewModel
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -42,7 +43,17 @@ struct NMSApp: App {
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let bonjourDiscovery = BonjourDiscoveryViewModel(snapshotStore: store)
-        let connectivity = ConnectivityViewModel(networkMonitor: networkMonitor, lanDiscovery: lanDiscovery, snapshotStore: store)
+        let connectivity = ConnectivityViewModel(networkMonitor: networkMonitor, lanDiscovery: lanDiscovery, traceroute: traceroute, snapshotStore: store)
+        let snmp = SNMPViewModel(
+            snapshotStore: store,
+            networkMonitor: networkMonitor,
+            lanDiscovery: lanDiscovery,
+            bonjourDiscovery: bonjourDiscovery,
+            traceroute: traceroute
+        )
+        // Two-phase: `SNMPViewModel` needs view models built alongside
+        // `connectivity`, so the back-reference is injected once both exist.
+        connectivity.attach(snmp: snmp)
         // Tie a LAN scan to every observed topology change, not just the
         // manual "Scan" button.
         networkMonitor.onChangePersisted = { snapshot in
@@ -71,6 +82,14 @@ struct NMSApp: App {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
         publicIP.onEventLogged = { eventLog.refresh() }
+        snmp.onEventLogged = { eventLog.refresh() }
+        // An upstream failure (e.g. a switch between the local router and
+        // the ISP) doesn't touch the Mac's own interface/IP/router, so
+        // `onChangePersisted` above never fires for it — the raw IP check
+        // failing is the earliest signal something's wrong upstream, so
+        // re-trace immediately instead of waiting on traceroute's own
+        // (much slower) schedule to notice.
+        connectivity.onInternetUnreachable = { traceroute.run() }
         // Recognizing the current network depends on the router's MAC,
         // which only comes from a LAN scan — so identity recognition rides
         // along with every scan, automatic or manual.
@@ -86,6 +105,7 @@ struct NMSApp: App {
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
         _bonjourDiscovery = StateObject(wrappedValue: bonjourDiscovery)
+        _snmp = StateObject(wrappedValue: snmp)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
@@ -115,7 +135,8 @@ struct NMSApp: App {
                 wifiSSID: wifiSSID,
                 eventLog: eventLog,
                 traceroute: traceroute,
-                bonjourDiscovery: bonjourDiscovery
+                bonjourDiscovery: bonjourDiscovery,
+                snmp: snmp
             )
         } label: {
             Image(nsImage: Self.statusIcon(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color))
@@ -158,7 +179,8 @@ struct NMSApp: App {
             PublicIPRecord.self,
             AppEventRecord.self,
             ProviderEdgeRecord.self,
-            BonjourDeviceRecord.self
+            BonjourDeviceRecord.self,
+            SNMPDeviceRecord.self
         ])
         do {
             return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema)])
