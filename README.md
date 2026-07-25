@@ -139,15 +139,24 @@ ditto -c -k --keepParent /path/to/NMS.app ~/Desktop/NMS.zip
 
 Because local builds are ad-hoc signed (no Developer ID), Gatekeeper
 blocks the first launch on another Mac: right-click `NMS.app` → Open, or
-`xattr -cr /Applications/NMS.app` after copying it over. Note also that
-the SNMP community list lives in `UserDefaults`, so it does *not* travel
-with the app bundle — it has to be set again on each machine.
+`xattr -cr /Applications/NMS.app` after copying it over. For builds you
+intend to hand to other people, use `script/release.sh` instead and skip
+the warning entirely — see "Signed and notarized releases" below. Note
+also that the SNMP community list lives in `UserDefaults`, so it does
+*not* travel with the app bundle — it has to be set again on each
+machine.
 
 Requires macOS 14+ (for `SwiftData`; `MenuBarExtra` itself only needs 13+)
 and Xcode 15+.
 
-**Three non-default project settings, all load-bearing — don't "fix" them
+**Four non-default project settings, all load-bearing — don't "fix" them
 back to template defaults:**
+- `ENABLE_HARDENED_RUNTIME = YES` (target build settings, Release only).
+  Required for notarization — Apple rejects submissions without it. Left
+  off for Debug, where it interferes with SwiftUI Previews and the
+  debugger. It does not restrict this app's subprocess spawning: `ping`,
+  `traceroute`, `arp`, and `snmpget` are all signed system binaries, so
+  no additional entitlements are needed.
 - `ENABLE_APP_SANDBOX = NO` (target build settings). The template defaults
   to sandboxed. This app shells out to `/sbin/ping` and `/usr/sbin/arp`
   (see "Notes on sandboxing"), which App Sandbox blocks outright — leaving
@@ -785,6 +794,59 @@ instead of true ping latency, but sandbox-safe), `LANDiscoveryService` for
 (there's no sandbox-safe equivalent — it fundamentally needs raw ICMP/UDP
 with TTL control), rather than trying to sandbox the `arp`/`ping`/
 `traceroute` shell-outs directly.
+
+## Signed and notarized releases
+
+`script/release.sh` produces a universal, Developer ID-signed, notarized,
+stapled `NMS.app` plus a `ditto` zip ready to publish. Without this, anyone
+you hand a build to hits a Gatekeeper block on first launch — which is a
+particularly bad first impression for an unsandboxed tool that scans their
+network.
+
+Two one-time prerequisites, both local to your machine; **neither is stored
+in this repository**, and the script references only the keychain profile
+*name*, never a secret.
+
+**1. A "Developer ID Application" certificate.** Xcode → Settings →
+Accounts → select your team → Manage Certificates… → **+** → *Developer ID
+Application*. Confirm with:
+
+```bash
+security find-identity -v -p codesigning
+```
+
+**2. Notarization credentials in a keychain profile.** An App Store Connect
+API key is preferable to an app-specific password — it's scoped and
+revocable. Generate one at App Store Connect → Users and Access →
+Integrations → Keys, then:
+
+```bash
+xcrun notarytool store-credentials "NMS-notary" --key ~/private_keys/AuthKey_XXXXXXXX.p8 --key-id XXXXXXXX --issuer XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+```
+
+Then, for each release:
+
+```bash
+./script/release.sh
+```
+
+It checks both prerequisites before starting, since a missing certificate
+otherwise surfaces as an opaque `xcodebuild` failure several minutes into
+the archive. Then it archives universal, exports signed, submits to Apple
+and waits, staples the ticket, and verifies the result three ways —
+`codesign --verify`, `spctl -a -t install` (what Gatekeeper will actually
+do on someone else's Mac), and `stapler validate`. Notarization typically
+takes a few minutes.
+
+`NOTARY_PROFILE`, `TEAM_ID`, and `BUILD_DIR` can be overridden by
+environment variable; the Team ID is otherwise read from the installed
+certificate.
+
+Note that the stapled ticket is written into the bundle, so the zip has to
+be rebuilt *after* stapling — the archive submitted to Apple doesn't
+contain the ticket. The script handles this, but it's an easy step to miss
+when doing it by hand, and the symptom (Gatekeeper still complains, but
+only when offline) is confusing.
 
 ## Network activity and privacy
 
