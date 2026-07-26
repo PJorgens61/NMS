@@ -356,3 +356,117 @@ is an open UX question.
   is the button label enough?
 - Is a cancel affordance worth building given the up-to-45s worst case, or
   is letting it run to completion (or the `-M` cap) acceptable?
+
+## Latency history sparklines
+
+Unlike DHCP and Network Quality, this one starts from good news: **the
+data already exists.** `ConnectivityCheckRecord` isn't a change-log like
+`PublicIPRecord` — it already persists every check's `latencyMs` on every
+cycle (~30s, faster when unhealthy), for exactly the five layers that
+produce a real ping/probe: `OverallStatus.routerLabel`, `.internetLabel`,
+`.dnsLabel`, `.httpLabel`, `.peRouterLabel`. Interface and Network (the
+other two Network Health rows) don't have a latency concept — they're
+connectivity/identity state, not a ping target — so this covers 5 of the 7
+rows, not all of them. This means the feature is purely a new query plus
+new UI: no new `Process` shell-out, no new SwiftData model, no new
+`AppEventKind` cases — it's a read-side visualization of a signal the app
+is already collecting and already logging events for.
+
+### Where it fits
+
+Confirmed by reading `ContentView`: each Network Health row is already
+backed by a `ConnectionLayer` (`id`, `label`, `detail`, `status`), and
+`detail` currently holds a plain string (the SSID name, "Not confirmed,"
+etc.). A sparkline slots in right next to that existing text — the same
+layer's latency trend, rendered exactly where its status already lives.
+No new section competes for space, which matters given how tight this
+popover already runs.
+
+**Mechanism:** Swift Charts (`import Charts`) isn't used anywhere in this
+codebase yet, but it's first-party, available since macOS 13 (well within
+the app's 14.0 minimum), and a compact axis-less `LineMark` sparkline —
+`.chartXAxis(.hidden)`, `.chartYAxis(.hidden)`, sized to roughly one line
+of text tall — is a few lines, not a new dependency to weigh.
+
+### Data shape and the failure-representation problem
+
+The single detail most worth getting right: a failed check has
+`latencyMs == nil`. Silently treating that as zero, or letting the line
+interpolate straight across a gap, would make an outage visually
+indistinguishable from — or worse, look faster than — a normal fast
+response. Proposed handling: draw the line through successful points only,
+and overlay a small marker (a red dot, consistent with this app's existing
+red-for-failure convention) at each failed check's timestamp, positioned
+at the bottom of the sparkline's range. A viewer should be able to see "the
+router had a bad patch here" at a glance, not have it silently smoothed
+away.
+
+Each layer needs its **own independent Y-scale** — DNS probe latency
+(single-digit ms) and internet ping latency (tens of ms) are different
+enough that a single shared axis across layers would flatten the faster
+ones into an apparently static line. Swift Charts auto-scales per chart
+instance by default, so this falls out naturally as long as each layer
+renders its own separate `Chart`, not one combined multi-series chart
+sharing an axis.
+
+### Fetching — the naive approach is a real trap here
+
+Given the unbounded-growth finding from the Network Quality section above
+applies directly to this table too: **do not** fetch every
+`ConnectivityCheckRecord` for a label and slice the last N in Swift — that
+cost grows with the table's entire lifetime, not with what's actually
+displayed. The fetch needs a `FetchDescriptor` with the label predicate,
+`sortBy: [SortDescriptor(\.checkedAt, order: .reverse)]`, and an explicit
+`fetchLimit` — keeping the query cost bounded to roughly the requested
+point count regardless of how many months of history the table is
+carrying.
+
+### Persisted history vs. in-memory buffer
+
+Two real options, worth deciding rather than assuming:
+
+- **Query `SnapshotStore` for the last N records per layer.** Genuine
+  history that survives an app relaunch — matches "tracking... over time"
+  more literally. Needs the bounded-fetch discipline above.
+- **In-memory rolling buffer in `ConnectivityViewModel`** — append the
+  latency it already has in hand right after each `runChecks()` cycle to a
+  small capped array per layer. Zero new queries, zero interaction with
+  the large table at all. Trade-off: resets to empty on every relaunch, so
+  it's "history since the app started this session," not real persisted
+  history.
+
+Leaning toward the persisted version given how the feature was framed, but
+the in-memory version is a legitimate, much simpler fallback if
+across-restart history isn't actually the point.
+
+**Refresh timing:** the popover is closed most of the time, so refreshing
+sparkline data on every 30s background cycle regardless of visibility
+would be wasted work. Fetching on-demand — via `.task` when the relevant
+row actually appears — fits this app's "closed by default, glanced at
+occasionally" usage better than maintaining a continuously-updated chart
+buffer nobody's looking at.
+
+### A recurring theme, not a new problem
+
+This is the third design in this document to run into the same underlying
+gap: `SnapshotStore` has no retention or pruning logic anywhere, for any
+table. Network Quality's history depends on it, this feature's fetch
+performance depends on it staying reasonably bounded, and neither one
+*causes* the growth — they're read-only consumers of a pre-existing
+condition. Worth fixing on its own terms at some point rather than
+per-feature, but not something this particular feature is blocked on: a
+`fetchLimit`-bounded query stays cheap regardless of total table size, it
+just means the table itself keeps growing on disk in the background
+either way.
+
+### Open questions before implementing
+
+- Persisted (survives relaunch, needs the bounded-fetch discipline) vs.
+  in-memory rolling buffer (simpler, resets on relaunch) — which matches
+  the actual intent here?
+- Point count / time window — untested default guess: ~20–30 points
+  (roughly 10–15 minutes at the normal cadence), not exposed as a setting
+  for v1.
+- Does the recurring "no retention policy anywhere" theme deserve its own
+  entry in this document, independent of any one feature that happens to
+  depend on it?
