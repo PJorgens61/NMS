@@ -526,8 +526,26 @@ expected during development, not a bug.
   SSID-to-location databases, so there's no way to read this without a
   location permission grant (confirmed directly: even
   `system_profiler SPAirPortDataType`, a command-line tool, redacts the
-  SSID without it). `WiFiSSIDViewModel.refresh` runs at launch, after
-  every observed topology change, and on manual "Refresh." The "Info"
+  SSID without it). **Real bug, found and fixed**: the permission dialog
+  could fail to appear at all — not denied, genuinely never shown, leaving
+  `authorizationStatus` stuck at `.notDetermined` forever with no user
+  action to recover from. Root cause: this app runs with `.accessory`
+  activation policy (no Dock icon, never the foreground app) and requested
+  authorization synchronously from `NMSApp.init()`, before AppKit's shared
+  application instance was fully spun up — confirmed directly, an early
+  fix attempt that called the bare `NSApp` global at that point crashed
+  with a nil-unwrap. TCC permission prompts for a background/agent app
+  that's never been foregrounded can fail to surface at all, which reads
+  identically to "no prompt happened" from the user's side — worth knowing
+  since it's easy to mistake for the (different, already-handled) case of
+  the user actually clicking "Don't Allow." Fixed by dispatching to the
+  next run-loop turn and calling `NSApplication.shared.activate(
+  ignoringOtherApps: true)` (the lazy singleton, not the possibly-nil
+  `NSApp` global) immediately before `requestWhenInUseAuthorization()`.
+  Verified end-to-end on real hardware: prompt appeared, Allow was
+  clicked, SSID resolved correctly afterward. `WiFiSSIDViewModel.refresh`
+  runs at launch, after every observed topology change, and on manual
+  "Refresh." The "Info"
   section's top row shows, in order of preference: your manual label (if
   one is set some other way) → the live SSID (if on Wi-Fi and authorized)
   → the generic interface name.
