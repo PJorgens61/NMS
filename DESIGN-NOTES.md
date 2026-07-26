@@ -241,3 +241,118 @@ labels, so they're closer to self-explanatory already.
   self-explanatory ones (layer labels, status colors) and expand later?
 - Tone/length convention for the tooltip text itself — one terse sentence,
   and don't just restate the visible label back at the user.
+
+## Network Quality (speed / responsiveness) testing, on demand
+
+Apple ships `/usr/bin/networkQuality` (confirmed present on this machine)
+— the same test behind Settings → Network Quality Test. It measures
+throughput (Mbps up/down) and, more interestingly, **responsiveness under
+load**: RPM (round-trips-per-minute while the link is saturated), which is
+essentially a bufferbloat measurement. This is a genuinely different kind
+of signal from anything else in the app — every existing check tests
+reachability and idle latency of small packets; this tests capacity and
+behavior under stress.
+
+### Why this doesn't fit the existing change-log pattern
+
+`PublicIPRecord` and the proposed `DHCPLeaseRecord` are both change-logs —
+a row only gets written when something is actually different from last
+time. This doesn't fit that shape: every on-demand run is an intentional,
+standalone data point the user wants to compare against past runs ("was it
+worse last Tuesday during the call?"). It needs a genuine time series —
+every run gets a row, no dedup logic — which makes it architecturally
+distinct from every other persisted table in the app so far.
+
+### Proposed design
+
+- **`NetworkQualityService`** — shells out to
+  `/usr/bin/networkQuality -c -s -M 45 -I <interface>`:
+  - `-c` for JSON output. Confirmed via the man page: clean, documented
+    schema — `dl_throughput`, `ul_throughput`, `dl_responsiveness`,
+    `ul_responsiveness`, `base_rtt`, `interface_name`, plus handshake
+    timing breakdowns.
+  - `-M 45` as a safety cap, so a bad link doesn't leave the UI spinning
+    indefinitely.
+  - `-I <interface>` bound to whatever `NetworkMonitorViewModel
+    .currentInterface` currently is, so on a multi-homed Mac the test
+    measures the interface NMS is actually tracking, not whatever the OS's
+    default route happens to pick.
+  - `-s` (sequential rather than parallel up/down) is a real, worth-
+    flagging tradeoff: the man page states `dl_responsiveness` /
+    `ul_responsiveness` are **only emitted in sequential mode**. Parallel
+    is faster but throughput-only; sequential is slower but captures the
+    RPM/bufferbloat metric — the genuinely novel signal here. Leaning
+    toward `-s` by default, since a user pressing "Run Speed Test" is
+    already choosing to wait.
+  - Availability guard mirroring `SNMPService.isAvailable` — this is an
+    Apple-bundled tool, not a guaranteed-forever syscall.
+- **`NetworkQualityResult`** (value type) — `downloadMbps`, `uploadMbps`,
+  `downloadResponsivenessRPM: Int?`, `uploadResponsivenessRPM: Int?`,
+  `baseRTTMs`, `interfaceName`, `testedAt`. RPM fields optional in case a
+  run ever falls back to parallel mode.
+- **`NetworkQualityRecord`** (SwiftData model) — same fields, persisted
+  unconditionally per run via
+  `SnapshotStore.recordNetworkQualityResult(_:)` — deliberately not
+  "IfChanged" like the other record types, since every run is wanted.
+- **`NetworkQualityViewModel`** — no timer, on purpose. Unlike every other
+  view model in this app, this one has zero automatic trigger. `func run()`
+  is the only entry point, called from a button press, dispatched to a
+  background queue the same way `ConnectivityService`/`SNMPService`'s
+  callers already do. This must never be added to `NMSApp.init()`'s
+  launch-time kicks — the whole point is that it costs real bandwidth, so
+  it must never run without the user asking. Worth a `cancel()` too,
+  backed by `Process.terminate()` on the running subprocess: a 45-second
+  worst case is long enough that "I didn't mean to start that" is a real
+  scenario, unlike every other check in this app, which finishes in under
+  a couple seconds.
+
+### The dependency worth knowing about
+
+"Record for historical comparison" runs straight into something already
+flagged as unbuilt: the README's own "Suggested next steps" #1 is a
+history view, and right now there's no timeline UI for *any* persisted
+table — not `PublicIPRecord`, not `NetworkSnapshot`, nothing. Persisting
+`NetworkQualityRecord` is easy; showing "how does today compare to last
+week" is not, without that view existing.
+
+Two ways to handle it:
+- **Minimal MVP now** — a small inline "recent runs" list in the popover
+  (last 5–10, mirroring `Path to Internet`'s already-established short-
+  scrollable-list pattern), giving *some* historical comparison without
+  waiting on the bigger feature.
+- **Defer full comparison** to whenever the general history view gets
+  built, and this becomes just one more table it reads from.
+
+Leaning toward the minimal inline list — cheap, fits existing popover
+idioms, doesn't block on unrelated work — but this is a real scope
+decision, not something to assume.
+
+### UI placement
+
+A new row, probably near "Path to Internet" — current result (down/up
+Mbps, RPM if present) plus a "Run" button, mirroring the SNMP/LAN "Scan"
+button precedent already in the popover. One more thing competing for
+vertical space, same constraint as the tooltips section above.
+
+### Data usage
+
+`networkQuality`'s own man page states plainly: *"This tool will connect
+to the Internet to perform its tests. This will use data on your Internet
+service plan."* Every existing check in NMS is deliberately near-zero-cost
+so it can run continuously in the background (a ping, a single DNS query,
+a small HTTP fetch); this one does a real upload+download saturation test.
+That's exactly why it's on-demand-only rather than timer-driven — but
+whether the button itself needs a first-run confirmation/warning, or
+whether the "Run Speed Test" label is self-explanatory enough on its own,
+is an open UX question.
+
+### Open questions before implementing
+
+- `-s` (sequential, gets RPM, slower) vs. default parallel (throughput
+  only, faster) — decide the default, possibly exposed as a toggle.
+- Minimal inline recent-runs list now, or defer historical comparison
+  entirely to the future general history view?
+- Does running the test need any user-facing warning about data usage, or
+  is the button label enough?
+- Is a cancel affordance worth building given the up-to-45s worst case, or
+  is letting it run to completion (or the `-M` cap) acceptable?
