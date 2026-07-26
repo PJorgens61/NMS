@@ -470,3 +470,111 @@ either way.
 - Does the recurring "no retention policy anywhere" theme deserve its own
   entry in this document, independent of any one feature that happens to
   depend on it?
+
+## UI state debug log (for AI-assisted verification)
+
+Different in kind from the other entries here — not a networking
+capability, but a development aid. Claude has no way to screenshot or
+otherwise visually inspect a live macOS app window (unlike, say, an iOS
+Simulator). What Claude does have is full file-system read access. A
+structured, append-only log of every value pushed into the UI would let
+"did this fix work" be answered by reading a file instead of needing eyes
+on the actual window — for anything that's really a *data* question. It
+would **not** catch pure rendering bugs (truncated text, wrong colors, a
+view that doesn't re-render even though its backing data changed
+correctly) — worth being upfront that this substitutes for visual
+inspection only partially, not entirely.
+
+### Deliberately not the existing event log
+
+`AppEventRecord` stays exactly as narrow as its own doc comment already
+insists: "something worth noticing happened," not a catch-all debug log.
+What's being proposed here is the opposite in spirit — every `@Published`
+property update across every view model, not a curated subset worth
+showing a user. These need to stay two separate mechanisms; routing this
+through the existing event log would turn a deliberately narrow,
+user-facing timeline into debug noise.
+
+### Mechanism
+
+Swift allows a property wrapper and a `didSet` observer on the same
+declaration — `@Published var x: T { didSet { ... } }` is valid. That's
+the hook: add `didSet` to each instrumented property, calling into a new
+`UIStateLogger` service (naming mirrors the codebase's existing plain,
+descriptive service names).
+
+**Gating lives in one place, not scattered across call sites.** Rather
+than wrapping every `didSet` in `#if DEBUG` throughout ~10 view models
+(real visual noise for real code, for a debug-only feature), put the
+`#if DEBUG` conditional *inside* `UIStateLogger.log(...)` itself — a
+no-op stub in Release. Call sites stay clean
+(`didSet { UIStateLogger.log(...) }`) and only one place needs the
+compile-time gate. Release builds carry a negligible, inlinable no-op
+call, not a real feature.
+
+**Don't reintroduce a main-thread-blocking pattern doing this** — worth
+naming explicitly given how much of this document's earlier debugging
+(the "not responding" launch hang) turned out to hinge on exactly this
+class of mistake. `@Published` properties in this codebase are set from
+`@MainActor`-isolated code (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`),
+so a `didSet` firing synchronous disk I/O would block the main thread on
+every single UI update. The write itself needs to be dispatched to a
+background queue, fire-and-forget, not executed inline in the observer.
+
+### Format and location
+
+Recommending the simpler of two real options: plain delimited lines
+(`timestamp | ViewModel.property | new value`, using each type's default
+`String(describing:)` output) rather than full JSON Lines. JSON would be
+more structured and more parseable, but requires `Encodable` conformance
+across every logged type (`ConnectivityCheck`, `SNMPDevice`, arrays of
+either, etc.) — real invasiveness for a first cut. Plain lines are still
+entirely grep/diff-friendly, which is the actual requirement, and can be
+upgraded to JSON later if the simple version proves insufficient in
+practice.
+
+**Location:** `~/Library/Logs/NMS/ui-state.log` — the conventional macOS
+location for a per-app log, and a single stable, predictable path rather
+than a new timestamped file per launch, so there's never a "which one is
+current" question. **Truncated at each app launch**, not appended forever
+— this is session-scoped debug tooling, not permanent history, so it
+sidesteps the unbounded-growth question this document keeps running into
+elsewhere by simply not persisting across restarts at all.
+
+### Staged rollout, not everything at once
+
+Mirrors the same "start narrow" approach already used for tooltips.
+Highest-value starting set — the properties most likely to actually be
+the subject of "did my fix change what's displayed":
+
+- `ConnectivityViewModel.checks`
+- `NetworkMonitorViewModel.currentInterface`
+- `WiFiSSIDViewModel.currentSSID`
+- `EventLogViewModel`'s event list
+- `SNMPViewModel.devices`
+
+Lower priority: purely internal state like `isChecking`/`isScanning`
+booleans — useful for confirming an operation started or finished, but
+less central to "what's on screen."
+
+### How this would actually get used
+
+After a code change: rebuild, launch, wait for the relevant cycle, then
+read `~/Library/Logs/NMS/ui-state.log` directly (`cat`, or `tail -f` while
+the app runs) and grep for the property in question — the same shape of
+workflow already used throughout this project's debugging so far (reading
+`ipconfig getpacket`, `lsappinfo`, sampling a hung process's stack trace).
+Not a new category of tool, just the same file-reading approach applied to
+a signal that doesn't currently exist anywhere to read.
+
+### Open questions before implementing
+
+- Instrument every `@Published` property across every view model at once,
+  or roll out the staged candidate list above first and expand only if it
+  proves useful?
+- Plain delimited lines (lower engineering cost, less structured) vs. full
+  JSON Lines (`Encodable` conformance required across more types, more
+  invasive) — confirm the simple version is actually sufficient before
+  building the more structured one.
+- `~/Library/Logs/NMS/` vs. some other location — any reason to prefer
+  somewhere else?
