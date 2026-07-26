@@ -451,7 +451,9 @@ expected during development, not a bug.
   "is the internet actually working" as a dependency chain, ordered low
   (most fundamental) to high (most dependent on everything below it):
   Interface → Network (SSID/Ethernet) → Local Router → ISP Edge Router →
-  Internet → DNS → HTTP. The raw IP-layer check (ping to `1.1.1.1`) used
+  Internet Ping → DNS → HTTP (labeled "Internet Ping" specifically, not
+  just "Internet", to distinguish it from DNS/HTTP as separate internet-
+  reachability layers). The raw IP-layer check (ping to `1.1.1.1`) used
   to only appear in the separate Connectivity list; it's now folded in
   here as its own layer between ISP Edge Router and DNS, and the standalone
   Connectivity section was removed from the popover since Network Health

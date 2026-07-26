@@ -218,7 +218,7 @@ struct ContentView: View {
         let internetCheck = connectivity.checks.first { $0.label == OverallStatus.internetLabel }
         let internetLayer = ConnectionLayer(
             id: "internet",
-            label: "Internet",
+            label: "Internet Ping",
             detail: internetCheck.map(checkDetail) ?? "Not checked",
             status: internetCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
             correlatedWithChange: internetCheck?.correlatedWithChange ?? false
