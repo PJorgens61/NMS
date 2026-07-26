@@ -175,3 +175,69 @@ polarity color, so this is new `switch` cases, not new UI.
 - Poll interval — 5 minutes trades faster failure detection for more
   frequent (though still free) subprocess calls; 15 minutes is cheaper but
   lets Signal 2 lag by up to that long.
+
+## UI tooltips
+
+The popover carries a fair amount of unexplained terminology by now — the
+Network Health layer chain, status colors, the ISP Edge Router concept,
+SNMP fields — and someone in the app's actual target audience ("small
+networks and home labs," per the README) won't necessarily know all of it
+on sight.
+
+**Mechanism:** SwiftUI's `.help(_:)` modifier attaches a native macOS hover
+tooltip to any view, essentially for free — a one-line addition per view,
+no new component to build. Its key property for *this* app specifically:
+zero layout cost. That matters a lot given the popover's whole history is a
+fight for vertical space — LAN Devices and Bonjour Devices were removed
+from the UI outright (not just collapsed) because the popover was still
+too tall for a 13" screen even after every other space-saving pass. Unlike
+an inline caption or legend, a tooltip adds explanatory depth without
+consuming any of that scarce room.
+
+**One thing to verify before writing two dozen tooltips' worth of copy:**
+`.help()`'s behavior inside `MenuBarExtra(.window)`-hosted content is
+untested here, and this project has repeatedly hit quirks specific to that
+popover style (the menu bar icon needed a manual `NSImage` rasterization
+workaround because a plain SwiftUI `Image` silently ignored
+`.foregroundStyle`'s color; see `NMSApp.statusIcon`). `.help()` should work
+the same as in any window, but "should" isn't confirmed for this specific
+non-standard host. Worth a five-minute spike — one tooltip on one view,
+confirmed to render — before investing in wording the rest.
+
+**Content source:** mostly distillation, not fresh authoring. The README
+and code comments already explain most of this well — e.g. the exact
+"Interface → Network (SSID/Ethernet) → Local Router → ISP Edge Router →
+DNS → HTTP" chain, `OverallStatus`'s critical/marginal/normal rules, why
+the ISP edge router is defined as "the first non-RFC1918 traceroute hop."
+Tooltip copy needs to be much shorter than any of that — a sentence, not a
+paragraph — so the job is compressing existing explanations down, not
+inventing new ones.
+
+**Candidate elements** (roughly in order of how non-obvious they are, i.e.
+where to start if doing this incrementally rather than all at once):
+
+- The Network Health layer labels (Interface, Network, Local Router, ISP
+  Edge Router, DNS, HTTP) — what each one actually checks
+- The status colors themselves — what critical/marginal/normal mean, since
+  the rule (interface down or router/internet/DNS/HTTP unreachable is
+  critical; a monitored LAN device down alone is only marginal) isn't
+  obvious just from looking at a colored dot
+- Public IP — what it is and why it might change on its own
+- Path to Internet / ISP Edge Router row — what a traceroute hop
+  represents and why this one specifically is singled out
+- Infrastructure (SNMP) fields — sysDescr/sysName/uptime, and what a
+  "community string" is for anyone who's never touched SNMP before
+- Wi-Fi SSID / recognized network — what "recognized" means here
+
+Event log entries are lower priority for this treatment — they're already
+short, plain-English prose messages (`"Public IP changed to X"`), not bare
+labels, so they're closer to self-explanatory already.
+
+### Open questions before implementing
+
+- Confirm `.help()` actually renders correctly in this popover before
+  committing to writing copy for everything.
+- Do all candidate elements at once, or start with just the least
+  self-explanatory ones (layer labels, status colors) and expand later?
+- Tone/length convention for the tooltip text itself — one terse sentence,
+  and don't just restate the visible label back at the user.
