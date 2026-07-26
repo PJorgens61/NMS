@@ -399,7 +399,15 @@ struct ContentView: View {
     @ViewBuilder
     private var eventList: some View {
         if eventLog.events.isEmpty {
-            Text("No events yet")
+            // Explains *why* it's empty rather than just stating that it
+            // is — a bare "No events yet" on a fresh install (with a
+            // perfectly healthy network) reads as "is this broken?" to a
+            // new user. Deliberately not backfilled with synthetic
+            // "everything came up fine" events instead: this log is meant
+            // to be a trustworthy record of things that actually
+            // happened, and fabricated entries at install would be
+            // indistinguishable from real ones later.
+            Text("No events yet — everything's healthy. Entries appear here when something changes (an outage or a recovery).")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
                 .frame(height: 170, alignment: .top)
