@@ -578,3 +578,86 @@ a signal that doesn't currently exist anywhere to read.
   building the more structured one.
 - `~/Library/Logs/NMS/` vs. some other location — any reason to prefer
   somewhere else?
+
+## IP broadcast for LAN discovery — why it doesn't work, and what does
+
+Prompted by a straightforward question: does IP broadcast still exist, and
+could it detect every device on the LAN? Answer, backed by a live test on
+a real network rather than assumed: broadcast still exists, still works
+mechanically, and is still actively used today (DHCP's `DHCPDISCOVER`
+goes to `255.255.255.255` — the same mechanism underlying the DHCPINFORM
+idea in this document's DHCP section). IPv6, though, removed broadcast
+entirely in favor of multicast, so "does it still exist" already has a
+different answer depending on IP version.
+
+For general host discovery specifically, no — confirmed directly. This
+Mac has `net.inet.icmp.bmcastecho` set to `1` (broadcast ICMP echo replies
+enabled, more permissive than a lot of modern OS defaults), yet a live
+ping to this network's broadcast address (`10.0.0.255`) got exactly one
+replier: the Mac's own IP. Zero replies from anything else actually
+present on the LAN — the router included.
+
+**Why:** the well-documented reason is the Smurf attack — a 1990s DDoS
+technique that spoofs a victim's source IP and pings a network's broadcast
+address, so every host on that network floods the spoofed victim with a
+simultaneous reply, turning one small packet into a massive amplified
+attack. RFC 2644 (1999) formally recommended routers stop forwarding
+directed broadcasts because of this, and most operating systems —
+Windows and Linux especially — ship with broadcast ICMP echo replies
+disabled by default as standard hardening. The devices worth discovering
+are exactly the ones most likely to have it off, regardless of what this
+particular Mac happens to default to.
+
+### The actual answer is already sitting in this project
+
+This isn't a new problem — it's the README's own "Suggested next steps"
+#3, arrived at from the opposite direction: *"A ping sweep before ARP
+discovery — `LANDiscoveryService` still only sees hosts already in the
+ARP cache; actively pinging the subnet first would populate it with
+devices that haven't been talked to recently."* The reliable modern
+substitute for one broadcast isn't a broadcast at all — it's a **unicast
+sweep**, one ping (or ARP request) per address. A host can ignore a
+broadcast as a matter of policy; it cannot ignore a directly-addressed ARP
+request without failing to function on the network at all.
+
+### What this would actually take — mostly reuse, not new code
+
+Checked directly: the pieces this needs mostly already exist.
+
+- **`SubnetCalculator.hostAddresses(ipAddress:subnetMask:)`** already
+  enumerates every usable host address in a subnet (excluding network,
+  broadcast, and self), already has a sane size guard (512 hosts max,
+  refuses to enumerate anything larger), and is already used today —
+  `SNMPViewModel.candidateAddresses()` calls it to build the SNMP sweep's
+  candidate list. A ping sweep would reuse this exact utility unchanged,
+  not write a new one.
+- **The bounded-concurrency sweep pattern already exists too** —
+  `SNMPService.sweep` already runs candidate probes with a
+  `DispatchSemaphore`-bounded concurrency limit (32 at a time) for exactly
+  the reason a ping sweep would need it: sweeping 254 hosts one at a time
+  against `ConnectivityService`'s existing 2s-per-host timeout would take
+  up to ~8.5 minutes worst case. The same shape — enumerate candidates,
+  probe with bounded concurrency, collect responders — applies directly.
+- **A nice side effect worth designing around rather than against:**
+  pinging a host causes the OS to ARP-resolve it as a normal part of
+  delivering the ICMP packet. A ping sweep's simplest implementation
+  might not need to discover MAC addresses itself at all — ping every
+  candidate, then re-read `arp -a` afterward (now populated with every
+  host that just responded) and reuse `LANDiscoveryService`'s existing
+  ARP-parsing code entirely unchanged, rather than building a second,
+  parallel way to learn MAC addresses.
+
+### Open questions before implementing
+
+- Run automatically on a schedule/topology change (matching how
+  `LANDiscoveryService.scan()` already behaves), or make it a manual
+  "Sweep" action given it's a heavier operation than a passive `arp -a`
+  read — similar in spirit to Network Quality's on-demand-only design
+  above?
+- Reuse `ConnectivityService.check(_:)` as-is for the per-host ping, or is
+  a lighter-weight variant worth writing given a sweep only needs
+  success/failure, not the latency parsing `ConnectivityService` also
+  does?
+- Confirm the "ping first, then re-read `arp -a`" ordering is reliable in
+  practice — is the kernel's ARP table populated immediately after the
+  ICMP exchange completes, or is there a race worth guarding against?
