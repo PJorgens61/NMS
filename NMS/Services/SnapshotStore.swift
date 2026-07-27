@@ -238,4 +238,18 @@ final class SnapshotStore {
         try? context.save()
         return true
     }
+
+    /// Patches the hostname onto the most recent `ProviderEdgeRecord` row,
+    /// if its address still matches. Needed because `TracerouteService`
+    /// now always runs with `-n`, so `recordProviderEdgeIfChanged` gets
+    /// called with `hostname: nil` at the moment a row is written — this
+    /// fills it in afterward once `TracerouteViewModel`'s reverse-DNS
+    /// enrichment (see `ReverseDNSService`) actually resolves one. A no-op
+    /// if the address has since moved on (the row this would apply to no
+    /// longer exists) or already has a hostname.
+    func updateLatestProviderEdgeHostname(_ hostname: String, forAddress address: String) {
+        guard let latest = latestProviderEdge(), latest.address == address, latest.hostname == nil else { return }
+        latest.hostname = hostname
+        try? context.save()
+    }
 }

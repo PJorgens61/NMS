@@ -54,4 +54,13 @@ struct SubnetCalculator {
     static func dottedQuad(_ address: UInt32) -> String {
         "\((address >> 24) & 0xFF).\((address >> 16) & 0xFF).\((address >> 8) & 0xFF).\(address & 0xFF)"
     }
+
+    /// The CIDR prefix length (e.g. `24` for `255.255.255.0`) — a popcount
+    /// of the mask's set bits. Doesn't validate that the mask is a
+    /// well-formed contiguous run of 1s followed by 0s (a real subnet mask
+    /// always is; a malformed one would just yield a meaningless number,
+    /// not a crash).
+    static func prefixLength(subnetMask: String) -> Int? {
+        packedIPv4(subnetMask)?.nonzeroBitCount
+    }
 }

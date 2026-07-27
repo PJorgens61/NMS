@@ -16,6 +16,12 @@ struct NetworkInterfaceInfo: Equatable, Codable {
     let ipAddress: String?
     let subnetMask: String?
     let routerAddress: String?
+    /// The primary/first-listed DNS server address from
+    /// `State:/Network/Global/DNS`'s `ServerAddresses` — the resolver
+    /// macOS itself would actually query, not necessarily the same as the
+    /// router (some networks hand out a different upstream resolver via
+    /// DHCP, or a VPN can override this with its own split-DNS server).
+    let dnsServer: String?
     let isWiFi: Bool
 
     /// When this snapshot was captured. Not part of equality checks —
@@ -29,6 +35,7 @@ struct NetworkInterfaceInfo: Equatable, Codable {
         lhs.ipAddress == rhs.ipAddress &&
         lhs.subnetMask == rhs.subnetMask &&
         lhs.routerAddress == rhs.routerAddress &&
+        lhs.dnsServer == rhs.dnsServer &&
         lhs.isWiFi == rhs.isWiFi
     }
 }

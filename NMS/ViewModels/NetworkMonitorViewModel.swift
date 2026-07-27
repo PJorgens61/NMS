@@ -68,7 +68,13 @@ final class NetworkMonitorViewModel: ObservableObject {
                 // change worth noticing.
                 let fromLabel = previous.displayName ?? previous.interfaceName
                 let toLabel = updated.displayName ?? updated.interfaceName
-                snapshotStore.logEvent(.interfaceChanged, message: "Interface changed from \(fromLabel) to \(toLabel)")
+                // "X → Y" instead of "from X to Y" — measured directly:
+                // real adapter display names (e.g. "Thunderbolt Ethernet")
+                // made the longer phrasing truncate in practice (only
+                // ~6pt of margin against the popover's width budget); the
+                // arrow form leaves real headroom (~32pt) for the same
+                // real-world case.
+                snapshotStore.logEvent(.interfaceChanged, message: "Interface changed: \(fromLabel) → \(toLabel)")
                 onEventLogged?()
             }
         } else if let previous {

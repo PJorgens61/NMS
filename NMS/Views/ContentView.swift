@@ -29,17 +29,10 @@ struct ContentView: View {
 
             if let info = viewModel.currentInterface {
                 VStack(alignment: .leading, spacing: 2) {
-                    if let label = networkIdentity.currentNetwork?.label, !label.isEmpty {
-                        row("Network", label)
-                    } else if let ssid = wifiSSID.currentSSID {
-                        row("Network", ssid)
-                    } else {
-                        row("Interface", info.displayName ?? info.interfaceName)
-                    }
-                    row("Type", info.isWiFi ? "Wi-Fi" : "Ethernet")
-                    row("IP Address", info.ipAddress ?? "—")
-                    row("Subnet Mask", info.subnetMask ?? "—")
+                    row("Network", networkDisplay(info))
+                    row("IP Address", ipAddressDisplay(info))
                     row("Router", info.routerAddress ?? "—")
+                    row("DNS Server", info.dnsServer ?? "—")
                     row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
                 }
             } else {
@@ -79,7 +72,7 @@ struct ContentView: View {
             Divider()
 
             HStack {
-                Text("Infrastructure")
+                Text("SNMP Devices")
                     .font(.headline)
                 Spacer()
                 Button(snmp.isScanning ? "Scanning…" : "Scan") {
@@ -145,34 +138,33 @@ struct ContentView: View {
     /// everything below it working first).
     private var connectionLayersLowToHigh: [ConnectionLayer] {
         let info = viewModel.currentInterface
-        let interfaceHealthy = info != nil
 
-        let interfaceLayer = ConnectionLayer(
-            id: "interface",
-            label: "Interface",
-            detail: info.map { $0.displayName ?? $0.interfaceName } ?? "Down",
-            status: interfaceHealthy ? .healthy : .unhealthy
-        )
-
+        // Interface and Network used to be separate rows, but checked
+        // almost the same thing: Interface was a pure up/down signal
+        // (`info != nil`), and Network's own status matched that exactly
+        // except in one case — Wi-Fi with no name resolvable at all (no
+        // recognized-network label, no live SSID), where the interface is
+        // genuinely up but *which* network it is remains unknown. Combined
+        // into one row rather than two nearly-redundant ones, reusing
+        // `networkDisplay(_:)` (built for the Info section's equivalent
+        // combined row) for the detail text.
         let networkLayer: ConnectionLayer
         if let info {
-            if !info.isWiFi {
-                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Ethernet", status: .healthy)
-            } else if let ssid = wifiSSID.currentSSID {
-                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: ssid, status: .healthy)
+            let hasName = (networkIdentity.currentNetwork?.label?.isEmpty == false) || wifiSSID.currentSSID != nil
+            let detail = networkDisplay(info)
+            if info.isWiFi && !hasName {
+                // Not a connectivity failure — just missing information
+                // (e.g. Location permission not granted yet) — so this is
+                // "unknown," not "unhealthy," even though the interface
+                // itself is confirmed up.
+                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: detail, status: .unknown)
             } else {
-                // Wi-Fi but no SSID resolved (e.g. Location permission not
-                // granted yet) isn't a connectivity failure — just missing
-                // information — so this is "unknown," not "unhealthy."
-                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Wi-Fi (SSID unknown)", status: .unknown)
+                networkLayer = ConnectionLayer(id: "network", label: "Network", detail: detail, status: .healthy)
             }
         } else {
-            // Not genuine uncertainty — with no interface at all, Network
-            // is *definitely* down too, not merely unevaluated. `.unknown`
-            // here used to read as "not checked" when it should cascade
-            // from the Interface root cause like every other layer above
-            // it does.
-            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "—", status: .unhealthy)
+            // Not genuine uncertainty — with no interface at all, this is
+            // *definitely* down, not merely unevaluated.
+            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Down", status: .unhealthy)
         }
 
         let routerCheck = connectivity.checks.first { $0.label == OverallStatus.routerLabel }
@@ -190,6 +182,33 @@ struct ContentView: View {
                 detail: routerCheck.map(checkDetail) ?? "Not checked",
                 status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
                 correlatedWithChange: routerCheck?.correlatedWithChange ?? false
+            )
+        }
+
+        // Pinging the router's own public/WAN address, not a remote host —
+        // verified directly (TTL 64, sub-millisecond RTT) that this is
+        // answered locally by the gateway recognizing its own address, not
+        // a real round trip to the internet. Sits between Local Router
+        // (LAN-side reachability) and ISP Edge Router (one hop further
+        // out) since that's exactly where it tests: whether the gateway's
+        // WAN side is alive, catching e.g. an ISP modem/ONT losing power
+        // that a LAN-side-only check can't see.
+        let publicIPCheck = connectivity.checks.first { $0.label == OverallStatus.publicIPLabel }
+        let publicIPLayer: ConnectionLayer
+        if info == nil {
+            publicIPLayer = ConnectionLayer(id: "publicIP", label: "Public IP", detail: "—", status: .unhealthy)
+        } else if publicIP.currentIP == nil {
+            // Not a failure — `PublicIPViewModel`'s own (much slower,
+            // 5-minute-cadence) lookup just hasn't completed yet, most
+            // likely right after launch.
+            publicIPLayer = ConnectionLayer(id: "publicIP", label: "Public IP", detail: "Not checked", status: .unknown)
+        } else {
+            publicIPLayer = ConnectionLayer(
+                id: "publicIP",
+                label: "Public IP",
+                detail: publicIPCheck.map(checkDetail) ?? "Not checked",
+                status: publicIPCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: publicIPCheck?.correlatedWithChange ?? false
             )
         }
 
@@ -218,7 +237,7 @@ struct ContentView: View {
         let internetCheck = connectivity.checks.first { $0.label == OverallStatus.internetLabel }
         let internetLayer = ConnectionLayer(
             id: "internet",
-            label: "Internet Ping",
+            label: "Internet Ping by address",
             detail: internetCheck.map(checkDetail) ?? "Not checked",
             status: internetCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
             correlatedWithChange: internetCheck?.correlatedWithChange ?? false
@@ -242,7 +261,7 @@ struct ContentView: View {
             correlatedWithChange: httpCheck?.correlatedWithChange ?? false
         )
 
-        return [interfaceLayer, networkLayer, localRouterLayer, peRouterLayer, internetLayer, dnsLayer, httpLayer]
+        return [networkLayer, localRouterLayer, publicIPLayer, peRouterLayer, internetLayer, dnsLayer, httpLayer]
     }
 
     /// The lowest (most fundamental) unhealthy layer — everything failing
@@ -325,11 +344,15 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .font(.system(size: 12))
+                            // No lineLimit here, deliberately — sysDescr
+                            // (a raw SNMP-provided string, no length
+                            // guarantee) wraps to as many lines as it
+                            // needs instead of truncating, unlike the
+                            // single-line convention used elsewhere in
+                            // this popover.
                             Text(device.sysDescr)
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
                         }
                     }
                 }
@@ -339,7 +362,9 @@ struct ContentView: View {
             // popover — `.frame(maxHeight:)` alone can collapse to zero
             // visible height even with real content in this MenuBarExtra
             // context (confirmed directly earlier in this app's history).
-            .frame(height: 90)
+            // Taller than the 90px other lists use, since sysDescr now
+            // wraps instead of truncating and needs the extra room.
+            .frame(height: 140)
         }
 
         if let error = snmp.lastError {
@@ -567,6 +592,33 @@ struct ContentView: View {
         case .negative: return .red
         case .neutral: return .primary
         }
+    }
+
+    /// Network name (if any) plus connection type combined into one row
+    /// (e.g. "Thistle Wi-Fi", "Thistle Ethernet", or just "Ethernet" with
+    /// no known name yet) instead of separate "Network"/"Interface" and
+    /// "Type" rows, to save vertical space in the Info section. Prefers a
+    /// user-assigned network label over the live Wi-Fi SSID over nothing
+    /// at all — the raw interface hardware name (e.g. "USB 10/100/1000
+    /// LAN") is dropped entirely here in favor of just the connection
+    /// type, since it added little once a name or type is already shown.
+    private func networkDisplay(_ info: NetworkInterfaceInfo) -> String {
+        let type = info.isWiFi ? "Wi-Fi" : "Ethernet"
+        let label = networkIdentity.currentNetwork?.label
+        let name = (label?.isEmpty == false ? label : nil) ?? wifiSSID.currentSSID
+        guard let name else { return type }
+        return "\(name) \(type)"
+    }
+
+    /// IP address and subnet mask combined into one CIDR-notation row
+    /// (e.g. "10.0.0.152/24") instead of two separate rows, to save
+    /// vertical space in the Info section.
+    private func ipAddressDisplay(_ info: NetworkInterfaceInfo) -> String {
+        guard let ip = info.ipAddress else { return "—" }
+        guard let mask = info.subnetMask, let prefix = SubnetCalculator.prefixLength(subnetMask: mask) else {
+            return ip
+        }
+        return "\(ip)/\(prefix)"
     }
 
     private func row(_ label: String, _ value: String) -> some View {

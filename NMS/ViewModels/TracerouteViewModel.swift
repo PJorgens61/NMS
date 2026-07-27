@@ -12,6 +12,7 @@ final class TracerouteViewModel: ObservableObject {
     @Published private(set) var monitoredHopNumber: Int?
 
     private let service = TracerouteService()
+    private let reverseDNSService = ReverseDNSService()
     private let snapshotStore: SnapshotStore
     private var timer: Timer?
 
@@ -101,6 +102,39 @@ final class TracerouteViewModel: ObservableObject {
         isRunning = false
         lastError = nil
         persistMonitoredHopIfNeeded()
+        enrichHostnames(for: result)
+    }
+
+    /// Resolves each responsive hop's hostname via reverse DNS, in the
+    /// background, independently per hop — deliberately *after* `hops` is
+    /// already published above, not before, so the popover shows results
+    /// immediately with bare IPs rather than waiting on DNS the way the
+    /// trace itself used to. Each hop updates in place as its own lookup
+    /// resolves, rather than waiting for all of them.
+    private func enrichHostnames(for hopsToEnrich: [TracerouteHop]) {
+        let service = reverseDNSService
+        for hop in hopsToEnrich {
+            guard let address = hop.address else { continue }
+            let hopNumber = hop.hopNumber
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let hostname = service.hostname(for: address) else { return }
+                Task { @MainActor in
+                    guard let self else { return }
+                    // Guards against a stale enrichment result landing
+                    // after a *newer* trace already replaced `hops` with a
+                    // different path — only apply if this hop still shows
+                    // the same address this lookup was actually for.
+                    guard
+                        let index = self.hops.firstIndex(where: { $0.hopNumber == hopNumber }),
+                        self.hops[index].address == address
+                    else { return }
+                    self.hops[index].hostname = hostname
+                    if self.monitoredHopNumber == hopNumber {
+                        self.snapshotStore.updateLatestProviderEdgeHostname(hostname, forAddress: address)
+                    }
+                }
+            }
+        }
     }
 
     /// Like `PublicIPRecord`, only persists a row when the monitored hop's

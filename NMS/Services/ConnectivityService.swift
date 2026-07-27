@@ -9,13 +9,21 @@ struct ConnectivityService {
     struct Target {
         let label: String
         let host: String
+        /// Whole seconds, per `ping -t`. Defaults to 2s, the shared budget
+        /// for WAN-reaching targets (Internet, and indirectly DNS/HTTP)
+        /// where a legitimate response can genuinely take longer than a
+        /// LAN round trip. Callers pass a shorter value for targets known
+        /// to be on the local subnet (see `ConnectivityViewModel
+        /// .buildTargets`'s router target), where a healthy device should
+        /// answer well under a second.
+        var timeoutSeconds: Int = 2
     }
 
     func check(_ target: Target) -> ConnectivityCheck {
         let checkedAt = Date()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/sbin/ping")
-        process.arguments = ["-c", "1", "-t", "2", target.host]
+        process.arguments = ["-c", "1", "-t", "\(target.timeoutSeconds)", target.host]
 
         let stdout = Pipe()
         process.standardOutput = stdout
@@ -44,10 +52,10 @@ struct ConnectivityService {
 
     /// Runs all targets' pings concurrently, not sequentially — with up to
     /// 5 targets (router, 2 LAN devices, internet, ISP edge router) each
-    /// capable of blocking for the full 2s timeout during a real outage,
-    /// running them one after another could add up to 10s just for pings,
-    /// on top of whatever DNS/HTTP then add after. Concurrently, the whole
-    /// batch is bounded by the single slowest ping (~2s), not their sum.
+    /// capable of blocking for its own full timeout during a real outage,
+    /// running them one after another could add up several seconds just
+    /// for pings, on top of whatever DNS/HTTP then add after. Concurrently,
+    /// the whole batch is bounded by the single slowest ping, not their sum.
     func check(targets: [Target]) -> [ConnectivityCheck] {
         guard !targets.isEmpty else { return [] }
         var results = [ConnectivityCheck?](repeating: nil, count: targets.count)

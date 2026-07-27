@@ -43,7 +43,13 @@ struct NMSApp: App {
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let bonjourDiscovery = BonjourDiscoveryViewModel(snapshotStore: store)
-        let connectivity = ConnectivityViewModel(networkMonitor: networkMonitor, lanDiscovery: lanDiscovery, traceroute: traceroute, snapshotStore: store)
+        let connectivity = ConnectivityViewModel(
+            networkMonitor: networkMonitor,
+            lanDiscovery: lanDiscovery,
+            traceroute: traceroute,
+            publicIP: publicIP,
+            snapshotStore: store
+        )
         let snmp = SNMPViewModel(
             snapshotStore: store,
             networkMonitor: networkMonitor,

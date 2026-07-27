@@ -75,6 +75,7 @@ NMS/
 │   │   ├── SubnetCalculator.swift         # IPv4 subnet host enumeration (with a size guard)
 │   │   ├── SNMPService.swift              # SNMP GET/sweep via /usr/bin/snmpget
 │   │   ├── TracerouteService.swift        # Walks the path via `/usr/sbin/traceroute`
+│   │   ├── ReverseDNSService.swift        # PTR lookup via `getnameinfo`, enriches hops after the fact
 │   │   ├── DNSResolutionService.swift      # Resolves a hostname via `getaddrinfo`
 │   │   ├── HTTPCheckService.swift         # Real HTTP fetch via Apple's captive-portal probe
 │   │   ├── OverallStatus.swift            # Menu bar severity: normal/marginal/critical
@@ -101,12 +102,13 @@ NMS/
 1. Open `NMS.xcodeproj` in Xcode.
 2. Select the `NMS` scheme and Run (⌘R).
 3. A network icon (📶 or 🔌) appears in the menu bar. Click it to see the
-   current interface, IP, subnet, router, and public IP.
+   current interface, IP, subnet, router, DNS server, and public IP.
 
 The popover is arranged top to bottom as: **Network Health**, **Info**
 (the interface/IP/subnet/router/public-IP details — this section used to
-be titled "NMS"), **Events**, **Path to Internet**, **Infrastructure**
-(SNMP devices), then Refresh/Quit. There's no separate Connectivity
+be titled "NMS"), **Events**, **Path to Internet**, **SNMP Devices**
+(this section was originally titled "Infrastructure"), then Refresh/Quit.
+There's no separate Connectivity
 section anymore — its raw IP-layer check was folded into Network Health,
 and the rest of what it showed was already covered there too. The
 scrollable list for Path to Internet is deliberately short (60px, ~3
@@ -223,9 +225,18 @@ expected during development, not a bug.
 ## What's implemented
 
 - **`SystemConfigurationService`**: reads the current primary interface
-  (name, friendly display name, IP, subnet mask, router, Wi-Fi vs.
-  Ethernet) and can register a callback that fires on network changes
-  (interface up/down, IP change, Wi-Fi network switch).
+  (name, friendly display name, IP, subnet mask, router, DNS server,
+  Wi-Fi vs. Ethernet) and can register a callback that fires on network
+  changes (interface up/down, IP change, Wi-Fi network switch). The DNS
+  server comes from `State:/Network/Global/DNS`'s `ServerAddresses` —
+  verified directly against `scutil --dns`'s own resolver #1
+  `nameserver[0]` to confirm this is macOS's actual effective primary
+  resolver, not a possibly-stale `/etc/resolv.conf` stub. A DNS server
+  change is treated as a real topology change for change-detection
+  purposes (`NetworkInterfaceInfo`'s `==`), the same as a router change —
+  some networks hand out a different upstream resolver via DHCP
+  independent of the router's own address, and a VPN can override this
+  with its own split-DNS server.
 - **Live updates**: the menu bar view refreshes automatically when
   `SystemConfigurationService` detects a change — try toggling Wi-Fi or
   switching networks while the app is running.
@@ -450,14 +461,52 @@ expected during development, not a bug.
 - **Network Health (layered hierarchy view)**: `ConnectionLayer` models
   "is the internet actually working" as a dependency chain, ordered low
   (most fundamental) to high (most dependent on everything below it):
-  Interface → Network (SSID/Ethernet) → Local Router → ISP Edge Router →
-  Internet Ping → DNS → HTTP (labeled "Internet Ping" specifically, not
-  just "Internet", to distinguish it from DNS/HTTP as separate internet-
-  reachability layers). The raw IP-layer check (ping to `1.1.1.1`) used
-  to only appear in the separate Connectivity list; it's now folded in
-  here as its own layer between ISP Edge Router and DNS, and the standalone
-  Connectivity section was removed from the popover since Network Health
-  already covered everything else it showed. The ISP Edge Router row
+  Network → Local Router → Public IP → ISP Edge Router → Internet Ping by
+  address → DNS → HTTP. Network and the chain's original separate Interface row
+  used to be two rows, but checked almost the same thing — Interface was
+  a pure up/down signal (`info != nil`), and Network's own status matched
+  that exactly except in one case (Wi-Fi with no name resolvable at all,
+  where the interface is genuinely up but *which* network it is remains
+  unknown) — so they're combined into one row now, reusing
+  `networkDisplay(_:)` (built for the Info section's equivalent combined
+  row, e.g. "Thistle Wi-Fi") for the detail text.
+
+  The raw IP-layer check (ping to `1.1.1.1`) used to only appear in the
+  separate Connectivity list; it's now folded in here as its own layer
+  between ISP Edge Router and DNS, and the standalone Connectivity
+  section was removed from the popover since Network Health already
+  covered everything else it showed. Labeled "Internet Ping by address"
+  specifically, not just "Internet" — `ConnectivityViewModel.internetHost`
+  is a literal `"1.1.1.1"`, never a hostname, so no DNS resolution happens
+  for this specific check at all, unlike the DNS/HTTP layers right above
+  it. Worth being explicit about given how easy those three are to
+  conflate.
+
+  **Public IP row**: pings the router's own public/WAN address (whatever
+  `PublicIPViewModel.currentIP` currently holds), not a remote host — a
+  request from the user, who correctly identified that a router's WAN
+  interface is typically the demarcation point to the ISP's cable
+  modem/ONT, so a check specifically targeting it can catch things a
+  LAN-side-only check (the Local Router row) can't, like the ISP device
+  itself losing power. Verified directly before implementing, since
+  pinging your own public IP from inside your own LAN has a real, common
+  failure mode: many routers/ISPs disable responding to ICMP on the WAN
+  interface by default, which would make a check like this always fail
+  regardless of the ISP device's actual state. On this network it works —
+  confirmed `ttl=64` and sub-millisecond round-trip time, meaning the
+  gateway answers locally (recognizing the destination as its own
+  address) rather than the packet actually leaving and returning across
+  the internet — but this isn't guaranteed on every network, and there's
+  no way to detect "ICMP is disabled on the WAN side" versus "the
+  interface is genuinely down" from inside the LAN; both look identical
+  as a plain timeout. 1s timeout (like the Local Router row), since a
+  locally-answered ping should be at least as fast, not slower. Skipped
+  entirely (not attempted) whenever `PublicIPViewModel` hasn't resolved an
+  address yet — shows "Not checked" (`.unknown`), not a failure, since
+  there's nothing to ping until that lookup completes. New
+  `AppEventKind` pair, `publicIPUnreachable`/`publicIPReachable`,
+  distinct from `publicIPChanged` (that's the address *changing*, not a
+  ping to whatever it currently is). The ISP Edge Router row
   reports a ping round-trip time now, not a re-trace's resolved hostname —
   every other row already reported timing, the hostname is still visible
   in the Path to Internet section, and (see "Path to internet" below)
@@ -516,11 +565,16 @@ expected during development, not a bug.
   `PublicIPRecord` row when the IP actually changed — a change timeline,
   not a per-check log. A real change also logs a neutral (not positive or
   negative — it's information, not a problem or a fix) `publicIPChanged`
-  event with the from/to addresses, except on the very first-ever check
-  (nothing to compare against yet). Verified directly: seeded a fake
-  "previous" IP in the database, let the app fetch the real one on launch,
-  and confirmed both the new `PublicIPRecord` and the correctly-worded
-  event were written.
+  event ("Public IP changed to \<new address\>" — just the new value, not
+  "from X to Y", to keep it short enough to fit on one line), except on
+  the very first-ever check (nothing to compare against yet). Verified
+  directly: seeded a fake "previous" IP in the database, let the app
+  fetch the real one on launch, and confirmed both the new
+  `PublicIPRecord` and the correctly-worded event were written. Separate
+  from this address-*change* tracking, Network Health's own Public IP row
+  (see "Network Health" above) pings whatever this address currently is,
+  on `ConnectivityViewModel`'s normal cadence — two different concerns
+  about the same value, not overlapping features.
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as
@@ -715,10 +769,11 @@ expected during development, not a bug.
   (normal), yellow (marginal), or red (critical) — verified against 10
   severity scenarios (interface down overriding everything, each of
   router/IP/DNS/HTTP failing alone, a LAN device failing alone, and
-  critical+marginal failing together; predates the ISP edge router ping
-  joining `criticalLabels`, not independently re-verified since). **Critical**
-  (red): the interface is down, or router/IP/DNS/HTTP/ISP-edge-router is
-  unreachable — these mean the network is actually broken. **Marginal**
+  critical+marginal failing together; predates the ISP edge router and
+  public IP pings joining `criticalLabels`, not independently re-verified
+  since). **Critical**
+  (red): the interface is down, or router/IP/DNS/HTTP/ISP-edge-router/
+  public-IP is unreachable — these mean the network is actually broken. **Marginal**
   (yellow): a monitored LAN device (not the router) is unreachable —
   worth noting, not itself a real problem.
   **Normal** (green): everything else. `NMSApp` computes this from
@@ -738,7 +793,36 @@ expected during development, not a bug.
   `arp`/`ping`) with `-q 1` (one probe per hop) specifically to keep output
   at one line per hop; the default 3-probes-per-hop mode can print multiple
   differing hosts under ECMP load balancing, spanning multiple lines,
-  which isn't worth parsing for what this app needs. `IPClassifier`
+  which isn't worth parsing for what this app needs. Also `-n` (no reverse
+  DNS), `-w 1` (1s per-hop timeout, down from 2s), and `-m 4` (4 hops max,
+  down from 20) — measured directly on a real 14-hop path: reverse DNS
+  itself wasn't the actual bottleneck (14.1s with it vs. 14.1s with `-n`
+  alone; unresponsive/filtered hops each waiting out the full probe
+  timeout dominated), but `-n` + `-w 1` with the hop range untouched still
+  measured 7.1s (2x), and adding the `-m 4` cap brought it to 1.06s (13x).
+  The hop cap is a real, deliberate accuracy tradeoff, not just a speed
+  knob — see the campus/enterprise note below, which this interacts with
+  directly. `-n` also means `TracerouteHop.hostname` is always `nil`
+  immediately after a trace; the hostname-resolved parsing branch is kept
+  for robustness, not because traceroute will actually produce that form
+  anymore. Hostnames come back separately: `ReverseDNSService` (a bounded,
+  timeout-protected `getnameinfo` call — the same defensive shape as
+  `DNSResolutionService.probe()`, since an unbounded reverse lookup could
+  hang exactly the way the earlier DNS-check bug did) resolves each
+  responsive hop's PTR record in the background, independently per hop,
+  *after* `hops` is already published — the popover shows bare IPs
+  immediately, then each hop's hostname fills in as its own lookup
+  resolves, rather than the trace waiting on any of them the way it used
+  to. Verified against a known answer: `75.101.33.52` correctly resolves
+  back to `lo0.bng3.snfcca05.sonic.net`, the same hostname traceroute used
+  to provide inline. A stale enrichment result landing after a *newer*
+  trace already replaced `hops` with a different path is guarded against —
+  it only applies if the hop at that position still shows the same
+  address the lookup was actually for. If the enriched hop is the
+  currently-monitored one, `SnapshotStore.updateLatestProviderEdgeHostname`
+  also patches the hostname onto the already-written `ProviderEdgeRecord`
+  row, since `recordProviderEdgeIfChanged` runs (with `hostname: nil`)
+  before enrichment has had a chance to resolve anything. `IPClassifier`
   classifies each hop's address as RFC 1918 private or not (verified
   against the actual boundary cases: 172.16/172.32 range edges, and
   100.64.0.0/10 CGNAT — not RFC 1918, so correctly treated as "internet"
@@ -755,7 +839,15 @@ expected during development, not a bug.
   dependency with its own reliability/rate-limit tradeoffs), the popover
   lets you confirm the real hop yourself — tap ★ next to any hop in the
   list to designate it "the one to monitor" (persisted across launches via
-  `UserDefaults`, independent of the SwiftData store). Until you confirm
+  `UserDefaults`, independent of the SwiftData store). **This is now in
+  real tension with the `-m 4` hop cap above**: on exactly the
+  campus/enterprise topology this paragraph describes, if the real ISP
+  edge sits past hop 4 (plausible with several internal routers before
+  the actual ISP boundary), it can never appear in the hop list at all —
+  not just harder to find manually, genuinely unreachable by this trace.
+  Chosen anyway, knowingly, for the speed; worth knowing if traceroute
+  ever seems to stop suspiciously short of a hop you expected to see.
+  Until you confirm
   one, nothing is persisted to `ProviderEdgeRecord` at all — verified
   directly (fresh store, no confirmation, zero rows) — only the suggestion
   displays. Once confirmed, `TracerouteViewModel` looks up that hop by
@@ -763,9 +855,11 @@ expected during development, not a bug.
   row only when its address actually changes (mirrors `PublicIPRecord`).
   `TracerouteViewModel` runs at launch, after every observed topology
   change (the path can change along with the network), every 10 minutes
-  (traceroute is much heavier than a ping or HTTP lookup — up to 20 hops,
-  each potentially waiting out a timeout — so it runs far less often than
-  connectivity checks), and on the popover's "Trace Now" button. **This
+  (still heavier than a single ping or HTTP lookup — up to 4 hops now,
+  each potentially waiting out the 1s timeout, so worst case ~4s rather
+  than the pre-`-m 4` worst case of up to 40s — but still enough that it
+  runs far less often than connectivity checks), and on the popover's
+  "Trace Now" button. **This
   view model is deliberately discovery-only** — finding the path and
   letting you confirm which hop is the ISP edge — not ongoing health
   monitoring of that hop. Re-running a full multi-hop trace on a fast

@@ -21,6 +21,12 @@ enum AppEventKind: String, Codable {
     case peRouterUnreachable
     case peRouterReachable
     case publicIPChanged
+    /// Pinging the router's own public/WAN address, not a change in what
+    /// that address *is* — see `publicIPChanged` for that. Distinct from
+    /// `internetUnreachable`/`Reachable` (a real remote host) and
+    /// `routerUnreachable`/`Reachable` (the router's LAN-side address).
+    case publicIPUnreachable
+    case publicIPReachable
     case infrastructureUnreachable
     case infrastructureReachable
     /// An SNMP device's uptime counter went *backwards* — it restarted.
@@ -46,10 +52,10 @@ enum AppEventKind: String, Codable {
     var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
-             .infrastructureReachable:
+             .infrastructureReachable, .publicIPReachable:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
-             .infrastructureUnreachable, .snmpDeviceRestarted:
+             .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable:
             return .negative
         case .publicIPChanged, .interfaceChanged, .snmpDeviceSoftwareChanged:
             return .neutral

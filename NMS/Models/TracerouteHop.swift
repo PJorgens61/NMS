@@ -7,7 +7,12 @@ struct TracerouteHop: Equatable, Codable, Identifiable {
     let hopNumber: Int
     /// `nil` if this hop didn't respond (shown as `*` by traceroute).
     let address: String?
-    let hostname: String?
+    /// Always `nil` immediately after a trace — `TracerouteService` runs
+    /// with `-n`, so this is never populated by parsing traceroute's own
+    /// output anymore. `var`, not `let`, specifically so
+    /// `TracerouteViewModel`'s reverse-DNS enrichment can patch it in
+    /// after the fact without reconstructing the whole hop.
+    var hostname: String?
     let roundTripMs: Double?
 
     /// `true` if RFC 1918 private, `false` if a real internet address,

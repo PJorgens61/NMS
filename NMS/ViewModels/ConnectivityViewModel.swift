@@ -15,6 +15,7 @@ final class ConnectivityViewModel: ObservableObject {
     private weak var lanDiscovery: LANDiscoveryViewModel?
     private weak var traceroute: TracerouteViewModel?
     private weak var snmp: SNMPViewModel?
+    private weak var publicIP: PublicIPViewModel?
     private var timer: Timer?
 
     /// Labels of the infrastructure (SNMP) devices in the current round, so
@@ -49,10 +50,17 @@ final class ConnectivityViewModel: ObservableObject {
     /// 10 minutes, since it doesn't touch the Mac's own interface/IP/router.
     var onInternetUnreachable: (() -> Void)?
 
-    init(networkMonitor: NetworkMonitorViewModel, lanDiscovery: LANDiscoveryViewModel, traceroute: TracerouteViewModel, snapshotStore: SnapshotStore) {
+    init(
+        networkMonitor: NetworkMonitorViewModel,
+        lanDiscovery: LANDiscoveryViewModel,
+        traceroute: TracerouteViewModel,
+        publicIP: PublicIPViewModel,
+        snapshotStore: SnapshotStore
+    ) {
         self.networkMonitor = networkMonitor
         self.lanDiscovery = lanDiscovery
         self.traceroute = traceroute
+        self.publicIP = publicIP
         self.snapshotStore = snapshotStore
         runChecks()
     }
@@ -113,6 +121,9 @@ final class ConnectivityViewModel: ObservableObject {
             ]
             if let address = traceroute?.monitoredHop?.address {
                 results.append(ConnectivityCheck(label: OverallStatus.peRouterLabel, target: address, success: false, latencyMs: nil, checkedAt: now))
+            }
+            if let publicIPAddress = publicIP?.currentIP {
+                results.append(ConnectivityCheck(label: OverallStatus.publicIPLabel, target: publicIPAddress, success: false, latencyMs: nil, checkedAt: now))
             }
             apply(results)
             return
@@ -198,6 +209,7 @@ final class ConnectivityViewModel: ObservableObject {
             case OverallStatus.dnsLabel: kinds = (.dnsUnreachable, .dnsReachable)
             case OverallStatus.httpLabel: kinds = (.httpUnreachable, .httpReachable)
             case OverallStatus.peRouterLabel: kinds = (.peRouterUnreachable, .peRouterReachable)
+            case OverallStatus.publicIPLabel: kinds = (.publicIPUnreachable, .publicIPReachable)
             case let label where infrastructureLabels.contains(label):
                 kinds = (.infrastructureUnreachable, .infrastructureReachable)
             default: continue
@@ -229,7 +241,12 @@ final class ConnectivityViewModel: ObservableObject {
         var targets: [ConnectivityService.Target] = []
 
         if let router = networkMonitor?.currentInterface?.routerAddress {
-            targets.append(ConnectivityService.Target(label: OverallStatus.routerLabel, host: router))
+            // 1s, not the shared 2s default: unlike Internet/DNS/HTTP (WAN
+            // round trips, where a legitimate response can genuinely take
+            // longer), the local router should answer well under a second
+            // on a healthy network — a longer wait here just delays
+            // detecting a real problem.
+            targets.append(ConnectivityService.Target(label: OverallStatus.routerLabel, host: router, timeoutSeconds: 1))
         }
         // Infrastructure (SNMP-confirmed) devices are far better ping
         // targets than the arbitrary "first 2 ARP entries" this used to
@@ -252,6 +269,15 @@ final class ConnectivityViewModel: ObservableObject {
         // traceroute's own much slower schedule).
         if let address = traceroute?.monitoredHop?.address {
             targets.append(ConnectivityService.Target(label: OverallStatus.peRouterLabel, host: address))
+        }
+        // The router's own public/WAN address — pinging it from inside the
+        // LAN reaches the gateway's own local stack directly (verified: TTL
+        // 64, sub-millisecond RTT — answered locally, not a real round trip
+        // to the internet), so this specifically tests whether the WAN
+        // side is alive, catching e.g. an ISP modem/ONT losing power that a
+        // LAN-side-only check like Router above can't see.
+        if let publicIPAddress = publicIP?.currentIP {
+            targets.append(ConnectivityService.Target(label: OverallStatus.publicIPLabel, host: publicIPAddress, timeoutSeconds: 1))
         }
 
         return targets

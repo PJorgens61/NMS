@@ -216,8 +216,9 @@ inventing new ones.
 **Candidate elements** (roughly in order of how non-obvious they are, i.e.
 where to start if doing this incrementally rather than all at once):
 
-- The Network Health layer labels (Interface, Network, Local Router, ISP
-  Edge Router, DNS, HTTP) — what each one actually checks
+- The Network Health layer labels (Network, Local Router, ISP Edge
+  Router, Internet Ping by address, DNS, HTTP) — what each one actually
+  checks
 - The status colors themselves — what critical/marginal/normal mean, since
   the rule (interface down or router/internet/DNS/HTTP unreachable is
   critical; a monitored LAN device down alone is only marginal) isn't

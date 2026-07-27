@@ -26,11 +26,20 @@ enum OverallStatus {
     static let dnsLabel = "DNS"
     static let httpLabel = "HTTP"
     static let peRouterLabel = "ISP Edge Router"
+    /// Pinging the router's own public/WAN-facing address, not a remote
+    /// host — verified directly (ttl=64, sub-millisecond RTT) that this is
+    /// answered locally by the gateway recognizing its own address, not a
+    /// real round trip to the internet. Distinct from `internetLabel`
+    /// (which does leave the network, to `1.1.1.1`) and from `routerLabel`
+    /// (the router's LAN-side address) — this specifically tests whether
+    /// the gateway's WAN side is alive, catching things like the ISP
+    /// modem/ONT losing power that a LAN-side-only check can't see.
+    static let publicIPLabel = "Public IP"
 
     /// Labels whose failure means the network is actually broken (red), as
     /// opposed to a lesser/marginal problem (yellow) — anything else (e.g.
     /// a monitored LAN device) isn't in this set.
-    static let criticalLabels: Set<String> = [routerLabel, internetLabel, dnsLabel, httpLabel, peRouterLabel]
+    static let criticalLabels: Set<String> = [routerLabel, internetLabel, dnsLabel, httpLabel, peRouterLabel, publicIPLabel]
 
     /// `interfaceIsDown` overrides everything else — no interface means
     /// nothing else can be meaningfully checked anyway.

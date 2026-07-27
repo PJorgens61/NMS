@@ -37,12 +37,21 @@ final class SystemConfigurationService {
         let ipAddress = (ipv4Details?["Addresses"] as? [String])?.first
         let subnetMask = (ipv4Details?["SubnetMasks"] as? [String])?.first
 
+        // Verified directly against `scutil --dns`'s resolver #1
+        // (nameserver[0]): `State:/Network/Global/DNS`'s first
+        // `ServerAddresses` entry matches macOS's own effective primary
+        // resolver, not just whatever's in a possibly-stale
+        // `/etc/resolv.conf` stub.
+        let dnsGlobal = SCDynamicStoreCopyValue(store, "State:/Network/Global/DNS" as CFString) as? [String: Any]
+        let dnsServer = (dnsGlobal?["ServerAddresses"] as? [String])?.first
+
         return NetworkInterfaceInfo(
             interfaceName: primaryInterfaceName,
             displayName: friendlyName(forBSDName: primaryInterfaceName),
             ipAddress: ipAddress,
             subnetMask: subnetMask,
             routerAddress: router,
+            dnsServer: dnsServer,
             isWiFi: wifiInterfaceNames().contains(primaryInterfaceName),
             capturedAt: Date()
         )

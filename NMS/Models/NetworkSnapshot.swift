@@ -12,6 +12,7 @@ final class NetworkSnapshot {
     var ipAddress: String?
     var subnetMask: String?
     var routerAddress: String?
+    var dnsServer: String?
     var isWiFi: Bool
     var capturedAt: Date
 
@@ -24,6 +25,7 @@ final class NetworkSnapshot {
         ipAddress = info.ipAddress
         subnetMask = info.subnetMask
         routerAddress = info.routerAddress
+        dnsServer = info.dnsServer
         isWiFi = info.isWiFi
         capturedAt = info.capturedAt
     }

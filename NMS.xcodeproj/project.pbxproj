@@ -8,7 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		046E45DBBA89EFDD9DCA4E9D /* BonjourDiscoveryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38484B33B89A2EB45E8D2A7B /* BonjourDiscoveryViewModel.swift */; };
+		072C4F6FA5D78A4FB2F15A76 /* ReverseDNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DBC444780B364EF155E9F88 /* ReverseDNSService.swift */; };
 		07BE47488A1E2B271610803C /* SNMPDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793B4A69B57DBB3479FFBAD0 /* SNMPDevice.swift */; };
+		0C854B409307898F08C4BF3F /* ReverseDNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DBC444780B364EF155E9F88 /* ReverseDNSService.swift */; };
 		1713412389DA7B2E50DEE2A2 /* LANDiscoveryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54FE4D7ABBDFAC4BD1843C35 /* LANDiscoveryViewModel.swift */; };
 		1A2648A7B4CE58A08BAF01DF /* PublicIPViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */; };
 		1CBB40D18A23D72C1EF2F06E /* PublicIPInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F849DD9824AC69124EA914 /* PublicIPInfo.swift */; };
@@ -31,6 +33,7 @@
 		5D004C66B21E6FD15D3F108F /* BonjourDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536C4C1DB3C70A4AF47E6E47 /* BonjourDevice.swift */; };
 		6331472B943A654CF2CE9EAC /* WiFiSSIDService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E04033B756D18EC8053449 /* WiFiSSIDService.swift */; };
 		63B54DEB810BD17A27BC1C11 /* SNMPDeviceRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382348EFB0F47613E2821426 /* SNMPDeviceRecord.swift */; };
+		671B42E3BE9440F2CEB97423 /* ReverseDNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DBC444780B364EF155E9F88 /* ReverseDNSService.swift */; };
 		6D694B509DBB9E6BEEEA3EA6 /* AppEventRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BE34D0F897CC7D8F893DD76 /* AppEventRecord.swift */; };
 		6F034FF9B5BA2F9AEF06857D /* BonjourDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F86C422F9A02CCB87F01E9BD /* BonjourDiscoveryService.swift */; };
 		78AE4318B1A522633190D852 /* WiFiSSIDViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE246B4A20FCF73BF8ED5D1 /* WiFiSSIDViewModel.swift */; };
@@ -84,6 +87,7 @@
 		0F444B53A18F933AC6E31B3F /* PublicIPViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublicIPViewModel.swift; sourceTree = "<group>"; };
 		10B34202BA4A1478A0747511 /* EventLogViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EventLogViewModel.swift; path = NMS/ViewModels/EventLogViewModel.swift; sourceTree = SOURCE_ROOT; };
 		17D94487A41159A06254163F /* ConnectivityViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectivityViewModel.swift; sourceTree = "<group>"; };
+		1DBC444780B364EF155E9F88 /* ReverseDNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ReverseDNSService.swift; path = NMS/Services/ReverseDNSService.swift; sourceTree = SOURCE_ROOT; };
 		1DDFCF0B3011D12A0069C74C /* NMS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NMS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1DDFCF1A3011D12C0069C74C /* NMSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1DDFCF243011D12C0069C74C /* NMSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NMSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -177,6 +181,7 @@
 				3CA64F2CAD210C2CECA6E3C6 /* SNMPService.swift */,
 				94F347958F4B82A71796BB0A /* SubnetCalculator.swift */,
 				7ED84694A47670DC50F39FE6 /* SNMPViewModel.swift */,
+				1DBC444780B364EF155E9F88 /* ReverseDNSService.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -449,6 +454,7 @@
 				B89747F3ADB23B216B5231D1 /* SNMPService.swift in Sources */,
 				C4F2427C9D0D3ECB37300484 /* SubnetCalculator.swift in Sources */,
 				DAA64CF8A27628B252A634CB /* SNMPViewModel.swift in Sources */,
+				0C854B409307898F08C4BF3F /* ReverseDNSService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,6 +467,7 @@
 				34A24BD9B8559842212DF67F /* SNMPService.swift in Sources */,
 				84834150A77F308CC7765832 /* SubnetCalculator.swift in Sources */,
 				2A84401CA0867BCB8CBFD56E /* SNMPViewModel.swift in Sources */,
+				671B42E3BE9440F2CEB97423 /* ReverseDNSService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -473,6 +480,7 @@
 				BD3341E9A72DAA60472C1231 /* SNMPService.swift in Sources */,
 				42D74C31875BAF67A3B44D34 /* SubnetCalculator.swift in Sources */,
 				26C3437EACB6F58913324AC4 /* SNMPViewModel.swift in Sources */,
+				072C4F6FA5D78A4FB2F15A76 /* ReverseDNSService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
