@@ -661,3 +661,215 @@ Checked directly: the pieces this needs mostly already exist.
 - Confirm the "ping first, then re-read `arp -a`" ordering is reliable in
   practice — is the kernel's ARP table populated immediately after the
   ICMP exchange completes, or is there a race worth guarding against?
+
+## mDNS/Bonjour: TXT records and dynamic service-type discovery
+
+Prompted by a tangent off the LLDP investigation (see below): once raw
+packet capture and LLDP-over-SNMP both turned out to be dead ends for this
+network, the question became whether the Bonjour discovery this app
+already has is itself under-using the data it receives. Answer, checked
+against this actual network rather than assumed: yes, in two independent
+ways.
+
+### TXT records: real capability/version data already arriving, unread
+
+`BonjourDiscoveryService` browses and resolves services today but only
+extracts the instance name, service type, and resolved IP —
+`dns-sd -L` against two real devices on this network shows there's much
+more sitting in the same response, unparsed:
+
+Brother HL-5450DN series (`_ipp._tcp`):
+
+```
+pdl=image/urf,application/octet-stream product=(Brother HL-5450DN series)
+usb_MFG=Brother usb_MDL=HL-5450DN series usb_CMD=PJL,PCL,PCLXL,URF
+Color=F Duplex=T Scan=F adminurl=http://BrotherLaserPrinter.local./net/net/airprint.html
+UUID=e3248000-80ce-11db-8000-30055c3441ae TLS=1.0
+```
+
+Roku Ultra (`_airplay._tcp`) — notable because this device has **no SNMP
+support at all**, so this is the only structured "what is this and what's
+it running" data obtainable for it by any means already in this app:
+
+```
+model=4670X manufacturer=Roku fv=p20.15.34.832 srcvers=377.40.00
+serialNumber=f36b48ec-18e5-5ef6-9348-ceba6833c91d deviceid=8F:76:B4:1A:38:89
+```
+
+That's manufacturer, model, and firmware version (`fv`) for a device
+SNMP can never reach — the same category of identifying information
+`SNMPService` provides via `sysDescr`, but for the entire class of
+consumer/media devices that don't speak SNMP. The printer's TXT record
+separately gives structured capability flags (`Color`/`Duplex`/`Scan`) and
+a live admin URL, which `sysDescr`-style free text doesn't provide at all.
+
+**Mechanism:** `NWBrowser.Result` (the type `BonjourDiscoveryService`
+already receives from its existing browse) carries a `metadata` case,
+`.bonjour(TXTRecord)`, giving structured TXT access without a second
+resolve step — this should be a matter of reading more of what's already
+arriving, not a new network operation. Not yet spiked to confirm the exact
+API shape compiles and behaves as expected in this codebase's Network
+framework usage — worth a five-minute check on one real device before
+committing to broader TXT parsing, the same caution already applied to
+`.help()` tooltips above.
+
+### Dynamic service-type discovery: the hardcoded list is already missing real devices
+
+`BonjourDiscoveryService.serviceTypes` hardcodes 9 curated types. DNS-SD
+defines a standard meta-query for enumerating *all* types actually being
+advertised, no prior knowledge needed (RFC 6763 §9): browsing
+`_services._dns-sd._udp.local.` returns PTR records naming every service
+type present. Run directly against this network:
+
+```
+_airplay._tcp   _raop._tcp   _companion-link._tcp   _spotify-connect._tcp
+_pdl-datastream._tcp   _printer._tcp   _ipp._tcp   _ipps._tcp
+_ipp-tls._tcp   _http._tcp   _ropieee._tcp
+```
+
+Three of these (`_companion-link`, `_spotify-connect`, `_ropieee` — the
+last being the RoPieee Roon-streaming device already visible elsewhere in
+this app as a Bonjour AirPlay target) aren't in the current hardcoded
+list at all. The list isn't just incomplete in theory — it's already
+missing real, currently-present devices on this exact network.
+
+**Mechanism:** the meta-query is just another PTR-record browse
+(`_services._dns-sd._udp` as the "service type" itself), so it fits the
+same `NWBrowser` shape already used for every other type — this doesn't
+need a different API, only a different (well-known, fixed) browse target.
+Presumably run once at scan start to build the type list, then browse
+each discovered type as today. Not yet spiked to confirm `NWBrowser`
+accepts this meta-type the same way `dns-sd`'s CLI does.
+
+### Open question, deliberately unresolved here
+
+Bonjour Devices currently has no popover section at all — both the UI
+list and its automatic launch-time scan were removed (see the
+LAN-Devices/Bonjour-Devices hiding work elsewhere in this project's
+history) because the popover was too tall for a 13" screen even after
+every other space-saving pass. Richer per-device data doesn't change that
+constraint on its own. Three shapes this could take, raised but
+explicitly not decided:
+
+- **Events only, no list** — mirror `SNMPViewModel`'s restart/
+  software-change detection: persist each device's last-seen `fv`/model,
+  diff on each poll, log a neutral event on change (e.g. "Roku Ultra
+  firmware changed"). Zero added popover height.
+- **A compact list section returns** — name plus model/version per
+  device, costing vertical space again, the exact thing just trimmed.
+- **Service-layer only, no consumer yet** — implement TXT parsing and
+  dynamic type discovery in `BonjourDiscoveryService` so the data exists
+  and is inspectable, without committing to how (or whether) it's
+  surfaced.
+
+### Open questions before implementing
+
+- Spike `NWBrowser.Result.metadata`'s `.bonjour(TXTRecord)` case against a
+  real device to confirm the API shape before writing the full parser.
+- Spike browsing `_services._dns-sd._udp.local.` via `NWBrowser` to
+  confirm it behaves as a normal type-enumeration browse the same way the
+  `dns-sd` CLI's meta-query does.
+- Which of the three "what does this feed" shapes above, if any —
+  genuinely open, not leaning toward one yet.
+- If events are the chosen consumer: new `SNMPDeviceRecord`-style
+  per-device persisted state (keyed by something stable — TXT records
+  often carry a UUID/serial number, unlike an IP address, which can
+  change), or fold into the existing `BonjourDeviceRecord`?
+
+## RRDtool for historical storage
+
+Prompted directly: would [rrdtool](https://github.com/oetiker/rrdtool-1.x)
+be a good fit for this app's persistence needs? It's squarely aimed at the
+gap this document keeps running into from different angles — the Network
+Quality and Latency History Sparklines sections above both note that
+`SnapshotStore` has no retention or pruning logic anywhere, for any
+table. RRDtool's entire reason to exist is solving exactly that: a
+fixed-size file that never grows, via round-robin archives that
+automatically consolidate (average/min/max) aging data into progressively
+coarser resolution — full detail for the last day, hourly for the last
+month, daily for the last year, all in one bounded file.
+
+### Not currently installed — checked, unlike `lldpd`
+
+The LLDP investigation above found `lldpd` already running on this Mac via
+Homebrew, which materially changed that analysis (an existing daemon to
+integrate with, not a new dependency to introduce). RRDtool isn't in the
+same position — confirmed directly: `which rrdtool` and `brew list
+rrdtool` both come back empty. Adopting it means asking users to install
+a genuinely new third-party dependency, not plugging into something many
+of them already have.
+
+### Integration would be a CLI shell-out, not a library link
+
+RRDtool has no Swift-native binding. The two options are linking `librrd`
+directly (real build complexity: it pulls in cairo, pango, freetype,
+fontconfig, libpng — a dependency chain with nothing else in common with
+this project, and exactly the kind of universal-binary/notarization
+friction already spent real effort on this session) or shelling out to
+the `rrdtool` CLI's subcommands (`create`, `update`, `fetch`, `graph`) via
+`Process`. The second option is the only one worth considering — it
+matches this app's existing pattern exactly (`ping`, `arp`, `traceroute`,
+`snmpget` are all `Process`-based shell-outs already), where linking a C
+graphics library would be a new architectural category for this codebase.
+
+### Scope: a narrow slice, not a replacement for SwiftData
+
+RRDtool stores fixed-interval numeric time series only. That's a strong
+fit for `ConnectivityCheckRecord.latencyMs` (ping/DNS/HTTP/SNMP response
+times) — and nothing else currently in this app. It cannot hold
+`AppEventRecord`'s text messages, `SNMPDeviceRecord`'s `sysDescr`/`sysName`
+strings, or any of the other mostly-textual/structured data `SnapshotStore`
+persists today. If adopted, it would sit *alongside* SwiftData for this
+one numeric-metrics slice, never replace it — the event log, device
+state, and everything else stays exactly where it is.
+
+### Doesn't fit the feature already sketched for this data
+
+The Latency History Sparklines section above scopes a compact,
+axis-less sparkline per Network Health row — roughly 20–30 points,
+10–15 minutes of history at the normal check cadence. A bounded
+`FetchDescriptor` (with `fetchLimit`) against `ConnectivityCheckRecord` —
+data already being persisted today — covers that completely, with zero
+new dependencies. Introducing RRDtool for a 15-minute window would be
+solving a problem that plan doesn't actually have.
+
+### Where it would genuinely earn its keep
+
+A materially different, bigger feature: real long-term trend graphs —
+"how has router latency looked over the past three months" — held in
+fixed disk space without hand-writing hourly/daily averaging logic.
+That's RRDtool's actual specialty (the same role it plays in Cacti,
+Smokeping, and MRTG), and something SwiftData has no equivalent for on
+its own — a `fetchLimit`-bounded query stays cheap regardless of table
+size, per the Sparklines section's own conclusion, but it doesn't give
+you *consolidated* history the way an RRA does; old fine-grained rows
+either accumulate forever or get deleted outright, with nothing in
+between.
+
+### Conclusion
+
+Not worth adopting for anything currently planned — the sparkline feature
+this data would obviously serve is already fully covered without it. A
+legitimate answer only if the project later decides it wants genuine
+long-term historical graphing as its own feature, distinct from the
+sparkline idea, at which point a CLI shell-out (not a library link) would
+be the way to integrate it. Worth deciding that scope question on its own
+terms first, rather than adopting the dependency speculatively ahead of a
+concrete need for it.
+
+### Open questions before implementing
+
+- Is long-term historical graphing (weeks/months, not the sparkline's
+  10–15 minutes) an actual goal for this project, or a hypothetical one?
+  Nothing below matters if the answer is no.
+- If yes: which metrics get an RRA — just the five latency-producing
+  Network Health layers (`ConnectivityCheckRecord`), or does
+  `NetworkQualityResult`'s Mbps/RPM data (see the Network Quality section
+  above) belong in one too?
+- Graceful degradation story for users without `rrdtool` installed —
+  mirroring `SNMPService.isAvailable`'s pattern, presumably: the feature
+  disappears cleanly rather than erroring, and the app doesn't depend on
+  it for anything else.
+- Where would `.rrd` files live — alongside the SwiftData store in
+  Application Support, presumably, but worth confirming rather than
+  assuming.
