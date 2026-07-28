@@ -595,6 +595,42 @@ expected during development, not a bug.
   (see "Network Health" above) pings whatever this address currently is,
   on `ConnectivityViewModel`'s normal cadence — two different concerns
   about the same value, not overlapping features.
+- **DHCP lease tracking**: `DHCPLeaseService` shells out to `/usr/sbin/
+  ipconfig getpacket <interface>` — a purely local read of the last
+  successful lease `configd` already has cached, not a live probe of the
+  DHCP server, so it costs no network I/O and can't disrupt the live
+  connection the way forcing a fresh negotiation would. Explored in depth
+  (including the real output format, verified directly rather than assumed
+  from documentation — e.g. `lease_time (uint32): 0x15180`, a raw hex
+  `uint32`, not the human-readable duration some descriptions imply) in
+  DESIGN-NOTES.md's "DHCP lease tracking" before this was written.
+
+  **What's tracked**: server identifier, assigned address, subnet mask,
+  broadcast address, router, DNS servers, DNS search domain, lease/T1/T2
+  timings, and the DHCP transaction ID (`xid`). `SnapshotStore.
+  recordDHCPLeaseIfChanged` persists a new `DHCPLeaseRecord` only when the
+  transaction ID actually changes — same transaction always means the
+  same lease content by protocol definition, so comparing just that one
+  field is a cheaper and sufficient change check. The popover's **DHCP
+  History** section lists every real change, newest first; the newest row
+  doubles as "the current lease," so there's no separate current-lease
+  display.
+
+  **Two independent failure signals**, both explored non-disruptively
+  before being written: (1) the interface falling back to a self-assigned
+  APIPA address (`169.254.0.0/16`, via the new `IPClassifier.isLinkLocal`)
+  means DHCP has genuinely failed, logged as `.dhcpFellBackToLinkLocal`/
+  `.dhcpAddressRestored`; (2) the DHCP transaction ID failing to change
+  past its own lease's T2 (rebinding) deadline means a renewal that should
+  have started hasn't, logged as `.dhcpRenewalOverdue`/
+  `.dhcpRenewalRecovered`. Signal 2's deadline is anchored to
+  `DHCPLeaseRecord.firstObservedAt` — stamped only when a transaction ID is
+  first seen — since `ipconfig getpacket` reports lease *durations*, never
+  an absolute grant timestamp; a renewal that succeeds on schedule resets
+  this anchor before the deadline is ever reached, so a healthy renewal
+  never falsely alarms. A lease whose content changes without the
+  transaction ID changing can't happen by the protocol's own definition, so
+  no separate field-by-field comparison is needed alongside the ID check.
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as

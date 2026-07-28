@@ -6,9 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		1DDFCF1B3011D12C0069C74C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -33,9 +30,21 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1DDFCF0D3011D12A0069C74C /* NMS */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NMS; sourceTree = "<group>"; };
-		1DDFCF1D3011D12C0069C74C /* NMSTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NMSTests; sourceTree = "<group>"; };
-		1DDFCF273011D12C0069C74C /* NMSUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = NMSUITests; sourceTree = "<group>"; };
+		1DDFCF0D3011D12A0069C74C /* NMS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NMS;
+			sourceTree = "<group>";
+		};
+		1DDFCF1D3011D12C0069C74C /* NMSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NMSTests;
+			sourceTree = "<group>";
+		};
+		1DDFCF273011D12C0069C74C /* NMSUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NMSUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */

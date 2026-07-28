@@ -6,6 +6,7 @@ struct ContentView: View {
     @ObservedObject var connectivity: ConnectivityViewModel
     @ObservedObject var networkIdentity: NetworkIdentityViewModel
     @ObservedObject var publicIP: PublicIPViewModel
+    @ObservedObject var dhcpLease: DHCPLeaseViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
@@ -18,41 +19,48 @@ struct ContentView: View {
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false
 
+    /// Two equal-width, flexible columns — half the popover's width each
+    /// at this width, but "flexible" (not a fixed pixel size) so this
+    /// keeps working if the popover width changes later. `LazyVGrid`
+    /// simply flows tiles left-to-right, top-to-bottom, so a third tile
+    /// (an odd count) leaves the second cell of its row empty rather than
+    /// erroring — the expected, ready-made slot for the next tile added
+    /// here.
+    private static let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Network Health")
-                .font(.headline)
-
-            connectionHealthSection
+            // Network Health, Info, and Path to Internet are short
+            // label/value lists that looked sparse and hard to read once
+            // the popover doubled in width for the DHCP History section —
+            // wide gaps between a label and its value with nothing else
+            // to fill the space. Tiled side by side instead, each sized to
+            // its own half, not the whole popover.
+            LazyVGrid(columns: Self.tileColumns, alignment: .leading, spacing: 12) {
+                tile(title: "Network Health") {
+                    connectionHealthSection
+                }
+                tile(title: "Info") {
+                    infoSection
+                }
+                tile(title: "Path to Internet", trailing: {
+                    Button("Trace Now") {
+                        traceroute.run()
+                    }
+                    .disabled(traceroute.isRunning)
+                    .accessibilityLabel("Trace Now")
+                    .accessibilityHint("Runs a traceroute to find the path to the internet")
+                }) {
+                    tracerouteSection
+                }
+            }
 
             Divider()
 
-            Text("Info")
+            Text("DHCP History")
                 .font(.headline)
 
-            if let info = viewModel.currentInterface {
-                VStack(alignment: .leading, spacing: 2) {
-                    row("Network", networkDisplay(info))
-                    if info.isWiFi, let bssid = wifiSSID.currentBSSID {
-                        row("BSSID", bssid)
-                    }
-                    row("IP Address", ipAddressDisplay(info))
-                    row("Router", routerDisplay(info))
-                    row("DNS Server", info.dnsServer ?? "—")
-                    row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
-                }
-            } else {
-                Text("No active network connection")
-                    .foregroundStyle(.secondary)
-            }
-
-            if let error = publicIP.lastError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-            }
-
-            networkIdentityStatus
+            dhcpHistoryList
 
             Divider()
 
@@ -60,22 +68,6 @@ struct ContentView: View {
                 .font(.headline)
 
             eventList
-
-            Divider()
-
-            HStack {
-                Text("Path to Internet")
-                    .font(.headline)
-                Spacer()
-                Button("Trace Now") {
-                    traceroute.run()
-                }
-                .disabled(traceroute.isRunning)
-                .accessibilityLabel("Trace Now")
-                .accessibilityHint("Runs a traceroute to find the path to the internet")
-            }
-
-            tracerouteSection
 
             Divider()
 
@@ -131,15 +123,82 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        // Event messages no longer carry IP/DNS targets, so the widest one
-        // is now "Interface changed from <name> to <name>" — measured at
-        // ~305pt of text (e.g. "Thunderbolt Ethernet" to "Wi-Fi") plus 24pt
-        // padding. Unlike the old IP-based messages this isn't a hard
-        // bound (interface display names are user-renameable in System
-        // Settings), so this covers the realistic case, not every
-        // possible one — event text still has `.lineLimit(1)` truncation
-        // as a fallback for anything longer.
-        .frame(width: 335)
+        // Widened from the original 335pt for the DHCP History section,
+        // then brought back down from a first attempt at 670pt (a single
+        // *unbroken* line of full lease detail) once that line wrapped to
+        // two instead — 670pt then just left every section with wide,
+        // pointless gaps between labels and values, confirmed directly:
+        // the widest wrapped DHCP line (bcast/gateway/DNS/domain/lease-
+        // T1-T2/xid) measured to ~440pt of actual text, against a screenshot
+        // of a real lease. 560pt covers that with headroom for a slightly
+        // longer domain or an extra DNS server, without carrying 670pt's
+        // dead space. Every section still has `.lineLimit(1)` truncation
+        // as its fallback regardless.
+        .frame(width: 560)
+    }
+
+    /// A bordered box with a header row (title, plus an optional trailing
+    /// accessory like "Trace Now") — the visual unit tiles in the grid
+    /// above are built from. A plain `Divider()` no longer reads as a
+    /// separator once two tiles sit side by side rather than stacked full
+    /// width, so each tile draws its own border instead.
+    @ViewBuilder
+    private func tile(title: String, @ViewBuilder content: () -> some View) -> some View {
+        tile(title: title, trailing: { EmptyView() }, content: content)
+    }
+
+    @ViewBuilder
+    private func tile(
+        title: String,
+        @ViewBuilder trailing: () -> some View,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                trailing()
+            }
+            content()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.secondary.opacity(0.25))
+        )
+    }
+
+    /// Everything the "Info" tile shows: the current interface's
+    /// identifying details, a public-IP error if there is one, and the
+    /// network-recognition status — previously inlined directly in `body`
+    /// before Info became its own tile.
+    @ViewBuilder
+    private var infoSection: some View {
+        if let info = viewModel.currentInterface {
+            VStack(alignment: .leading, spacing: 2) {
+                row("Network", networkDisplay(info))
+                if info.isWiFi, let bssid = wifiSSID.currentBSSID {
+                    row("BSSID", bssid)
+                }
+                row("IP Address", ipAddressDisplay(info))
+                row("Router", routerDisplay(info))
+                row("DNS Server", info.dnsServer ?? "—")
+                row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
+            }
+        } else {
+            Text("No active network connection")
+                .foregroundStyle(.secondary)
+        }
+
+        if let error = publicIP.lastError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
+        }
+
+        networkIdentityStatus
     }
 
     /// The label-entry input is hidden entirely now — this is read-only
@@ -450,6 +509,103 @@ struct ContentView: View {
         }
 
         communityRow
+    }
+
+    /// Every real DHCP lease change (server, address, or timing actually
+    /// differed — see `SnapshotStore.recordDHCPLeaseIfChanged`), newest
+    /// first — new rows appear at the top and push earlier ones down into
+    /// the scroll. The newest row doubles as "the current lease" — there's
+    /// no separate current-lease display now that this list exists.
+    /// Two lines per lease, every parsed field included across the two
+    /// (see `dhcpPrimaryDetail`/`dhcpSecondaryDetail`) — a single
+    /// unbroken line was tried first, but the full field set (server,
+    /// address, broadcast, gateway, DNS, domain, lease/T1/T2, transaction
+    /// ID) measured out to roughly 950-1000pt to fit without truncating,
+    /// confirmed directly against a real lease — too wide for a menu-bar
+    /// popover. Wrapping to two lines fits comfortably at this popover's
+    /// current (doubled) width instead.
+    @ViewBuilder
+    private var dhcpHistoryList: some View {
+        if !DHCPLeaseService.isAvailable {
+            Text("ipconfig unavailable on this macOS version")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else if dhcpLease.history.isEmpty {
+            Text("No DHCP lease observed yet")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else if dhcpLease.history.count > 2 {
+            // A fixed-height ScrollView only earns its keep once there are
+            // actually more rows than fit — same reasoning as
+            // `tracerouteSection`'s `displayedHops.count > 3` check. Below
+            // that, it left visible blank space under 1-2 real entries.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    dhcpHistoryRows
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 90)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                dhcpHistoryRows
+            }
+        }
+    }
+
+    private var dhcpHistoryRows: some View {
+        ForEach(dhcpLease.history) { record in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(dhcpPrimaryDetail(record))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Text(record.observedAt, format: .dateTime.month().day().hour().minute())
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+                Text(dhcpSecondaryDetail(record))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    /// First line: server and assigned address/CIDR — the two fields
+    /// that identify *this* lease at a glance, alongside the timestamp.
+    private func dhcpPrimaryDetail(_ record: DHCPLeaseRecord) -> String {
+        var address = record.assignedAddress
+        if let mask = record.subnetMask, let prefix = SubnetCalculator.prefixLength(subnetMask: mask) {
+            address += "/\(prefix)"
+        }
+        return "\(record.serverIdentifier) · \(address)"
+    }
+
+    /// Second line: every other field `DHCPLeaseService` parses —
+    /// deliberately not a curated subset, since the point of this list is
+    /// seeing everything about a lease, not a guess at what's most
+    /// interesting. `.lineLimit(1)` truncation is still the fallback for
+    /// the rare case of several DNS servers or an unusually long domain,
+    /// same convention used everywhere else in this popover — it isn't a
+    /// promise every field always fits without it.
+    private func dhcpSecondaryDetail(_ record: DHCPLeaseRecord) -> String {
+        var parts: [String] = []
+        if let broadcast = record.broadcastAddress { parts.append("bcast \(broadcast)") }
+        if let router = record.router { parts.append("gw \(router)") }
+        if !record.dnsServers.isEmpty { parts.append("dns \(record.dnsServers.joined(separator: ","))") }
+        if let domain = record.domainName, !domain.isEmpty { parts.append(domain) }
+        parts.append("lease \(Self.dhcpDurationText(record.leaseSeconds))")
+        parts.append("T1 \(Self.dhcpDurationText(record.t1Seconds))")
+        parts.append("T2 \(Self.dhcpDurationText(record.t2Seconds))")
+        parts.append(record.transactionID)
+        return parts.joined(separator: " · ")
+    }
+
+    private static func dhcpDurationText(_ seconds: Int) -> String {
+        seconds >= 3600 ? "\(seconds / 3600)h" : "\(seconds / 60)m"
     }
 
     /// Community strings are shared read-only passwords, not per-user

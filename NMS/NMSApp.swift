@@ -18,6 +18,7 @@ struct NMSApp: App {
     @StateObject private var connectivity: ConnectivityViewModel
     @StateObject private var networkIdentity: NetworkIdentityViewModel
     @StateObject private var publicIP: PublicIPViewModel
+    @StateObject private var dhcpLease: DHCPLeaseViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
@@ -50,6 +51,7 @@ struct NMSApp: App {
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
         let publicIP = PublicIPViewModel(snapshotStore: store)
+        let dhcpLease = DHCPLeaseViewModel(snapshotStore: store, networkMonitor: networkMonitor)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
@@ -77,6 +79,7 @@ struct NMSApp: App {
             connectivity: connectivity,
             networkIdentity: networkIdentity,
             publicIP: publicIP,
+            dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
             eventLog: eventLog,
             traceroute: traceroute,
@@ -87,6 +90,7 @@ struct NMSApp: App {
         _connectivity = StateObject(wrappedValue: connectivity)
         _networkIdentity = StateObject(wrappedValue: networkIdentity)
         _publicIP = StateObject(wrappedValue: publicIP)
+        _dhcpLease = StateObject(wrappedValue: dhcpLease)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
@@ -134,6 +138,7 @@ struct NMSApp: App {
         connectivity: ConnectivityViewModel,
         networkIdentity: NetworkIdentityViewModel,
         publicIP: PublicIPViewModel,
+        dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
         eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
@@ -151,6 +156,10 @@ struct NMSApp: App {
             // Same for the Wi-Fi SSID — e.g. unplugging Ethernet and
             // falling back to Wi-Fi is exactly this kind of change.
             wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+            // A topology change (new network, interface failover) is
+            // exactly the moment a DHCP lease is likely to have changed
+            // too, rather than waiting up to 5 minutes for the next poll.
+            dhcpLease.check()
             // The path to the internet (and the ISP edge router) can change
             // along with the topology change itself, so re-trace now rather
             // than waiting up to 10 minutes for the next periodic run.
@@ -236,6 +245,7 @@ struct NMSApp: App {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
         publicIP.onEventLogged = { eventLog.refresh() }
+        dhcpLease.onEventLogged = { eventLog.refresh() }
         wifiSSID.onEventLogged = { eventLog.refresh() }
         snmp.onEventLogged = { eventLog.refresh() }
     }
@@ -255,6 +265,7 @@ struct NMSApp: App {
                 connectivity: connectivity,
                 networkIdentity: networkIdentity,
                 publicIP: publicIP,
+                dhcpLease: dhcpLease,
                 wifiSSID: wifiSSID,
                 eventLog: eventLog,
                 traceroute: traceroute,
@@ -301,6 +312,7 @@ struct NMSApp: App {
             ConnectivityCheckRecord.self,
             KnownNetwork.self,
             PublicIPRecord.self,
+            DHCPLeaseRecord.self,
             AppEventRecord.self,
             ProviderEdgeRecord.self,
             BonjourDeviceRecord.self,

@@ -1499,12 +1499,10 @@ list in a fixed-height window, not a scrollable table).
   `IOKit`/`ifconfig`-level lookup rather than CoreWLAN, since it's a
   different interface family entirely. Parallels PHY rate on the Wi-Fi side
   (a negotiated-speed sanity check — "am I actually getting gigabit").
-- **DHCP lease detail** — server identifier, lease time, renewal state, via
-  `ipconfig getpacket <if>`. Already noted under "Per-network device
-  scoping" above as a possible identity signal for the 2-of-3 fingerprint;
-  as *displayed* info it would also answer "how long until this address
-  might change," which the current design notes don't cover as a UI
-  question, only an identity one.
+- ~~DHCP lease detail~~ — implemented (see "DHCP lease tracking" above and
+  the popover's DHCP History section). Not used as an identity signal for
+  the 2-of-3 fingerprint discussed under "Per-network device scoping"
+  above — that remains open.
 
 ### Open questions before implementing
 

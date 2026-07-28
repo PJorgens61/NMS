@@ -49,6 +49,22 @@ enum AppEventKind: String, Codable {
     /// mysterious, so it's deliberately not the alarming
     /// `snmpDeviceRestarted`.
     case snmpDeviceSoftwareChanged
+    /// A DHCP renewal or rebind succeeded and the lease's content actually
+    /// differs from before (new server, address, or timing) — not logged
+    /// for a renewal that returns the exact same values, and not for the
+    /// very first-ever observation (nothing to compare against yet).
+    case dhcpLeaseChanged
+    /// The interface fell back to a self-assigned (APIPA, 169.254.x.x)
+    /// address — DHCP has genuinely failed, not just gone quiet. See
+    /// DESIGN-NOTES.md's "DHCP lease tracking," Signal 1.
+    case dhcpFellBackToLinkLocal
+    case dhcpAddressRestored
+    /// The DHCP transaction ID hasn't changed past its own lease's T2
+    /// (rebinding) deadline — the client should have started renewing by
+    /// now and hasn't. See DESIGN-NOTES.md's "DHCP lease tracking",
+    /// Signal 2.
+    case dhcpRenewalOverdue
+    case dhcpRenewalRecovered
 
     enum Polarity {
         case positive, negative, neutral
@@ -61,12 +77,12 @@ enum AppEventKind: String, Codable {
     var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
-             .infrastructureReachable, .publicIPReachable:
+             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
-             .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable:
+             .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue:
             return .negative
-        case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged:
+        case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged:
             return .neutral
         }
     }

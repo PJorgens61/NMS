@@ -20,4 +20,14 @@ struct IPClassifier {
             return false
         }
     }
+
+    /// Self-assigned/link-local range (RFC 3927 APIPA), 169.254.0.0/16.
+    /// macOS falls back to an address in this range when DHCP genuinely
+    /// fails — checkable with zero network calls, just the IP already on
+    /// hand.
+    static func isLinkLocal(_ ipAddress: String) -> Bool {
+        let octets = ipAddress.split(separator: ".").compactMap { UInt8($0) }
+        guard octets.count == 4 else { return false }
+        return octets[0] == 169 && octets[1] == 254
+    }
 }

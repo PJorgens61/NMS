@@ -136,6 +136,44 @@ final class SnapshotStore {
         return true
     }
 
+    func latestDHCPLease() -> DHCPLeaseRecord? {
+        var descriptor = FetchDescriptor<DHCPLeaseRecord>(
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    /// The full history of DHCP lease changes — every real renewal/rebind,
+    /// not a per-poll log — so a stalled or flapping DHCP server is visible
+    /// as a pattern over time, not just today's current lease.
+    func fetchDHCPLeaseHistory(limit: Int = 100) -> [DHCPLeaseRecord] {
+        var descriptor = FetchDescriptor<DHCPLeaseRecord>(
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Persists a new row only if the transaction ID actually changed —
+    /// same transaction always means the same lease content by protocol
+    /// definition, so this alone is a sufficient (and cheaper) change
+    /// check than comparing every field. `firstObservedAt` is stamped only
+    /// on a genuinely new row, which is what lets a poll that finds the
+    /// same lease unchanged (the overwhelmingly common case) leave the
+    /// renewal-overdue anchor untouched. Returns whether a new row was
+    /// inserted, and whether this is the very first lease ever observed
+    /// (so callers can skip logging a "changed" event when there's nothing
+    /// to compare against yet).
+    @discardableResult
+    func recordDHCPLeaseIfChanged(_ info: DHCPLeaseInfo) -> (changed: Bool, isFirstEver: Bool) {
+        let previous = latestDHCPLease()
+        guard previous?.transactionID != info.transactionID else { return (false, false) }
+        context.insert(DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt))
+        try? context.save()
+        return (true, previous == nil)
+    }
+
     /// What changed about an SNMP device since the last time it was polled.
     /// `uptimeTicks` is a 32-bit hundredths-of-a-second counter, so it wraps
     /// roughly every 497 days — a wrap looks exactly like a restart here and
