@@ -65,6 +65,8 @@ struct ContentView: View {
                     traceroute.run()
                 }
                 .disabled(traceroute.isRunning)
+                .accessibilityLabel("Trace Now")
+                .accessibilityHint("Runs a traceroute to find the path to the internet")
             }
 
             tracerouteSection
@@ -79,6 +81,8 @@ struct ContentView: View {
                     snmp.scan()
                 }
                 .disabled(snmp.isScanning || !snmp.isAvailable)
+                .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
+                .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
             }
 
             infrastructureList
@@ -97,10 +101,14 @@ struct ContentView: View {
                     publicIP.check()
                     wifiSSID.refresh(isWiFi: viewModel.currentInterface?.isWiFi ?? false)
                 }
+                .accessibilityLabel("Refresh")
+                .accessibilityHint("Re-reads network state, public IP and Wi-Fi network")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
+                .accessibilityLabel("Quit")
+                .accessibilityHint("Quits NMS")
             }
         }
         .padding(12)
@@ -401,6 +409,7 @@ struct ContentView: View {
                         .font(.system(size: 11))
                         .onSubmit { commitCommunity() }
                     Button("Set") { commitCommunity() }
+                        .accessibilityLabel("Set community strings")
                         .font(.system(size: 11))
                 }
                 Text("Comma-separated, tried in order — put the most common first.")
@@ -422,6 +431,8 @@ struct ContentView: View {
                 .font(.system(size: 10))
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .accessibilityLabel("Change community strings")
+                .accessibilityHint("Edits the SNMP community strings used for discovery")
             }
         }
     }
@@ -489,6 +500,8 @@ struct ContentView: View {
                 connectivity.runChecks()
             }
             .font(.system(size: 11))
+            .accessibilityLabel("Stop monitoring hop \(monitored.hopNumber)")
+            .accessibilityHint("Stops treating this hop as the ISP edge router")
         } else if let suggested = traceroute.suggestedEdgeHop {
             row("Suggested (unconfirmed)", suggested.hostname ?? suggested.address ?? "—")
             Text("Tap ★ next to the real ISP hop below to confirm — the first non-local hop isn't always right on networks with their own public IP space (e.g. campus/enterprise).")
@@ -558,6 +571,13 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(hop.address == nil)
+                // Icon-only, so there is no text for VoiceOver to fall back
+                // on — without this it announces only "button".
+                .accessibilityLabel(
+                    traceroute.monitoredHopNumber == hop.hopNumber
+                        ? "Monitored ISP edge router, hop \(hop.hopNumber)"
+                        : "Monitor hop \(hop.hopNumber) as ISP edge router"
+                )
             }
             .font(.system(size: 11))
         }
