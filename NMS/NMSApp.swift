@@ -305,6 +305,23 @@ struct NMSApp: App {
     /// opened (e.g. a corrupted database after a schema change), so a
     /// storage problem degrades to "history isn't saved this run" rather
     /// than the menu bar app failing to launch.
+    ///
+    /// **Explicit, app-specific store URL — not the SwiftData default.**
+    /// `ModelConfiguration(schema:)` with no `url:` resolves to a bare
+    /// `~/Library/Application Support/default.store` — a generic filename
+    /// with no per-app namespacing at all. Confirmed directly via `lsof`
+    /// that this app was NOT the only process on the Mac open on that
+    /// exact path: `/usr/libexec/icloudmailagent`, a completely unrelated
+    /// system daemon, had the same file open read/write at the same time,
+    /// apparently for the same reason (it also left its own store
+    /// unnamed). Two independent processes issuing SQLite writes/locks
+    /// against one physical file is a real collision, not a hypothetical
+    /// one — it produced a beachballed, genuinely unkillable (`kill -9`
+    /// had no effect) NMS process, consistent with the main thread wedged
+    /// in an uninterruptible wait on a contended file lock. Namespacing
+    /// under a dedicated `NMS/` subdirectory, matching the pattern already
+    /// used for `UIStateLogger`'s log file, makes this collision
+    /// structurally impossible rather than just unlikely.
     private static func makeModelContainer() -> ModelContainer {
         let schema = Schema([
             NetworkSnapshot.self,
@@ -318,8 +335,13 @@ struct NMSApp: App {
             BonjourDeviceRecord.self,
             SNMPDeviceRecord.self
         ])
+        let storeDirectory = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NMS", isDirectory: true)
+        try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let storeURL = storeDirectory.appendingPathComponent("default.store")
         do {
-            return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema)])
+            return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
         } catch {
             print("NMS: failed to open persistent store (\(error)); falling back to in-memory store")
             return try! ModelContainer(
