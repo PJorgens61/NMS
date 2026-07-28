@@ -12,7 +12,22 @@ struct LANDiscoveryService {
     func scan() throws -> [DiscoveredDevice] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/arp")
-        process.arguments = ["-a"]
+        // `-n` (numeric) is not cosmetic — it's what stops this call from
+        // hanging. Without it `arp` does a reverse lookup per ARP entry
+        // *inside the subprocess*, with no timeout anyone here can control.
+        // Caught in the act: a beachballed menu bar with the main thread
+        // blocked in `readDataToEndOfFile`, and the child `/usr/sbin/arp -a`
+        // still running after 3m48s — it had been started during a network
+        // transition and was stuck retrying PTR lookups (mDNS `.local`
+        // reverse queries have no fast negative answer, so a missing
+        // responder costs the full timeout, per entry).
+        //
+        // Same reasoning, and the same fix, as `TracerouteService` running
+        // with `-n`: never let a name lookup sit inside a call whose
+        // duration matters. Hostnames come back afterward via
+        // `ReverseDNSService`, which has a timeout of its own — see
+        // `LANDiscoveryViewModel.enrichHostnames`.
+        process.arguments = ["-n", "-a"]
 
         let stdout = Pipe()
         process.standardOutput = stdout

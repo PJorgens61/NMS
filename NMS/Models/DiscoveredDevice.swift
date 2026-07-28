@@ -11,7 +11,10 @@ struct DiscoveredDevice: Equatable, Codable, Identifiable {
 
     let ipAddress: String
     let macAddress: String?
-    let hostname: String?
+    /// `var`, unlike its siblings, for the same reason `TracerouteHop`'s is:
+    /// `arp -n` deliberately returns no names, so this gets filled in
+    /// afterward by `LANDiscoveryViewModel.enrichHostnames`.
+    var hostname: String?
     let interfaceName: String?
     let discoveredAt: Date
 }

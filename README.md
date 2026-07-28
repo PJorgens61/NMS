@@ -65,7 +65,7 @@ NMS/
 │   ├── Services/
 │   │   ├── SystemConfigurationService.swift  # Reads/observes network state
 │   │   ├── SnapshotStore.swift            # Reads/writes all persisted history
-│   │   ├── LANDiscoveryService.swift      # Enumerates LAN devices via `arp -a`
+│   │   ├── LANDiscoveryService.swift      # Enumerates LAN devices via `arp -n -a`
 │   │   ├── ConnectivityService.swift      # Pings a target via `/sbin/ping`
 │   │   ├── CorrelationService.swift       # Time-proximity failure/change matching
 │   │   ├── PublicIPService.swift          # Looks up WAN IP via api.ipify.org
@@ -250,10 +250,27 @@ expected during development, not a bug.
   default SwiftData application-support location; if it fails to open
   (e.g. after a schema change), the app falls back to an in-memory store
   for that run rather than failing to launch.
-- **LAN device discovery**: `LANDiscoveryService` shells out to `arp -a`
+- **LAN device discovery**: `LANDiscoveryService` shells out to `arp -n -a`
   and parses the kernel's ARP cache into `DiscoveredDevice` values
-  (IP, MAC, hostname when resolved, interface). This surfaces hosts the
+  (IP, MAC, hostname, interface). This surfaces hosts the
   Mac has already exchanged traffic with — it's not an active subnet scan.
+
+  **`-n` is load-bearing, and the scan runs off the main thread.** Both came
+  out of a real beachball: the menu bar hung with the main thread blocked in
+  `readDataToEndOfFile`, and the child `/usr/sbin/arp -a` still running after
+  nearly four minutes. Without `-n`, `arp` does a reverse lookup per entry
+  *inside the subprocess*, where nothing here can bound it — and mDNS
+  `.local` reverse queries have no fast negative answer, so a missing
+  responder costs a full timeout each. Started during a network transition,
+  that wedged indefinitely. Same failure mode, same fix as `TracerouteService`
+  running with `-n`. `LANDiscoveryViewModel.scan` also now dispatches to a
+  background queue rather than calling the service inline on `@MainActor`;
+  it was the only view model doing subprocess work synchronously on the main
+  thread, while SNMP, traceroute and connectivity all already dispatched.
+  Hostnames come back afterward through `ReverseDNSService` (which has its
+  own timeout) in `enrichHostnames`, mirroring the traceroute path —
+  verified end to end: a scan returns five devices unnamed, and enrichment
+  restores all five names, mDNS and `/etc/hosts` alike, within ~52ms.
   Results are de-duplicated by IP (the same device often appears once per
   local interface, and — confirmed against real output — the same MAC can
   legitimately appear at two different IPs briefly, e.g. an access point
