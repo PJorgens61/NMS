@@ -26,6 +26,10 @@ final class ConnectivityViewModel: ObservableObject {
     /// deferring it would silently reintroduce the up-to-30s gap this
     /// exists to close.
     private var recheckRequested = false
+    /// The previous round's `anyUnhealthy`, so `apply(_:)` can tell a fresh
+    /// transition into failure apart from an outage that's already been
+    /// detected and is just continuing.
+    private var wasUnhealthy = false
     private var timer: Timer?
 
     /// Labels of the infrastructure (SNMP) devices in the current round, so
@@ -165,14 +169,45 @@ final class ConnectivityViewModel: ObservableObject {
         let dnsService = self.dnsService
         let httpService = self.httpService
 
+        // The ping batch, the DNS probe and the HTTP fetch used to run one
+        // after another — pings, *then* DNS, *then* HTTP — so during a real
+        // outage each one's own timeout stacked on top of the last as pure
+        // serial dead time. Measured directly on a failing round: pings
+        // (parallel among themselves) took ~2.1s, then DNS's 2s timeout,
+        // then HTTP's 2s timeout, landing the round ~4s after the last ping
+        // had already finished. All three now start together instead —
+        // HTTP is kicked off immediately since it's genuinely `async` and
+        // costs nothing to start early; pings and DNS both block their own
+        // thread (`Process`/`waitUntilExit` and a semaphore-gated
+        // `getaddrinfo`, respectively) so each gets its own queue via a
+        // `DispatchGroup`, run concurrently with each other and with HTTP.
+        // Worst case is now whichever single one of the three is slowest,
+        // not the sum of all three.
+        let httpTask = Task { await Self.runHTTPCheck(httpService) }
+
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            var results = service.check(targets: targets)
-            results.append(Self.runDNSCheck(dnsService))
+            let group = DispatchGroup()
+            var pingResults: [ConnectivityCheck] = []
+            var dnsResult: ConnectivityCheck!
+
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                pingResults = service.check(targets: targets)
+                group.leave()
+            }
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                dnsResult = Self.runDNSCheck(dnsService)
+                group.leave()
+            }
+            group.wait()
+
+            var results = pingResults
+            results.append(dnsResult)
 
             Task { @MainActor in
                 guard let self else { return }
-                let httpResult = await Self.runHTTPCheck(httpService)
-                results.append(httpResult)
+                results.append(await httpTask.value)
                 self.apply(results)
             }
         }
@@ -216,6 +251,19 @@ final class ConnectivityViewModel: ObservableObject {
         // this to the fast interval indefinitely for something that isn't
         // a real outage.
         let anyUnhealthy = checks.contains { OverallStatus.criticalLabels.contains($0.label) && !$0.success }
+        // On the very first sign of trouble, don't even wait out the fast
+        // interval — every target is already checked together in one round,
+        // so "speed up detection" means re-running that whole round right
+        // away rather than 5s from now. This settles a full, current picture
+        // of the outage sooner (e.g. a device whose ARP/DNS state is
+        // momentarily stale right as the failure starts). Only on the
+        // transition into failure, not every round an outage continues —
+        // otherwise a real, ongoing outage would busy-loop at no delay
+        // instead of settling into the fast interval.
+        if anyUnhealthy, !wasUnhealthy {
+            recheckRequested = true
+        }
+        wasUnhealthy = anyUnhealthy
         scheduleNextCheck(after: anyUnhealthy ? Self.fastCheckInterval : Self.checkInterval)
         // Last, not first: mirrors `TracerouteViewModel.finishRun()` — the
         // round isn't really over until the next one is scheduled, and this

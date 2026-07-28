@@ -1082,6 +1082,37 @@ expected during development, not a bug.
   persisted address when the current trace didn't resolve one, rather than
   caching a second copy of it.
 
+  **The first sign of trouble now triggers an immediate recheck**, not just
+  a faster subsequent cadence. Every Network Health target was already
+  pinged together in one round; what "speed up detection" adds is that the
+  very first transition from healthy to unhealthy reuses the same
+  `recheckRequested`/`finishChecking()` deferred-rerun mechanism to re-run
+  that whole round again immediately, rather than waiting even the 5s fast
+  interval — settling a full, current picture of an outage sooner (e.g. a
+  device whose ARP/DNS state is momentarily stale right as a failure
+  starts). Scoped to the *transition* into failure, not every round an
+  outage continues, so a real, ongoing outage still settles into the fast
+  interval rather than busy-looping at no delay. Verified directly: fires
+  once on the transition into failure, doesn't refire while the outage
+  continues, and fires again on a fresh failure after a recovery.
+
+  **Pings, the DNS probe and the HTTP fetch now run concurrently**, not one
+  after another. Diagnosed from a real failing round's subprocess trace:
+  the pings (already parallel among themselves) finished at 49.700s, but
+  the round wasn't recorded until 53.743s — a measured 4.04s of pure serial
+  dead time from DNS's 2s timeout, then HTTP's 2s timeout, each running
+  only after the previous one finished. `HTTPCheckService`'s check is
+  genuinely `async`, so it's kicked off immediately, before the pings even
+  start; the ping batch and the DNS probe both block their own thread
+  (`Process`/`waitUntilExit`, and a semaphore-gated `getaddrinfo`
+  respectively) so each runs on its own queue via a small `DispatchGroup`,
+  concurrently with each other and with HTTP. Worst case for a round is now
+  whichever single one of the three is slowest, not their sum. Verified a
+  healthy round still includes real DNS/HTTP results (12.7ms/8.9ms) and
+  completes the round only ~4ms after the last ping, rather than the
+  ~20ms-plus a sequential healthy round would add — the difference is much
+  larger during a real outage, where DNS and HTTP would each otherwise be
+  timing out in turn.
 
   Once a hop is confirmed, the
   Path to
