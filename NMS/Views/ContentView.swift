@@ -746,7 +746,7 @@ struct ContentView: View {
             Text("No events yet — everything's healthy. Entries appear here when something changes (an outage or a recovery).")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-                .frame(height: 170, alignment: .top)
+                .frame(height: 136, alignment: .top)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -770,8 +770,10 @@ struct ContentView: View {
             // ScrollView shrink to fit however few rows currently exist,
             // which is why a single event looked identical to before.
             // Message and timestamp now share one row instead of two, so
-            // this is sized for ~10 single-line rows, not ~10 two-line ones.
-            .frame(height: 170)
+            // this is sized for ~8 single-line rows, not ~10 — trimmed by
+            // two rows' worth (~34pt) to fit the popover within an M1
+            // MacBook Air's shorter menu bar screen real estate.
+            .frame(height: 136)
         }
     }
 
