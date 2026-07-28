@@ -10,6 +10,15 @@ enum AppEventKind: String, Codable {
     case interfaceDown
     case interfaceUp
     case interfaceChanged
+    /// Moved between two named Wi-Fi networks. Deliberately distinct from
+    /// `interfaceChanged`, which only fires when the *physical* interface
+    /// changes (Ethernet ↔ Wi-Fi) — roaming from one SSID to another keeps
+    /// the same `en1`, so nothing in `NetworkInterfaceInfo` identifies it
+    /// and no event was logged at all. Confirmed against a real session
+    /// switching Thistle → ThistleGuest: the network changed subnet,
+    /// router and DNS server, and the only events were a generic
+    /// interfaceDown/interfaceUp pair that named neither network.
+    case wifiNetworkChanged
     case routerUnreachable
     case routerReachable
     case internetUnreachable
@@ -57,7 +66,7 @@ enum AppEventKind: String, Codable {
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
              .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable:
             return .negative
-        case .publicIPChanged, .interfaceChanged, .snmpDeviceSoftwareChanged:
+        case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged:
             return .neutral
         }
     }

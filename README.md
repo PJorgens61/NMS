@@ -620,7 +620,28 @@ expected during development, not a bug.
   Verified end-to-end on real hardware: prompt appeared, Allow was
   clicked, SSID resolved correctly afterward. `WiFiSSIDViewModel.refresh`
   runs at launch, after every observed topology change, and on manual
-  "Refresh." The "Info"
+  "Refresh."
+
+  **Moving between two Wi-Fi networks logs a `wifiNetworkChanged` event.**
+  This was previously invisible: `interfaceChanged` only fires when the
+  *physical* interface changes (Ethernet ↔ Wi-Fi), and roaming SSID-to-SSID
+  keeps the same `en1`, so nothing in `NetworkInterfaceInfo` identified it —
+  `handleObservedChange` persisted a snapshot and triggered scans but logged
+  no event at all. Confirmed against a real session switching Thistle →
+  ThistleGuest (which changed subnet, router *and* DNS server): the only
+  events were a generic interfaceDown/interfaceUp pair that named neither
+  network, and no event anywhere in the run mentioned either SSID.
+
+  Only genuine named-to-named moves are logged. Joining from nothing is
+  deliberately silent — `currentSSID` starts nil, so every launch on Wi-Fi
+  would otherwise log a "joined" event reporting no change — and the
+  Ethernet ↔ Wi-Fi direction is already covered by `interfaceChanged` on the
+  same handoff. Comparison is against the last *known* SSID rather than the
+  previous value of `currentSSID`, because that goes nil whenever Ethernet
+  takes over: Thistle → Ethernet → Thistle is correctly silent, while
+  Thistle → Ethernet → ThistleGuest is still reported. Verified against the
+  transition rules directly, including a replay of the real session above.
+  The "Info"
   section's top row shows, in order of preference: your manual label (if
   one is set some other way) → the live SSID (if on Wi-Fi and authorized)
   → the generic interface name.

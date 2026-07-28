@@ -39,7 +39,7 @@ struct NMSApp: App {
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
         let publicIP = PublicIPViewModel(snapshotStore: store)
-        let wifiSSID = WiFiSSIDViewModel()
+        let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let bonjourDiscovery = BonjourDiscoveryViewModel(snapshotStore: store)
