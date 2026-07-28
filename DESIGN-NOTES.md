@@ -429,34 +429,48 @@ whether the button itself needs a first-run confirmation/warning, or
 whether the "Run Speed Test" label is self-explanatory enough on its own,
 is an open UX question.
 
-### Open questions before implementing
+### Resolved — implemented
 
-- **Resolved:** Cloudflare's public endpoint is the chosen mechanism for
-  throughput — verified working, no hosting, no subprocess dependency. Open
-  underneath that decision:
-  - What byte count to request — a fixed constant (25MB was enough to move
-    off the clearly-wrong 1MB result on this network, but "enough" hasn't
-    been tested against a genuinely fast link) or adaptive sizing (probe
-    small, scale up based on the result)?
-  - How to bind the request to a specific interface on a multi-homed Mac —
-    `URLSession` has no direct equivalent to `networkQuality -I`. Worth
-    checking whether `URLSessionConfiguration` or a lower-level socket
-    option can do this before assuming it can't.
-  - Both directions every run (down + up), or download by default with
-    upload as a separate, explicit action?
-- Is `networkQuality` worth keeping at all for the RPM/bufferbloat signal,
-  given it now duplicates part of what the Cloudflare path also measures
-  (throughput) — or is throughput-via-Cloudflare-only enough, with RPM
-  dropped as a signal the app just doesn't provide?
-- If `networkQuality` is kept: `-s` (sequential, gets RPM, slower) vs.
-  default parallel (throughput only, faster) — decide the default,
-  possibly exposed as a toggle.
-- Minimal inline recent-runs list now, or defer historical comparison
-  entirely to the future general history view?
-- Does running the test need any user-facing warning about data usage, or
-  is the button label enough?
-- Is a cancel affordance worth building given the worst-case wait either
-  way, or is letting it run to completion (or a safety cap) acceptable?
+Every open question above was decided in favor of the narrower scope: the
+Cloudflare throughput path only, nothing from `networkQuality`.
+
+- **Byte count:** fixed 25MB, both directions, no adaptive sizing —
+  simplest option that already cleared the "not just TLS handshake
+  overhead" bar found above. Revisit only if real usage shows it
+  under/over-shoots badly at one end.
+- **Interface binding:** not solved — `URLSession` genuinely has no direct
+  equivalent to `-I`, and building one (packet-level socket options,
+  `Network.framework`) was judged a bigger lift than this feature
+  warranted. Accepted limitation, called out in
+  `NetworkQualityService`'s doc comment.
+- **Both directions every run**, sequentially — never concurrently:
+  running download and upload at once would have them contend for the
+  same pipe and understate both numbers, which defeats the point of a
+  speed test. Costs more wall-clock time per run than parallel would,
+  traded for numbers that are actually trustworthy.
+- **`networkQuality` dropped entirely** — this app now measures
+  throughput only, no RPM/bufferbloat signal. Narrower than the original
+  proposal, but matches what was actually asked for; `networkQuality`
+  remains a candidate to add later if the RPM signal turns out to matter.
+- **Minimal inline recent-runs list**, mirroring `DHCPLeaseViewModel`'s
+  history pattern (which didn't exist yet when this section was
+  originally written, and turned out to be the right precedent): a
+  size-to-fit list when there are few runs, a fixed-height scroll once
+  there are more than fit. Ended up living inside its own tile in the
+  Network Health/Info/Path to Internet grid rather than a full-width
+  section — it filled the grid's one empty cell, and one line per run
+  ("↓ 765 Mbps  ↑ 173 Mbps" plus a time-only timestamp) turned out to
+  fit that half-width fine once measured directly, no two-line wrap
+  needed despite DHCP History needing exactly that fix at the same
+  width class.
+- **No warning dialog** — an always-visible "~50MB per run" label at the
+  top of the tile, plus a data-usage line in the button's accessibility
+  hint, instead of a confirmation step. Matches how "Scan" and "Trace
+  Now" already work.
+- **No cancel affordance** — a 45s request timeout (mirroring
+  `networkQuality`'s own `-M 45`) is the only safety net. Real usage on a
+  fast connection made this moot in practice: every verified run finished
+  in well under a second per direction.
 
 ## Latency history sparklines
 

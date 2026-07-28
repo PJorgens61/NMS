@@ -109,14 +109,43 @@ NMS/
 
 The popover is arranged top to bottom as: **Network Health**, **Info**
 (the interface/IP/subnet/router/public-IP details — this section used to
-be titled "NMS"), **Events**, **Path to Internet**, **SNMP Devices**
-(this section was originally titled "Infrastructure"), then Refresh/Quit.
-There's no separate Connectivity
-section anymore — its raw IP-layer check was folded into Network Health,
-and the rest of what it showed was already covered there too. The
-scrollable list for Path to Internet is deliberately short (60px, ~3
-visible rows) to leave room for everything else to fit in the popover's
-limited vertical space.
+be titled "NMS"), **Path to Internet**, and **Speed Test**, tiled in a
+2-column grid (each its own bordered box — see "Popover layout: tiled
+short sections" below) since the first three are short label/value lists
+that looked sparse stretched across the full popover width, and Speed
+Test's own content (a data-cost note plus a handful of Mbps/timestamp
+rows) fit the same half-width shape well; then, full-width below the
+grid, **DHCP History**, **Events**, and **SNMP Devices** (this section
+was originally titled "Infrastructure"), then Refresh/Quit. There's no
+separate Connectivity section anymore — its raw IP-layer check was
+folded into Network Health, and the rest of what it showed was already
+covered there too. The scrollable list for Path to Internet is
+deliberately short (60px, ~3 visible rows) to leave room for everything
+else to fit in the popover's limited vertical space.
+
+**Popover layout: tiled short sections.** Widening the popover for the
+DHCP History section (see below) left Network Health, Info, and Path to
+Internet with wide, pointless gaps between labels and values — short
+content stretched across a now-much-wider popover. `ContentView.tile(
+title:trailing:content:)` wraps each in a bordered box (`RoundedRectangle`
+`.strokeBorder`, replacing the plain `Divider()` those three used to sit
+between), arranged via a 2-column `LazyVGrid`
+(`ContentView.tileColumns`). Three tiles in a 2-column grid initially left
+the second cell of the second row empty; Speed Test (added afterward)
+filled it directly rather than becoming its own full-width section,
+confirming the empty cell really was a ready-made slot and not just
+incidental. Its rows needed their own pass to fit that half-width,
+though: a first attempt wrapped each run to two lines (mirroring DHCP
+History's fix for the same squeeze), but turned out to be overcautious —
+"↓ 765 Mbps  ↑ 173 Mbps" plus a time-only (no date) timestamp fits one
+line at this tile's width fine, confirmed directly against a real
+screenshot rather than assumed either time. The popover's own width
+(`.frame(width: 560)`) went through two more values before landing here:
+335pt originally, then 670pt for a first attempt at showing a DHCP
+lease's full detail as one unbroken line, then back down to 560pt once
+that line wrapped to two instead (its width need dropped from
+~950-1000pt to ~440pt) — 670pt at that point was just carrying 670pt's
+worth of dead space for no reason.
 
 **LAN Devices and Bonjour Devices are hidden** (their view code was
 removed, not just collapsed) — even after every other space-saving pass
@@ -641,6 +670,36 @@ expected during development, not a bug.
   an absolute grant timestamp; a renewal that succeeds on schedule resets
   this anchor before the deadline is ever reached, so a healthy renewal
   never falsely alarms.
+- **Speed Test**: `NetworkQualityService` measures throughput against
+  Cloudflare's public speed-test backend (the same one behind
+  speed.cloudflare.com) — plain `URLSession` HTTPS GET/POST, no account,
+  no hosting, no subprocess. Verified directly before choosing a payload
+  size: a 1MB download measured ~104 Mbps against a 25MB download's ~725
+  Mbps on the same network at the same moment — a transfer that small
+  finishes before TCP slow-start ramps up, so it mostly measures TLS
+  handshake overhead, not sustained capacity. 25MB (both directions) is
+  the minimum that produced a believable number. Download and upload run
+  **sequentially, never concurrently** — running both at once would have
+  them contend for the same pipe and understate both numbers, defeating
+  the point of a speed test.
+
+  Deliberately narrower than Apple's bundled `networkQuality` CLI (which
+  also measures RPM/bufferbloat under load): this app measures throughput
+  only, trading that signal away for no subprocess/macOS-version
+  dependency. `NetworkQualityViewModel` has no timer and no automatic
+  trigger of any kind, unlike every other view model in this app —
+  `run()` only ever fires from the popover's "Run Speed Test" button,
+  since a run costs a real, sizable transfer (~50MB round trip). A small
+  "~50MB per run" label sits at the top of the Speed Test tile as an
+  always-visible data-cost indicator instead of a confirmation dialog,
+  the same low-friction pattern "Scan" and "Trace Now" already use.
+  `NetworkQualityRecord` is
+  persisted unconditionally per run (not "if changed" like `PublicIPRecord`/
+  `DHCPLeaseRecord`) — every run is an intentional data point to compare
+  against past ones, not a change to detect. Explored in full, including
+  the two implementation candidates and the payload-size measurements
+  above, in DESIGN-NOTES.md's "Network Quality" section before this was
+  written.
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as

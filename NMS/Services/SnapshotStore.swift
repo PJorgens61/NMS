@@ -174,6 +174,23 @@ final class SnapshotStore {
         return (true, previous == nil)
     }
 
+    /// Unconditional insert, unlike every other "record" method here —
+    /// every speed-test run is an intentional, standalone data point the
+    /// user wants to compare against past ones, not a change to dedupe
+    /// against. See `NetworkQualityResult`.
+    func recordNetworkQualityResult(_ result: NetworkQualityResult) {
+        context.insert(NetworkQualityRecord(from: result))
+        try? context.save()
+    }
+
+    func fetchNetworkQualityHistory(limit: Int = 10) -> [NetworkQualityRecord] {
+        var descriptor = FetchDescriptor<NetworkQualityRecord>(
+            sortBy: [SortDescriptor(\.testedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     /// What changed about an SNMP device since the last time it was polled.
     /// `uptimeTicks` is a 32-bit hundredths-of-a-second counter, so it wraps
     /// roughly every 497 days — a wrap looks exactly like a restart here and

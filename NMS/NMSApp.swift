@@ -19,6 +19,7 @@ struct NMSApp: App {
     @StateObject private var networkIdentity: NetworkIdentityViewModel
     @StateObject private var publicIP: PublicIPViewModel
     @StateObject private var dhcpLease: DHCPLeaseViewModel
+    @StateObject private var networkQuality: NetworkQualityViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
@@ -52,6 +53,10 @@ struct NMSApp: App {
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
         let publicIP = PublicIPViewModel(snapshotStore: store)
         let dhcpLease = DHCPLeaseViewModel(snapshotStore: store, networkMonitor: networkMonitor)
+        // No wiring into `wireDependencies` below, and no timer of its
+        // own — deliberately never triggered automatically. See
+        // `NetworkQualityViewModel`'s own doc comment.
+        let networkQuality = NetworkQualityViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
@@ -91,6 +96,7 @@ struct NMSApp: App {
         _networkIdentity = StateObject(wrappedValue: networkIdentity)
         _publicIP = StateObject(wrappedValue: publicIP)
         _dhcpLease = StateObject(wrappedValue: dhcpLease)
+        _networkQuality = StateObject(wrappedValue: networkQuality)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
@@ -266,6 +272,7 @@ struct NMSApp: App {
                 networkIdentity: networkIdentity,
                 publicIP: publicIP,
                 dhcpLease: dhcpLease,
+                networkQuality: networkQuality,
                 wifiSSID: wifiSSID,
                 eventLog: eventLog,
                 traceroute: traceroute,
@@ -330,6 +337,7 @@ struct NMSApp: App {
             KnownNetwork.self,
             PublicIPRecord.self,
             DHCPLeaseRecord.self,
+            NetworkQualityRecord.self,
             AppEventRecord.self,
             ProviderEdgeRecord.self,
             BonjourDeviceRecord.self,

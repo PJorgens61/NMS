@@ -7,6 +7,7 @@ struct ContentView: View {
     @ObservedObject var networkIdentity: NetworkIdentityViewModel
     @ObservedObject var publicIP: PublicIPViewModel
     @ObservedObject var dhcpLease: DHCPLeaseViewModel
+    @ObservedObject var networkQuality: NetworkQualityViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
@@ -52,6 +53,20 @@ struct ContentView: View {
                     .accessibilityHint("Runs a traceroute to find the path to the internet")
                 }) {
                     tracerouteSection
+                }
+                // Fills the empty second cell Path to Internet leaves
+                // behind in a 3-tile, 2-column grid — the exact "ready-
+                // made slot for the next tile" the grid comment above
+                // anticipated.
+                tile(title: "Speed Test", trailing: {
+                    Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
+                        networkQuality.run()
+                    }
+                    .disabled(networkQuality.isRunning)
+                    .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
+                    .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, roughly 50MB total.")
+                }) {
+                    speedTestTileContent
                 }
             }
 
@@ -572,6 +587,71 @@ struct ContentView: View {
                     .truncationMode(.middle)
             }
         }
+    }
+
+    /// The "Speed Test" tile's full content: the data-cost note (moved
+    /// here from the header once the button moved into the tile's
+    /// trailing slot, matching Path to Internet's "Trace Now"), any
+    /// error, then the recent-runs list.
+    @ViewBuilder
+    private var speedTestTileContent: some View {
+        Text("~50MB per run")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+        speedTestList
+        if let error = networkQuality.lastError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
+        }
+    }
+
+    /// Every real speed-test run, newest first — a genuine time series
+    /// (see `NetworkQualityResult`), not a change-log, so unlike DHCP
+    /// History every run gets a row regardless of whether the numbers
+    /// differ from the last one. Same size-to-fit-else-scroll threshold
+    /// as `dhcpHistoryList`: a fixed-height `ScrollView` only earns its
+    /// keep once there are actually more rows than comfortably fit.
+    @ViewBuilder
+    private var speedTestList: some View {
+        if networkQuality.recentRuns.isEmpty {
+            Text(networkQuality.isRunning ? "Testing…" : "No speed test run yet")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else if networkQuality.recentRuns.count > 3 {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    speedTestRows
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 90)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                speedTestRows
+            }
+        }
+    }
+
+    /// One line per run: unlike DHCP History's secondary line, "↓ 765
+    /// Mbps  ↑ 173 Mbps" plus a time-only (no date) timestamp is short
+    /// enough to fit this tile's half-width comfortably — confirmed
+    /// directly against a real screenshot rather than assumed from the
+    /// two-line version tried first.
+    private var speedTestRows: some View {
+        ForEach(networkQuality.recentRuns) { run in
+            HStack {
+                Text("↓ \(Self.mbpsText(run.downloadMbps))  ↑ \(Self.mbpsText(run.uploadMbps))")
+                Spacer()
+                Text(run.testedAt, format: .dateTime.hour().minute())
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 12))
+        }
+    }
+
+    private static func mbpsText(_ value: Double) -> String {
+        String(format: "%.0f Mbps", value)
     }
 
     /// First line: server and assigned address/CIDR — the two fields
