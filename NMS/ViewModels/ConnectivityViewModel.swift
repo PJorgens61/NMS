@@ -245,12 +245,17 @@ final class ConnectivityViewModel: ObservableObject {
         lastCheckedAt = Date()
         logTransitions(previous: previous, current: checks)
 
-        // Scoped to router/internet/DNS/HTTP specifically (the ones Network
-        // Health actually shows) — not the LAN device checks also in
-        // `checks`, since a single sleeping/offline LAN device could pin
-        // this to the fast interval indefinitely for something that isn't
-        // a real outage.
-        let anyUnhealthy = checks.contains { OverallStatus.criticalLabels.contains($0.label) && !$0.success }
+        // Router/internet/DNS/HTTP (the ones Network Health actually shows)
+        // plus infrastructure (SNMP-confirmed) devices — a managed switch or
+        // AP going quiet is a real event worth the fast cadence too, unlike
+        // the arbitrary "first 2 ARP entries" this used to consider before
+        // `buildTargets` switched to SNMP-confirmed infrastructure targets
+        // (see the comment there): those were dropped deliberately, since a
+        // single sleeping/offline random host could pin this to the fast
+        // interval indefinitely for something that isn't a real outage.
+        let anyUnhealthy = checks.contains {
+            (OverallStatus.criticalLabels.contains($0.label) || infrastructureLabels.contains($0.label)) && !$0.success
+        }
         // On the very first sign of trouble, don't even wait out the fast
         // interval — every target is already checked together in one round,
         // so "speed up detection" means re-running that whole round right
