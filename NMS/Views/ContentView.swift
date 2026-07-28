@@ -11,6 +11,9 @@ struct ContentView: View {
     @ObservedObject var traceroute: TracerouteViewModel
     @ObservedObject var bonjourDiscovery: BonjourDiscoveryViewModel
     @ObservedObject var snmp: SNMPViewModel
+    /// Not `@ObservedObject` — a plain value computed once at launch (see
+    /// `NMSApp`), not something that changes while the popover is open.
+    let buildInfo: BuildInfoService.Info?
 
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false
@@ -109,6 +112,19 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Quit")
                 .accessibilityHint("Quits NMS")
+            }
+
+            if let buildInfo {
+                // Secondary, unobtrusive — this answers "which commit am I
+                // running" (for a single-developer tool, easy to lose track
+                // of after a few Cmd+R's), not a feature anyone needs to
+                // look at day to day.
+                Text("Build \(buildInfo.shortHash)\(buildInfo.isDirty ? "+" : "")")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel(
+                        "Build \(buildInfo.shortHash)\(buildInfo.isDirty ? ", with uncommitted changes" : "")"
+                    )
             }
         }
         .padding(12)

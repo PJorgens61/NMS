@@ -30,10 +30,21 @@ struct NMSApp: App {
     // deallocated as soon as `init()` returned, leaving `mainContext`
     // pointing at a dead container and crashing on the first later fetch.
     private let modelContainer: ModelContainer
+    /// Computed once at launch, not a `@Published`/computed-in-`body`
+    /// property — `body` re-evaluates on every network change, and this
+    /// shells out to `git`, so it belongs alongside `modelContainer` as a
+    /// plain constant rather than being recomputed on every re-render.
+    private let buildInfo: BuildInfoService.Info?
 
     init() {
         let container = Self.makeModelContainer()
         modelContainer = container
+        let buildInfo = BuildInfoService.current()
+        self.buildInfo = buildInfo
+        UIStateLogger.log(
+            "App.build",
+            buildInfo.map { "\($0.shortHash)\($0.isDirty ? "+dirty" : "") — \($0.subject)" } ?? "unknown"
+        )
         let store = SnapshotStore(context: container.mainContext)
         let networkMonitor = NetworkMonitorViewModel(snapshotStore: store)
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
@@ -248,7 +259,8 @@ struct NMSApp: App {
                 eventLog: eventLog,
                 traceroute: traceroute,
                 bonjourDiscovery: bonjourDiscovery,
-                snmp: snmp
+                snmp: snmp,
+                buildInfo: buildInfo
             )
         } label: {
             Image(nsImage: Self.statusIcon(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color))

@@ -81,7 +81,8 @@ NMS/
 │   │   ├── OverallStatus.swift            # Menu bar severity: normal/marginal/critical
 │   │   ├── BonjourDiscoveryService.swift  # Browses/resolves Bonjour (mDNS) services
 │   │   ├── UIStateLogger.swift            # DEBUG-only log of every value pushed into the UI
-│   │   └── SubprocessTracer.swift         # DEBUG-only trace of every shelled-out command
+│   │   ├── SubprocessTracer.swift         # DEBUG-only trace of every shelled-out command
+│   │   └── BuildInfoService.swift         # Reads git HEAD from the known checkout for the popover footer
 │   ├── ViewModels/
 │   │   ├── NetworkMonitorViewModel.swift  # Bridges SystemConfigurationService -> SwiftUI
 │   │   ├── LANDiscoveryViewModel.swift    # Bridges LANDiscoveryService -> SwiftUI
@@ -1321,6 +1322,26 @@ momentarily stale.
    would populate it with devices that haven't been talked to recently,
    complementing Bonjour discovery (which only finds devices that
    advertise a service, not silent ones).
+
+## Build identification
+
+The popover's footer shows `Build <short hash>`, with a trailing `+` if the
+checkout has uncommitted changes at launch (e.g. `Build 78b8296+`).
+`BuildInfoService` reads this by shelling out to `git -C ~/Developer/NMS`
+at launch — a build-time stamp (an Xcode Run Script phase writing a
+generated Swift file) would be more correct in general, but this project
+only ever runs on the machine it was just built on via Cmd+R, so "current
+checkout state at launch" and "what got compiled" are the same thing in
+practice here, without adding a build phase to a project that just had its
+build-file duplication cleaned up.
+
+The hardcoded path is a deliberate, narrow limitation: this only ever runs
+against this one checkout. If the repo moves, or this ships anywhere else,
+`current()` degrades to `nil` (hidden in the UI) rather than showing stale
+or wrong data.
+
+Also logged to the UI state log at launch as `App.build`, so a build can be
+identified from the log alone without needing the popover open.
 
 ## Notes on sandboxing
 
