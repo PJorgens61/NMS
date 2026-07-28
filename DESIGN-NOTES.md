@@ -1468,3 +1468,54 @@ reconciliation rather than an identity computed fresh on every sighting.
 - None of this touches VRRP: AP1 at `10.0.0.16` and `10.0.0.17` is one
   device at two addresses on the *same* network, so no amount of network
   tagging separates them. See "Classical dual-router VRRP identity."
+
+## Deferred Wi-Fi/link telemetry
+
+BSSID and the router's fingerprint (its MAC) are now shown in the Info
+section, since both are cheap, already-available identity facts. A larger
+set of telemetry was considered alongside them and deliberately deferred —
+none of it is identity, it's signal quality and link characteristics, and
+the popover's Info section is already tight on vertical space (it's a fixed
+list in a fixed-height window, not a scrollable table).
+
+- **RSSI / signal strength** — `CWInterface.rssiValue()` and
+  `noiseMeasurement()`, giving both signal and an SNR estimate. The obvious
+  next thing to show, but it changes constantly (unlike SSID/BSSID, which
+  are stable between roams), so displaying it raises its own question: is a
+  point-in-time reading useful, or does it want a small history/sparkline to
+  mean anything? That's more UI than a single `row(...)` line.
+- **Wi-Fi channel/band** — `CWInterface.wlanChannel()`, which also implies
+  the band (2.4/5/6 GHz) via `CWChannelBand`. Useful for diagnosing
+  congestion or a bad roam to a crowded channel, but only actionable to
+  someone who'd also want to see RSSI alongside it.
+- **Negotiated PHY rate** — `CWInterface.transmitRate()` (Mbps). Read
+  alongside the two above, since a low rate on strong RSSI is itself a
+  useful signal, not something either one shows alone.
+- **Security type** — `CWInterface.security()`. Low cost to add, but low
+  value on a network the user already knows the security of; probably only
+  worth showing if it changes unexpectedly (e.g. an AP silently downgrading
+  from WPA3 to WPA2), which would want to be an *event*, not a static row.
+- **Ethernet link speed** — not read anywhere today; would need
+  `IOKit`/`ifconfig`-level lookup rather than CoreWLAN, since it's a
+  different interface family entirely. Parallels PHY rate on the Wi-Fi side
+  (a negotiated-speed sanity check — "am I actually getting gigabit").
+- **DHCP lease detail** — server identifier, lease time, renewal state, via
+  `ipconfig getpacket <if>`. Already noted under "Per-network device
+  scoping" above as a possible identity signal for the 2-of-3 fingerprint;
+  as *displayed* info it would also answer "how long until this address
+  might change," which the current design notes don't cover as a UI
+  question, only an identity one.
+
+### Open questions before implementing
+
+- Do RSSI/channel/PHY-rate belong together as one addition, or is RSSI
+  alone the minimum viable version? They come from the same `CWInterface`
+  lookup already made for BSSID, so the marginal engineering cost of all
+  three is small — the real cost is popover space and whether a static
+  snapshot of a constantly-changing value is worth showing at all.
+- Does a "show more" disclosure (a `DisclosureGroup` under Info) solve the
+  space problem better than adding rows outright, given more of this is
+  diagnostic depth than everyday-glance info?
+- Is Ethernet link speed worth the different code path (IOKit vs CoreWLAN)
+  for one more row, or does it wait until there's a broader Ethernet-side
+  feature to justify the investment?

@@ -646,6 +646,24 @@ expected during development, not a bug.
   section's top row shows, in order of preference: your manual label (if
   one is set some other way) → the live SSID (if on Wi-Fi and authorized)
   → the generic interface name.
+
+  **BSSID and router fingerprint**: on Wi-Fi, `WiFiSSIDService.currentInfo()`
+  reads the associated access point's own MAC address (`bssid()`) from the
+  same `CWInterface` lookup used for the SSID — one call, so the two can't
+  describe two different moments if the association changes in between. The
+  Info section shows it as its own "BSSID" row, only when on Wi-Fi and a
+  value is available (no dash-fallback row on Ethernet, to avoid clutter for
+  a Wi-Fi-only property). Separately, the "Router" row now appends the
+  gateway's MAC in parentheses — `192.168.1.1 (a1:b2:c3:...)` — sourced from
+  `KnownNetwork.fingerprint`, the same value network recognition already
+  uses as identity, once a LAN scan has resolved it this session; before
+  that (or on a router whose MAC isn't yet known) the row still just shows
+  the plain IP. Together these make a VRRP-style AP/router swap at an
+  unchanged IP/SSID visible without cross-referencing the SNMP device list.
+  Other Wi-Fi telemetry (RSSI, channel/band, PHY rate, security type) and
+  Ethernet link speed/DHCP lease detail were considered alongside this and
+  deliberately deferred — see "Deferred Wi-Fi/link telemetry" in
+  `DESIGN-NOTES.md`.
 - **Event log**: `AppEventRecord` is a narrow, curated timeline — five bad
   states (`interfaceDown`, `routerUnreachable`, `internetUnreachable`,
   `dnsUnreachable`, `httpUnreachable`), each paired with a recovery

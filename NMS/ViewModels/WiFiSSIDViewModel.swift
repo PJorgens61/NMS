@@ -6,6 +6,12 @@ final class WiFiSSIDViewModel: ObservableObject {
     @Published private(set) var currentSSID: String? {
         didSet { UIStateLogger.log("WiFiSSIDViewModel.currentSSID", currentSSID as Any) }
     }
+    /// The associated access point's MAC address — shown so a VRRP-style
+    /// AP pair sharing one SSID can be told apart at a glance, without
+    /// cross-referencing the SNMP device list.
+    @Published private(set) var currentBSSID: String? {
+        didSet { UIStateLogger.log("WiFiSSIDViewModel.currentBSSID", currentBSSID as Any) }
+    }
 
     private let ssidService = WiFiSSIDService()
     private let authService = LocationAuthorizationService()
@@ -34,6 +40,7 @@ final class WiFiSSIDViewModel: ObservableObject {
     func refresh(isWiFi: Bool) {
         guard isWiFi else {
             currentSSID = nil
+            currentBSSID = nil
             return
         }
         authService.requestAuthorization { [weak self] in
@@ -42,9 +49,10 @@ final class WiFiSSIDViewModel: ObservableObject {
             // @Published state.
             Task { @MainActor in
                 guard let self else { return }
-                let ssid = self.ssidService.currentSSID()
-                self.currentSSID = ssid
-                self.logNetworkChangeIfNeeded(to: ssid)
+                let info = self.ssidService.currentInfo()
+                self.currentSSID = info.ssid
+                self.currentBSSID = info.bssid
+                self.logNetworkChangeIfNeeded(to: info.ssid)
             }
         }
     }

@@ -33,8 +33,11 @@ struct ContentView: View {
             if let info = viewModel.currentInterface {
                 VStack(alignment: .leading, spacing: 2) {
                     row("Network", networkDisplay(info))
+                    if info.isWiFi, let bssid = wifiSSID.currentBSSID {
+                        row("BSSID", bssid)
+                    }
                     row("IP Address", ipAddressDisplay(info))
-                    row("Router", info.routerAddress ?? "—")
+                    row("Router", routerDisplay(info))
                     row("DNS Server", info.dnsServer ?? "—")
                     row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
                 }
@@ -654,6 +657,18 @@ struct ContentView: View {
         let name = (label?.isEmpty == false ? label : nil) ?? wifiSSID.currentSSID
         guard let name else { return type }
         return "\(name) \(type)"
+    }
+
+    /// Appends the router's MAC address (its `KnownNetwork` fingerprint, the
+    /// same value used to recognize the network at all) in parentheses when
+    /// it's already known, so a router swap or a VRRP failover between two
+    /// physical boxes at the same IP is visible without cross-referencing
+    /// the SNMP device list. Falls back to the bare IP before the first LAN
+    /// scan of this session has recognized the network.
+    private func routerDisplay(_ info: NetworkInterfaceInfo) -> String {
+        guard let ip = info.routerAddress else { return "—" }
+        guard let fingerprint = networkIdentity.currentNetwork?.fingerprint else { return ip }
+        return "\(ip) (\(fingerprint))"
     }
 
     /// IP address and subnet mask combined into one CIDR-notation row
