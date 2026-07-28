@@ -342,11 +342,47 @@ struct ContentView: View {
         check.success ? String(format: "%.0f ms", check.latencyMs ?? 0) : "unreachable"
     }
 
+    /// Live reachability for one SNMP device, straight from this round's
+    /// `ConnectivityViewModel.checks` rather than anything SNMP itself
+    /// reports — `poll()` only runs every 60s and answers a different
+    /// question (did the descriptor/uptime change), so it lags well behind
+    /// the 5s-capable ping check during and right after an outage. Matched
+    /// by `displayName`, the same label `ConnectivityViewModel.buildTargets`
+    /// files the ping result under — except the router: `buildTargets`
+    /// deliberately excludes the router's own SNMP entry from the
+    /// "infrastructure" targets (to avoid pinging it twice) and instead
+    /// checks it once under the fixed `OverallStatus.routerLabel` ("Router"),
+    /// which never equals its SNMP `displayName` (its `sysName`, e.g.
+    /// "router"). Recognized by IP against the current interface's router
+    /// address instead. `nil` (not yet checked this session, e.g. right
+    /// after a fresh scan) reads as unknown/gray, not down.
+    private func deviceReachability(_ device: SNMPDevice) -> LayerStatus {
+        let label = device.ipAddress == viewModel.currentInterface?.routerAddress
+            ? OverallStatus.routerLabel
+            : device.displayName
+        guard let check = connectivity.checks.first(where: { $0.label == label }) else {
+            return .unknown
+        }
+        return check.success ? .healthy : .unhealthy
+    }
+
+    private func deviceStatusColor(_ status: LayerStatus) -> Color {
+        switch status {
+        case .healthy: return .green
+        case .unknown: return .gray
+        case .unhealthy: return .red
+        }
+    }
+
     /// SNMP-discovered infrastructure: each row is name + software
     /// descriptor + uptime, since those are what identify the device and
-    /// reveal a restart. Reachability isn't shown here — these devices are
-    /// ping-monitored via `ConnectivityViewModel`, and a failure surfaces
-    /// as an Events entry rather than a second status column.
+    /// reveal a restart. The leading dot is live reachability (see
+    /// `deviceReachability`) — added because a device that restarted and
+    /// already recovered could otherwise only be told apart from one that's
+    /// still down by reading Events log ordering, which can itself lag (the
+    /// slower SNMP-restart detection can log *after* the ping-based
+    /// recovery for the same episode). This dot answers "is it up right
+    /// now" directly instead.
     @ViewBuilder
     private var infrastructureList: some View {
         if !snmp.isAvailable {
@@ -363,6 +399,9 @@ struct ContentView: View {
                     ForEach(snmp.devices) { device in
                         VStack(alignment: .leading, spacing: 0) {
                             HStack {
+                                Circle()
+                                    .fill(deviceStatusColor(deviceReachability(device)))
+                                    .frame(width: 8, height: 8)
                                 Text(device.displayName)
                                     .lineLimit(1)
                                     .truncationMode(.middle)

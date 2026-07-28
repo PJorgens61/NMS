@@ -752,6 +752,22 @@ expected during development, not a bug.
   no "device discovered" event: the first sweep would log one per device
   and flood a 10-row event list with things that aren't changes.
 
+  **Live reachability dot, not just Events.** Each device row in the SNMP
+  Devices list carries a small colored dot (green/red/gray, matching the
+  Network Health rows), sourced from `ConnectivityViewModel.checks` and
+  matched by `displayName` (`ContentView.deviceReachability`) — the same
+  ping data driving the Events log, just read directly instead of inferred
+  from log order. That distinction matters because the two subsystems that
+  report on a device can disagree about *when* to speak: the ping check can
+  detect a recovery within 5s, while `poll()`'s restart detection only
+  fires on its own 60s cadence and can log `snmpDeviceRestarted` *after*
+  the matching `infrastructureReachable` recovery event for the same
+  episode — confirmed directly from a real log, an 11-second gap between
+  "BrotherLaserPrinter reachable again" and "BrotherLaserPrinter restarted
+  unexpectedly" for one blip. Read by Events order alone, that looks like a
+  fresh problem; the dot answers "is it up right now" without needing to
+  interpret which event logged last.
+
   **Sweep safety.** `SubnetCalculator` refuses to enumerate anything
   larger than 512 hosts (`maxSweepHosts`), so a /24 (254) and /23 (510)
   sweep but a /22 or /16 returns `nil` and falls back to known addresses
