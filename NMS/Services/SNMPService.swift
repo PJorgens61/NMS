@@ -75,14 +75,17 @@ struct SNMPService {
         process.standardOutput = stdout
         process.standardError = Pipe()
 
+        let trace = SubprocessTracer.begin(process.executableURL!.path, process.arguments ?? [])
         do {
             try process.run()
         } catch {
+            SubprocessTracer.end(trace, exitCode: nil, byteCount: 0)
             return nil
         }
 
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        SubprocessTracer.end(trace, exitCode: process.terminationStatus, byteCount: data.count)
         guard process.terminationStatus == 0 else { return nil }
 
         let lines = (String(data: data, encoding: .utf8) ?? "")

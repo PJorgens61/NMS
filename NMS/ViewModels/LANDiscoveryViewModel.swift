@@ -3,7 +3,12 @@ import Combine
 
 @MainActor
 final class LANDiscoveryViewModel: ObservableObject {
-    @Published private(set) var devices: [DiscoveredDevice] = []
+    /// Instrumented so the `arp -n` + async-enrichment change is verifiable
+    /// from the log: hostnames now arrive *after* the scan rather than with
+    /// it, which is exactly the kind of thing worth being able to confirm.
+    @Published private(set) var devices: [DiscoveredDevice] = [] {
+        didSet { UIStateLogger.log("LANDiscoveryViewModel.devices", devices) }
+    }
     @Published private(set) var lastScanAt: Date?
     @Published private(set) var lastError: String?
 

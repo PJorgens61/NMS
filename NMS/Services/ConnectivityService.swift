@@ -29,14 +29,17 @@ struct ConnectivityService {
         process.standardOutput = stdout
         process.standardError = Pipe()
 
+        let trace = SubprocessTracer.begin(process.executableURL!.path, process.arguments ?? [])
         do {
             try process.run()
         } catch {
+            SubprocessTracer.end(trace, exitCode: nil, byteCount: 0)
             return ConnectivityCheck(label: target.label, target: target.host, success: false, latencyMs: nil, checkedAt: checkedAt)
         }
 
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        SubprocessTracer.end(trace, exitCode: process.terminationStatus, byteCount: data.count)
 
         let output = String(data: data, encoding: .utf8) ?? ""
         let latencyMs = Self.parseLatency(output)

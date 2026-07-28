@@ -3,7 +3,9 @@ import Combine
 
 @MainActor
 final class NetworkMonitorViewModel: ObservableObject {
-    @Published private(set) var currentInterface: NetworkInterfaceInfo?
+    @Published private(set) var currentInterface: NetworkInterfaceInfo? {
+        didSet { UIStateLogger.log("NetworkMonitorViewModel.currentInterface", currentInterface as Any) }
+    }
     @Published private(set) var lastUpdated: Date?
 
     private let service = SystemConfigurationService()

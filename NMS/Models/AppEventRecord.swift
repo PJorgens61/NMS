@@ -79,3 +79,14 @@ final class AppEventRecord {
         self.occurredAt = occurredAt
     }
 }
+
+/// Needed because this is a `@Model` *class*: unlike the struct-backed
+/// values elsewhere in the UI state log, its default `String(describing:)`
+/// output is just the bare type name, which would make every logged event
+/// list read `[NMS.AppEventRecord, NMS.AppEventRecord]`. Debug-only
+/// tooling; see `UIStateLogger`.
+extension AppEventRecord: UIStateLoggable {
+    var uiStateDescription: String {
+        "\(kind): \(message)"
+    }
+}

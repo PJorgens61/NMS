@@ -474,17 +474,33 @@ either way.
 
 ## UI state debug log (for AI-assisted verification)
 
+> **Status: implemented** for the staged five-property set — see the "UI
+> state log" section of `README.md` for what it does and how to read it.
+> This entry is kept because it records *why* the implementation looks the
+> way it does (the rejected alternatives especially), and because the
+> expansion questions at the end are still genuinely open. Everything below
+> describing the design still holds; only "not yet built" no longer does.
+
 Different in kind from the other entries here — not a networking
-capability, but a development aid. Claude has no way to screenshot or
-otherwise visually inspect a live macOS app window (unlike, say, an iOS
-Simulator). What Claude does have is full file-system read access. A
-structured, append-only log of every value pushed into the UI would let
-"did this fix work" be answered by reading a file instead of needing eyes
-on the actual window — for anything that's really a *data* question. It
-would **not** catch pure rendering bugs (truncated text, wrong colors, a
-view that doesn't re-render even though its backing data changed
-correctly) — worth being upfront that this substitutes for visual
-inspection only partially, not entirely.
+capability, but a development aid. A structured, append-only log of every
+value pushed into the UI would let "did this fix work" be answered by
+reading a file — for anything that's really a *data* question. It would
+**not** catch pure rendering bugs (truncated text, wrong colors, a view
+that doesn't re-render even though its backing data changed correctly) —
+worth being upfront that this substitutes for visual inspection only
+partially, not entirely.
+
+**Corrected premise.** This section originally justified itself with
+"Claude has no way to screenshot a live macOS app window." That turned
+out to be wrong and has since been disproved directly: plain full-screen
+`screencapture -x` works fine (window-ID targeting does *not*, because
+`MenuBarExtra(.window)` never appears in `CGWindowListCopyWindowInfo`'s
+on-screen list at all). The real obstacle is different, and is a better
+argument for this feature than the original one: the popover dismisses on
+*any* focus loss — including clicking into another app to type a message —
+so screenshot verification is a timing race, not an impossibility. A log
+is reliable where screenshots are flaky, and captures a *sequence over
+time*, which a screenshot fundamentally cannot.
 
 ### Deliberately not the existing event log
 
@@ -496,13 +512,61 @@ showing a user. These need to stay two separate mechanisms; routing this
 through the existing event log would turn a deliberately narrow,
 user-facing timeline into debug noise.
 
+### Not `os_log` / unified logging either — ruled out empirically
+
+The obvious "don't hand-roll a log file, use the platform's" objection
+was tested rather than argued, and it fails decisively for *this*
+purpose. A probe binary emitting `Logger(subsystem:category:)` lines
+was written and run; reading them back gave:
+
+```
+$ log show --predicate 'subsystem == "Thistle.NMSProbe"' --last 2m
+log: Could not open local log store: Operation not permitted
+```
+
+Not a predicate problem — bare `log show --last 30s` fails identically.
+The unified log store is simply not readable from the sandboxed
+environment Claude runs commands in, which makes it useless for the one
+thing this feature exists to do. A plain file under `~/Library/Logs/`
+was verified read/writable from that same environment in the same test.
+
+So this isn't "hand-rolled vs. platform-standard" — `os_log` is a
+non-option here, and the file is the only mechanism that works. (There
+is a secondary reason that would have argued the same way regardless:
+`Logger` redacts dynamic string interpolation as `<private>` unless every
+site is annotated `%{public}`, which is exactly the network data this log
+exists to capture.) `os_log` remains perfectly reasonable for ordinary
+app diagnostics — it's specifically the AI-readable use case it can't
+serve.
+
 ### Mechanism
 
 Swift allows a property wrapper and a `didSet` observer on the same
-declaration — `@Published var x: T { didSet { ... } }` is valid. That's
-the hook: add `didSet` to each instrumented property, calling into a new
-`UIStateLogger` service (naming mirrors the codebase's existing plain,
-descriptive service names).
+declaration. That's the hook: add `didSet` to each instrumented property,
+calling into a new `UIStateLogger` service (naming mirrors the codebase's
+existing plain, descriptive service names).
+
+**Verified against a real build**, not assumed — a probe class with
+`@Published private(set) var x: [String] { didSet { ... } }` compiled and
+ran, confirming three things that matter for the design:
+
+- The combination is valid *including* with `private(set)`, which is how
+  all 28 `@Published` properties in this codebase are declared. Since
+  every write therefore originates inside its own view model, `didSet`
+  catches all of them.
+- **This is a write log, not a change log.** `didSet` fires on identical
+  reassignment (`checks = x; checks = x` logs twice) and on in-place
+  mutation (`append`). That's the correct behavior for the stated goal —
+  it distinguishes "the code never ran" from "the code ran and produced
+  the same value," which is usually the actual question. Just don't read
+  the log expecting a diff: `ConnectivityViewModel.checks` is reassigned
+  every round whether or not anything changed.
+- **`didSet` fires *after* SwiftUI has already been notified** —
+  `@Published` publishes from `willSet`, so a Combine sink observed the
+  new value *before* the `didSet` ran. Immaterial to ordering among log
+  lines, but it means a line records that a write happened marginally
+  after the UI was told about it; don't treat the timestamp as the exact
+  instant of UI update when chasing a race between two view models.
 
 **Gating lives in one place, not scattered across call sites.** Rather
 than wrapping every `didSet` in `#if DEBUG` throughout ~10 view models
@@ -519,20 +583,50 @@ naming explicitly given how much of this document's earlier debugging
 class of mistake. `@Published` properties in this codebase are set from
 `@MainActor`-isolated code (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`),
 so a `didSet` firing synchronous disk I/O would block the main thread on
-every single UI update. The write itself needs to be dispatched to a
-background queue, fire-and-forget, not executed inline in the observer.
+every single UI update. The write itself needs to be dispatched off the
+main thread, fire-and-forget, not executed inline in the observer.
+
+**The queue must be *serial*, and the timestamp must be taken at the call
+site.** Both follow from the actual goal being a faithful *sequence*, and
+both are easy to get wrong:
+
+- A dedicated serial `DispatchQueue`, **not** `DispatchQueue.global()`.
+  The global queues are concurrent, so two writes dispatched in order can
+  complete out of order — which would corrupt the one property the whole
+  feature exists to provide.
+- Capture `Date()` **synchronously inside `didSet`** and pass it into the
+  async write, rather than calling `Date()` on the background queue. A
+  timestamp taken at drain time measures queue latency, not when the UI
+  write happened.
+- Alongside it, a monotonically incrementing sequence number per line.
+  Timestamps alone can't order two writes landing in the same
+  millisecond, and a gap in the counter makes a dropped line obvious
+  rather than invisible.
 
 ### Format and location
 
 Recommending the simpler of two real options: plain delimited lines
-(`timestamp | ViewModel.property | new value`, using each type's default
-`String(describing:)` output) rather than full JSON Lines. JSON would be
-more structured and more parseable, but requires `Encodable` conformance
-across every logged type (`ConnectivityCheck`, `SNMPDevice`, arrays of
-either, etc.) — real invasiveness for a first cut. Plain lines are still
-entirely grep/diff-friendly, which is the actual requirement, and can be
-upgraded to JSON later if the simple version proves insufficient in
-practice.
+(`seq | timestamp | ViewModel.property | new value`, using each type's
+default `String(describing:)` output) rather than full JSON Lines. JSON
+would be more structured and more parseable, but requires `Encodable`
+conformance across every logged type (`ConnectivityCheck`, `SNMPDevice`,
+arrays of either, etc.) — real invasiveness for a first cut. Plain lines
+are still entirely grep/diff-friendly, which is the actual requirement,
+and can be upgraded to JSON later if the simple version proves
+insufficient in practice.
+
+**Strictly one line per write — embedded newlines must be escaped.** The
+line-oriented format is the whole basis for grepping and for reading the
+sequence, and a single stray newline in a logged value silently splits
+one write into two apparent ones. Two real sources of this in this
+codebase: SNMP `sysDescr` (multi-line descriptors are common on network
+gear — though checked directly against the gateway actually reachable
+here, an Alta Route10, which returns a single-line `Alta Route10 1.5b`;
+the Aruba APs were unreachable at the time and remain unverified), and
+`lastError`, which is assigned straight from `error.localizedDescription`
+with no guarantee of being single-line. Cheap insurance either way:
+replace `\n`/`\r` with a literal escape in `UIStateLogger` before writing,
+rather than hoping every value behaves.
 
 **Location:** `~/Library/Logs/NMS/ui-state.log` — the conventional macOS
 location for a per-app log, and a single stable, predictable path rather
@@ -541,6 +635,39 @@ current" question. **Truncated at each app launch**, not appended forever
 — this is session-scoped debug tooling, not permanent history, so it
 sidesteps the unbounded-growth question this document keeps running into
 elsewhere by simply not persisting across restarts at all.
+
+### Always on in DEBUG — deliberately not a runtime feature flag
+
+Decided question, recorded so it doesn't get relitigated: the log is
+**on by default in DEBUG builds, with no flag to enable it**, and
+compiled out entirely in Release.
+
+- **Retrospective availability is the entire value.** A log you have to
+  opt into before the fact is empty at exactly the moment it's wanted —
+  the normal sequence is *notice a symptom, then go look*. An opt-in flag
+  converts that into set-flag, relaunch, reproduce, and by then the state
+  in question is gone.
+- **Volume doesn't justify a flag.** This app is event-driven at a slow
+  cadence (connectivity checks every 30s, traceroute every 10 min,
+  topology changes rare), not a render loop. 28 `@Published` properties at
+  those rates is a few dozen lines per busy 30s window, and truncation at
+  launch caps total size regardless. The unbounded-growth problem this
+  document repeatedly runs into elsewhere genuinely doesn't apply.
+- **The gate that matters already exists.** `#if DEBUG` inside
+  `UIStateLogger.log(...)` means Release ships nothing at all. A runtime
+  flag would be a second gate stacked on a sufficient first one.
+- **A flag adds a failure mode that costs more than it saves**: an empty
+  log becomes ambiguous — feature broken, or flag not set? That's a
+  debugging tax on a debugging tool.
+- **Compile-time-only gating bounds the privacy question.** These lines
+  will contain SSIDs, the public IP, MAC addresses and SNMP descriptors,
+  written under `~/Library/Logs/` — which sysdiagnose collects. DEBUG-only
+  makes "could this ever write network identifiers on a user's machine"
+  structurally impossible; a runtime flag would reopen it.
+
+If it ever does become intrusive, the fix is an opt-**out**
+(`NMS_UI_LOG=0`) rather than an opt-in, which preserves the retrospective
+property. Not worth building until there's a concrete reason.
 
 ### Staged rollout, not everything at once
 
@@ -570,15 +697,37 @@ a signal that doesn't currently exist anywhere to read.
 
 ### Open questions before implementing
 
-- Instrument every `@Published` property across every view model at once,
-  or roll out the staged candidate list above first and expand only if it
-  proves useful?
-- Plain delimited lines (lower engineering cost, less structured) vs. full
-  JSON Lines (`Encodable` conformance required across more types, more
-  invasive) — confirm the simple version is actually sufficient before
-  building the more structured one.
-- `~/Library/Logs/NMS/` vs. some other location — any reason to prefer
-  somewhere else?
+Settled during implementation, recorded so they don't get relitigated:
+default-on vs. feature flag (default-on in DEBUG); whether `os_log` would
+do instead (it would not); plain lines vs. JSON Lines (plain lines shipped,
+and they read fine in practice); `~/Library/Logs/NMS/` as the location
+(kept — and confirmed to be the literal path, since the app is not
+sandboxed, `ENABLE_APP_SANDBOX = NO`); and how to render `@Model` classes
+(a `UIStateLoggable` protocol, conformed only by the types that need it,
+rather than blanket `Encodable`).
+
+Genuinely still open:
+
+- **Expand past the staged five?** The remaining 23 `@Published` properties
+  are mostly `isChecking`/`isScanning`/`lastError` — useful for confirming
+  an operation started or finished, less central to "what's on screen."
+  Worth adding only when something concrete wants them, rather than
+  pre-emptively.
+- **Does truncate-at-launch hold up?** Right for a single
+  build-run-inspect cycle, but a crash-and-relaunch destroys the log
+  covering the crash — the exact case you'd want it for. Retaining one
+  previous copy (`ui-state.log.prev`) fixes it cheaply if it bites.
+- **Do long array lines need a compact rendering?** A real
+  `ConnectivityViewModel.checks` line is ~500 characters of full struct
+  dump — greppable, but wide. `UIStateLoggable` is already the hook for
+  fixing this per-type if it becomes annoying; deliberately not done
+  pre-emptively, since the verbose version has the advantage of never
+  omitting the field you turn out to need.
+- **Nothing records *why* a write happened.** The log shows `checks` was
+  written, not whether it came from the 30s timer, a topology change, or a
+  manual button. Adding a caller tag (`#function`, or an explicit reason
+  string) would disambiguate — worth it only if a real debugging session
+  actually gets stuck on that ambiguity.
 
 ## IP broadcast for LAN discovery — why it doesn't work, and what does
 

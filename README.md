@@ -79,7 +79,9 @@ NMS/
 │   │   ├── DNSResolutionService.swift      # Resolves a hostname via `getaddrinfo`
 │   │   ├── HTTPCheckService.swift         # Real HTTP fetch via Apple's captive-portal probe
 │   │   ├── OverallStatus.swift            # Menu bar severity: normal/marginal/critical
-│   │   └── BonjourDiscoveryService.swift  # Browses/resolves Bonjour (mDNS) services
+│   │   ├── BonjourDiscoveryService.swift  # Browses/resolves Bonjour (mDNS) services
+│   │   ├── UIStateLogger.swift            # DEBUG-only log of every value pushed into the UI
+│   │   └── SubprocessTracer.swift         # DEBUG-only trace of every shelled-out command
 │   ├── ViewModels/
 │   │   ├── NetworkMonitorViewModel.swift  # Bridges SystemConfigurationService -> SwiftUI
 │   │   ├── LANDiscoveryViewModel.swift    # Bridges LANDiscoveryService -> SwiftUI
@@ -897,6 +899,72 @@ expected during development, not a bug.
   is. Before confirmation, the full path still shows, since you need to
   see hops beyond the auto-suggested one to pick a different, correct one
   on networks where the suggestion doesn't hold.
+
+## UI state log (DEBUG builds only)
+
+A development aid, not a feature: `UIStateLogger` writes one line per value
+pushed into the UI to `~/Library/Logs/NMS/ui-state.log`, so "did this change
+what's actually displayed?" can be answered by reading a file. The popover is
+a `MenuBarExtra(.window)`, which dismisses on *any* focus loss — including
+clicking into another app — so screenshotting it is a timing race; this
+isn't, and unlike a screenshot it captures a sequence over time.
+
+```
+0 | 2026-07-27T23:20:11.958Z | UIStateLogger | session started
+1 | 2026-07-27T23:20:11.958Z | NetworkMonitorViewModel.currentInterface | NetworkInterfaceInfo(interfaceName: "en0", …)
+4 | 2026-07-27T23:20:12.098Z | WiFiSSIDViewModel.currentSSID | nil
+5 | 2026-07-27T23:20:12.316Z | ConnectivityViewModel.checks | [ConnectivityCheck(label: "Router", success: true, …)]
+6 | 2026-07-27T23:20:42.417Z | ConnectivityViewModel.checks | [ConnectivityCheck(label: "Router", success: true, …)]
+```
+
+### Subprocess tracing
+
+`SubprocessTracer` writes every external command — `ping`, `arp`,
+`traceroute`, `snmpget` — into that *same* stream, so subprocess activity and
+UI state interleave in one ordered timeline:
+
+```
+4  | 16:15:27.543Z | proc.start | #1 traceroute -m 4 -n -q 1 -w 1 1.1.1.1
+5  | 16:15:27.543Z | proc.start | #2 ping -c 1 -t 1 10.0.0.1
+9  | 16:15:27.550Z | proc.end   | #4 ping -c 1 -t 2 1.1.1.1 — ok in 7ms, 245 bytes
+28 | 16:15:28.622Z | proc.end   | #1 traceroute … — ok in 1079ms, 85 bytes
+```
+
+**Two-phase on purpose.** Logging only on completion would produce nothing
+whatsoever for a process that never returns — which is the exact failure this
+was built for, after a beachballed menu bar turned out to be a four-minute-old
+`arp -a` and needed `sample` to diagnose. A `start` with no matching `end`
+*is* the signal; unmatched `proc.start` lines are the interesting ones.
+
+**Correlation ids are required, not decorative.** Invocations overlap heavily
+— an SNMP sweep runs up to 32 `snmpget`s at once and connectivity checks fan
+out across every target — so start and end lines interleave and can only be
+paired by `#id`.
+
+It pays for itself on the second failure mode too. Contrast two lines from
+one real run:
+
+```
+#2  ping -c 1 -t 1 10.0.0.1  — ok in 69ms          <- gateway
+#11 ping -c 1 -t 2 10.0.0.24 — exit 2 in 2072ms    <- LAN peer
+```
+
+Gateway answers instantly while every LAN peer burns its full timeout and
+exits non-zero: the signature of macOS Sequoia's Local Network privacy
+denying the process. That previously took several rounds of manual shell
+testing to identify, and presented as an app bug (an SNMP scan finding only
+the router). Here it's one line.
+
+**Ordering under concurrency needed a fix.** The first version took the
+sequence number under a lock and *then* enqueued the write, which let two
+concurrent callers hand work to the writer queue in the opposite order from
+the numbers they were given — observed directly, two pings finishing in the
+same millisecond wrote seq 14 to the file ahead of seq 13.
+`UIStateLogger.record` now holds the lock across the enqueue as well, so file
+order, sequence order and timestamp order all agree. Verified across a real
+run: 54 lines, zero sequence problems, zero timestamp inversions, and all 14
+subprocess invocations correctly paired.
+
 
 ## Notes on network identity
 

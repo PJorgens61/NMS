@@ -3,7 +3,9 @@ import Combine
 
 @MainActor
 final class ConnectivityViewModel: ObservableObject {
-    @Published private(set) var checks: [ConnectivityCheck] = []
+    @Published private(set) var checks: [ConnectivityCheck] = [] {
+        didSet { UIStateLogger.log("ConnectivityViewModel.checks", checks) }
+    }
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var isChecking = false
 

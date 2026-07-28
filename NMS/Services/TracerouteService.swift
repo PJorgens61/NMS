@@ -38,14 +38,17 @@ struct TracerouteService {
         process.standardOutput = stdout
         process.standardError = Pipe()
 
+        let trace = SubprocessTracer.begin(process.executableURL!.path, process.arguments ?? [])
         do {
             try process.run()
         } catch {
+            SubprocessTracer.end(trace, exitCode: nil, byteCount: 0)
             throw TracerouteError.processFailed(error.localizedDescription)
         }
 
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        SubprocessTracer.end(trace, exitCode: process.terminationStatus, byteCount: data.count)
 
         guard let output = String(data: data, encoding: .utf8) else { return [] }
         return Self.parse(output)

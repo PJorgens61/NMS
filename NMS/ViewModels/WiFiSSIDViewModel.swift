@@ -3,7 +3,9 @@ import Combine
 
 @MainActor
 final class WiFiSSIDViewModel: ObservableObject {
-    @Published private(set) var currentSSID: String?
+    @Published private(set) var currentSSID: String? {
+        didSet { UIStateLogger.log("WiFiSSIDViewModel.currentSSID", currentSSID as Any) }
+    }
 
     private let ssidService = WiFiSSIDService()
     private let authService = LocationAuthorizationService()

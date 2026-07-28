@@ -3,13 +3,23 @@ import Combine
 
 @MainActor
 final class TracerouteViewModel: ObservableObject {
-    @Published private(set) var hops: [TracerouteHop] = []
+    /// Instrumented for the UI state log beyond the original staged five:
+    /// diagnosing why the ISP Edge Router check vanished after an upstream
+    /// outage required reading source to work out that `monitoredHop` had
+    /// been cleared, because none of this was observable. It is now.
+    @Published private(set) var hops: [TracerouteHop] = [] {
+        didSet { UIStateLogger.log("TracerouteViewModel.hops", hops) }
+    }
     @Published private(set) var isRunning = false
-    @Published private(set) var lastError: String?
+    @Published private(set) var lastError: String? {
+        didSet { UIStateLogger.log("TracerouteViewModel.lastError", lastError as Any) }
+    }
     @Published private(set) var lastRunAt: Date?
     /// The hop number the user has confirmed as "the" router to monitor —
     /// persisted across launches. `nil` until they confirm one.
-    @Published private(set) var monitoredHopNumber: Int?
+    @Published private(set) var monitoredHopNumber: Int? {
+        didSet { UIStateLogger.log("TracerouteViewModel.monitoredHopNumber", monitoredHopNumber as Any) }
+    }
 
     private let service = TracerouteService()
     private let reverseDNSService = ReverseDNSService()
