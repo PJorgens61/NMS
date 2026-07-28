@@ -178,6 +178,10 @@ final class SnapshotStore {
         existing.sysDescr = device.sysDescr
         existing.sysName = device.sysName
         existing.uptimeTicks = device.uptimeTicks
+        // Kept in sync too — a device re-polled under a different
+        // community string (see `SNMPViewModel.setCommunities`) previously
+        // wouldn't update this field on an existing record.
+        existing.community = device.community
         existing.lastSeenAt = device.polledAt
         try? context.save()
 
@@ -193,6 +197,24 @@ final class SnapshotStore {
         )
         descriptor.fetchLimit = limit
         return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Wipes all persisted SNMP device state. Used by `SNMPViewModel.scan()`
+    /// so a manual sweep is a genuine clear-and-rediscover, not just a
+    /// fresh in-memory list layered on top of old rows — without this, a
+    /// device no longer present (e.g. a topology change, like switching
+    /// which address represents a VRRP pair) would still reappear on next
+    /// launch, since `SNMPViewModel` rehydrates from everything ever
+    /// persisted here. Real cost: any device that *is* still around gets a
+    /// fresh `firstSeenAt` on rediscovery instead of keeping its real
+    /// history — acceptable since this only runs on an explicit, manual
+    /// "Scan" click, not automatically.
+    func deleteAllSNMPDevices() {
+        guard let all = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>()) else { return }
+        for record in all {
+            context.delete(record)
+        }
+        try? context.save()
     }
 
     @discardableResult

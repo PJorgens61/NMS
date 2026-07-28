@@ -109,8 +109,9 @@ final class SNMPViewModel: ObservableObject {
         UserDefaults.standard.set(resolved, forKey: Self.communitiesDefaultsKey)
         // Previously-discovered devices were found using the old strings and
         // may not answer under the new ones (and vice versa), so the current
-        // list is no longer trustworthy — rediscover from scratch.
-        devices = []
+        // list is no longer trustworthy — rediscover from scratch. `scan()`
+        // itself now clears both the in-memory list and persisted history
+        // before sweeping, so nothing further is needed here.
         scan()
     }
 
@@ -119,6 +120,14 @@ final class SNMPViewModel: ObservableObject {
     /// a /24, mostly waiting out silent hosts), so this is launch/manual
     /// only — never tied to topology changes the way the near-instant ARP
     /// scan is.
+    ///
+    /// A genuine clear-and-rediscover, not just a fresh in-memory list:
+    /// persisted history is wiped first (see
+    /// `SnapshotStore.deleteAllSNMPDevices`), so a device no longer present
+    /// (e.g. after a topology change) doesn't linger and reappear on next
+    /// launch. Real cost, accepted since this only runs on an explicit,
+    /// manual click: any device still around gets a fresh `firstSeenAt`
+    /// instead of keeping its actual history.
     func scan() {
         guard !isScanning else { return }
         guard SNMPService.isAvailable else {
@@ -129,6 +138,8 @@ final class SNMPViewModel: ObservableObject {
         let candidates = candidateAddresses()
         guard !candidates.isEmpty else { return }
 
+        snapshotStore.deleteAllSNMPDevices()
+        devices = []
         isScanning = true
         lastError = nil
         let service = self.service

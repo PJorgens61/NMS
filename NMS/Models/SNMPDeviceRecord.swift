@@ -7,6 +7,15 @@ import SwiftData
 /// from this device," which is what the next poll gets compared against to
 /// detect a restart (uptime went backwards) or a software change (sysDescr
 /// differs). Keyed by `ipAddress`.
+///
+/// A `sysName`-based identity (collapsing a VRRP pair member's own address
+/// and the shared virtual address it holds as master into one record) was
+/// tried and reverted — it collapses "this specific router" and "whichever
+/// router currently holds the virtual address" into one ambiguous entry,
+/// which doesn't actually model VRRP, just hides the duplicate. Classical
+/// dual-router VRRP support, if built properly later, likely needs to keep
+/// both as distinct, related entries rather than merging them — see
+/// `DESIGN-NOTES.md`.
 @Model
 final class SNMPDeviceRecord {
     @Attribute(.unique) var ipAddress: String
