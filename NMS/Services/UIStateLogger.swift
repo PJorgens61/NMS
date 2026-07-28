@@ -135,7 +135,12 @@ enum UIStateLogger {
     /// wall-clock timestamps days later. A heartbeat line makes a future
     /// stall visible immediately, in the file itself, from whatever *did*
     /// keep running.
-    private final class WriterThread: Thread {
+    /// `@unchecked Sendable`: every mutable stored property (`pending`) is
+    /// only ever touched while holding `condition`, so it's genuinely safe
+    /// to share across threads — the compiler just can't see a lock as a
+    /// proof of that. Same pattern as `BonjourDiscoveryService`'s
+    /// `UnsafeBox`.
+    private final class WriterThread: Thread, @unchecked Sendable {
         static let heartbeatInterval: TimeInterval = 20
         private let condition = NSCondition()
         private var pending: [() -> Void] = []
