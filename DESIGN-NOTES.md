@@ -1023,3 +1023,348 @@ concrete need for it.
 - Where would `.rrd` files live — alongside the SwiftData store in
   Application Support, presumably, but worth confirming rather than
   assuming.
+
+## Classical dual-router VRRP identity
+
+> **Status: partially addressed.** Merging by shared MAC is implemented (see
+> the README's SNMP section) and resolves the AP1 `.16`/`.17` duplicate on
+> this network. It is not a general VRRP solution — it depends on the master
+> answering the virtual address from its own hardware MAC, and says nothing
+> about which address is virtual or which router currently holds mastership.
+> The rest of this entry stands as the design for doing that properly.
+
+SNMP device identity (`SnapshotStore.recordSNMPDevice`, `SNMPDeviceRecord`)
+is keyed by `ipAddress`. That breaks down for a VRRP pair: two Aruba APs
+running VRRP, where a shared virtual address (`.16`) and AP1's own
+individual address (`.17`) both answer SNMP with the *same* `sysName`
+whenever AP1 holds mastership. Under plain IP-keyed identity, this lists
+"AP1" twice — once per address — even though it's one physical device
+answering on two addresses.
+
+### What was tried
+
+A `sysName`-based identity: `recordSNMPDevice` looked up existing records
+by `sysName` first (falling back to `ipAddress` only for devices that
+don't report a name), and a `SNMPViewModel.deduplicated(_:)` step collapsed
+same-`sysName` entries within a single sweep before they reached the UI or
+persisted store, keeping the numerically lower address as a deterministic
+tie-break. `SNMPDeviceRecord.ipAddress` had its `@Attribute(.unique)`
+removed to allow this. Verified directly against the reported scenario:
+correctly collapsed the two-address VRRP case to one entry.
+
+### Why it was reverted
+
+It doesn't actually model VRRP — it just hides the duplicate. Collapsing
+by `sysName` conflates two genuinely different things: "this specific
+physical router" and "whichever router currently holds the shared virtual
+address." The tie-break (keep the numerically lower address) has no
+relationship to which address is real vs. virtual, or which physical
+device currently holds mastership — generic SNMP alone can't tell you
+either of those. If VRRP failover ever moved mastership to AP2, the
+persisted record would keep AP1's identity fields pointed at an address
+AP2 now answers on, which is arguably more misleading than the original
+two-entries problem it was trying to solve.
+
+### Correction: both duplicate cases are one device, not two
+
+An earlier draft of this entry claimed a `sysName` identity "collapses two
+genuinely different things." Real data says otherwise, and it's worth
+recording because it makes the reverted approach more defensible than this
+note originally implied. Two duplicate pairs showed up in practice:
+
+- `AP1` at `10.0.0.16` and `10.0.0.17` — identical `sysName` *and*
+  `sysDescr` (`AOS-8 (MODEL: 535), Version 8.13.3.0`).
+- `router` at `10.0.0.1` and `10.0.102.1` — also identical on both
+  (`Alta Route10 1.5b`), the same Alta answering on the main LAN and on a
+  guest VLAN.
+
+Neither is two devices being conflated; both are one device at two
+addresses, which `sysName` matching would have merged correctly. The
+objection that survives is narrower than "it merges unrelated devices": a
+merge still picks one address arbitrarily (lowest wins) and throws away the
+fact that the device answers at both — and for a VRRP virtual address, the
+kept one can silently become the wrong one after a failover.
+
+The second case has since been handled a different way, and is no longer a
+VRRP problem at all: `10.0.102.1` belonged to a network no longer attached,
+so `SNMPViewModel.pruneStaleDevices` now drops off-subnet devices outright
+(see the README). That leaves this entry scoped to what it was always
+really about — one device, two addresses, *same* subnet.
+
+### ARP already proves it, more cheaply than SNMP does
+
+The duplicate is visible one layer down, without SNMP involved at all:
+
+```
+? (10.0.0.16) at e8:10:98:ca:a9:22 on en0
+? (10.0.0.17) at e8:10:98:ca:a9:22 on en0
+? (10.0.0.18) at e8:10:98:ca:9f:66 on en0
+```
+
+`.16` and `.17` resolve to the *same* MAC — one physical interface answering
+at two addresses — while AP2 at `.18` has its own. That is materially better
+evidence than matching `sysName`: it comes from data `LANDiscoveryService`
+already collects, needs no community string, and two addresses sharing a MAC
+is a fact about the hardware rather than an inference from a
+user-configurable label. Two devices could easily be named `AP1`; they
+cannot share a NIC.
+
+The asymmetry matters, though, and bounds how far this can be pushed: a MAC
+match *proves* one device, but a MAC mismatch proves nothing. Aruba here
+answers the VRRP virtual address from the master's own physical MAC, which is
+why this works — had it used a proper VRRP virtual MAC
+(`00:00:5e:00:01:XX`), the virtual address would resolve to that instead and
+the two would look like different devices. So MAC matching is a sound
+positive signal to merge on, not a complete solution.
+
+### What a proper fix likely needs
+
+Two options worth considering, not mutually exclusive:
+
+- **Manual configuration**: let the user declare which addresses form a
+  VRRP pair (or mark one address as "virtual, backed by these physical
+  addresses"). The topology is a fact only the user knows — a static pair
+  of APs doesn't change often, so this is a small one-time cost for a
+  model that's actually correct, versus inferring something SNMP can't
+  distinguish on its own.
+- **VRRP-MIB awareness**: RFC 2787 defines VRRP-specific SNMP OIDs
+  (`vrrpOperState`, `vrrpOperMasterIpAddr`, etc.) that could, if the APs
+  expose them, explicitly report which addresses are VRRP virtual
+  addresses and which physical device currently holds mastership —
+  removing the guesswork entirely. Not yet confirmed whether these
+  specific Aruba APs expose the VRRP-MIB at all.
+
+Either way, individual and virtual addresses should end up as distinct,
+related entries — never merged into one ambiguous record the way the
+reverted `sysName` approach did.
+
+### Open questions before implementing
+
+- Manual config or VRRP-MIB (or both) — does auto-detection via the MIB
+  make manual config unnecessary, or is manual config still wanted as a
+  fallback for APs that don't expose it?
+- If manual config: what's the UI for declaring a pair — a settings field
+  parallel to the existing community-string list, or something in the
+  SNMP Devices section itself (e.g. right-click "mark as VRRP pair")?
+- If VRRP-MIB: needs testing against the actual Aruba APs to confirm the
+  MIB is exposed under the community strings already in use, before any
+  code is written against it.
+- How should the UI actually present a confirmed pair — one row with both
+  addresses shown, or two rows visually grouped/linked? Affects
+  `SNMPDeviceRecord`'s shape either way.
+
+## Per-network device scoping, and fixing the network fingerprint
+
+`SNMPDeviceRecord` has no association with the network a device was found
+on. It's keyed by `ipAddress` alone, so every device ever discovered lands
+in one flat list regardless of which network it belonged to. That's the
+root cause behind a string of symptoms already hit in practice: a guest-VLAN
+gateway (`10.0.102.1`) sitting in the list beside the main-LAN one
+(`10.0.0.1`) — the same physical Alta, identical `sysName` *and*
+`sysDescr` — and main-LAN devices needing to be hidden by inference when
+attached elsewhere.
+
+`SNMPViewModel.pruneStaleDevices` currently patches this by inferring
+membership from subnet arithmetic plus a candidate-set fallback. It works,
+but it's a second notion of "which network does this belong to" that has to
+be kept in agreement with the real one. Recording the association instead
+of inferring it removes the guesswork, and should *replace* the pruning
+rather than sit alongside it.
+
+### The current fingerprint is already wrong
+
+`NetworkIdentityViewModel.recognize` uses the bare router MAC:
+
+```swift
+let (network, isNew) = snapshotStore.recordNetworkSeen(fingerprint: routerMAC)
+```
+
+One router serving several VLANs answers on the same MAC for all of them.
+Confirmed directly while dual-homed (Ethernet on the main LAN, Wi-Fi on the
+guest SSID):
+
+```
+? (10.0.0.1)   at bc:b9:23:81:a6:d4 on en0
+? (10.0.102.1) at bc:b9:23:81:a6:d4 on en1
+```
+
+So the main LAN, the guest VLAN, and Ethernet all collapse into a single
+`KnownNetwork` today — one shared label, and a `timesSeen` counter
+accumulating across networks that aren't the same network. This is a bug on
+its own terms, independent of any SNMP work: the "Known network" row and its
+visit count are currently wrong for anyone whose router hosts more than one
+VLAN.
+
+### Index on the VLAN, not the SSID
+
+The devices live on a VLAN, not on an SSID. Several SSIDs bridged to the
+same VLAN hand out addresses in the same subnet and reach exactly the same
+devices, so they are one network for this purpose; SSID is a label worth
+displaying, not an identity worth keying on — and it doesn't exist at all on
+Ethernet, so it can't be the primary key regardless.
+
+Router MAC **plus subnet** is the key that survives every case that has
+actually come up:
+
+| Case | MAC | Subnet | Wanted | MAC+subnet |
+|---|---|---|---|---|
+| Several SSIDs on the Ethernet VLAN | same | same | one network | one ✓ |
+| Main LAN vs guest VLAN, one router | same | differs | distinct | distinct ✓ |
+| Two sites both using `192.168.1.0/24` | differs | same | distinct | distinct ✓ |
+| Plain Ethernet, no SSID | same | same | one network | one ✓ |
+
+MAC alone fails row 2 (the setup this was reported from). Subnet alone fails
+row 3. SSID fails rows 1 and 4.
+
+Accepted cost: renumbering a DHCP scope reads as a new network. Rarer than
+the multi-SSID and multi-VLAN cases, and it degrades to a re-discovery
+rather than anything destructive.
+
+### Schema consequences, including one that isn't optional
+
+- `KnownNetwork.fingerprint` is `@Attribute(.unique)`. Changing how it's
+  composed means every existing row stops matching, so previously labelled
+  networks would come back as new and their labels orphan. Storing
+  `routerMAC` and `subnet` as their own fields — with the fingerprint
+  derived — at least makes a legacy match possible (old row whose
+  fingerprint equals the new `routerMAC`), rather than silently losing user
+  labels.
+- **`SNMPDeviceRecord.ipAddress` cannot stay `@Attribute(.unique)`.** Once
+  devices are scoped per network, two networks can legitimately each have a
+  `192.168.1.1`, and a global uniqueness constraint makes that unstorable.
+  Uniqueness has to become "IP within a network," which SwiftData can't
+  express as a composite constraint — so the attribute comes off and
+  `recordSNMPDevice` enforces it in code via its existing fetch. Worth
+  flagging loudly because it's the same attribute that was removed and then
+  restored during the `sysName` identity experiment; this time it's forced
+  by the data model rather than a judgement call.
+- `SNMPDeviceRecord` gains a defaulted `networkFingerprint: String?` so
+  adding it stays a lightweight migration. Existing rows have no tag.
+
+### Ordering problem worth designing around
+
+The fingerprint depends on the router's MAC, which only comes from a LAN
+scan (`recognize` returns early without it). SNMP discovery can finish
+before that resolves, so "which network is this device on" may be unknown at
+the moment a device is first recorded. Tagging therefore needs a defined
+behaviour for untagged rows rather than assuming one is always available.
+
+### Would "2 of 3 attributes" be a better identity than MAC+subnet?
+
+Proposed refinement: treat router MAC, IP range and SSID as three signals and
+call it the same logical network when any two agree. Tested against every
+case that has actually come up, it is genuinely better than the MAC+subnet
+key above — it wins two rows that MAC+subnet gets wrong:
+
+| Case | MAC | Subnet | SSID | Agree | 2-of-3 | MAC+subnet |
+|---|---|---|---|---|---|---|
+| Several SSIDs, one VLAN | same | same | differs | 2 | same ✓ | same ✓ |
+| Main LAN vs guest VLAN | same | differs | differs | 1 | distinct ✓ | distinct ✓ |
+| Two sites, both `192.168.1.0/24` | differs | same | differs | 1 | distinct ✓ | distinct ✓ |
+| **DHCP scope renumbered** | same | differs | same | 2 | same ✓ | distinct ✗ |
+| **Router replaced, same config** | differs | same | same | 2 | same ✓ | distinct ✗ |
+
+Those last two are real: a renumber was already noted above as an accepted
+cost of MAC+subnet, and a router swap (or a gateway MAC that moves under
+VRRP failover) breaks MAC+subnet too. Voting heals both.
+
+**But it can't be a primary key, because it isn't transitive.** With
+networks P(MAC X, subnet S1, SSID A), Q(X, S1, B) and R(X, S2, B): P≈Q on
+MAC+subnet, Q≈R on MAC+SSID, yet P≉R on MAC alone. A relation where P≈Q and
+Q≈R but P≉R can't induce a stable fingerprint — there is no value to compute
+and store, only pairwise comparisons whose outcome depends on which existing
+record you happen to test against first. That's a different architecture from
+`KnownNetwork.fingerprint` as it exists: lookup becomes "compare against all
+known networks and pick the best match," not a keyed fetch.
+
+**And it degrades on Ethernet**, which has no SSID at all — voting collapses
+to 2-of-2, so a renumber or a router swap on a wired network still reads as
+new. The robustness gain applies only to Wi-Fi.
+
+### Public IP is not a fourth vote
+
+Tempting, and wrong for this purpose: the public IP belongs to the WAN side,
+so it is *shared by every VLAN behind the same router*. Verified directly
+from two captured sessions — while attached to the guest VLAN
+(`10.0.102.131`), the observed public IP was `192.184.170.5`, the same value
+seen from the main LAN.
+
+So public IP votes "same network" for precisely the pair this whole entry
+exists to keep apart. Adding it as a fourth attribute under a 2-of-N
+threshold makes main-vs-guest match on MAC + public IP and merge — worse than
+having no fourth attribute. It is also dynamic (changes with the ISP lease)
+and unavailable while offline.
+
+It is still worth *storing*: it identifies the site rather than the VLAN,
+which is a genuinely useful grouping ("all the networks at home"), and it
+would let the app tell "my ISP changed my address" apart from "I moved to a
+different network." Just not as a term in the identity decision.
+
+### Multi-homed sites and dual-router setups
+
+Both are anticipated, and each pushes the design in a specific direction.
+
+**Multi-homed (two or more WAN links at one site).** The public IP stops
+being single-valued — which link a flow egresses decides what the outside
+world sees, and that can change without anything on the LAN changing. This
+kills public IP as an identity term outright (already argued above for a
+different reason) and weakens it even as the "same site" grouping suggested
+there: at a multi-homed site the same LAN legitimately reports two public
+addresses. It also means the ISP edge router and traceroute path can change
+while the LAN fingerprint stays fixed, so path monitoring has to be free to
+re-evaluate without that being read as a network change.
+
+**Dual routers on one LAN.** The risk is the gateway MAC: if failover moves
+the gateway to different hardware without a shared virtual MAC, a MAC-keyed
+fingerprint sees a brand-new network purely because the standby took over.
+That is exactly the "router replaced, same config" row the 2-of-3 table
+rescues, which raises its value from a nice-to-have to something closer to
+required for this topology.
+
+**VRRP virtual MACs are worth detecting explicitly.** RFC 5798 reserves
+`00:00:5e:00:01:XX` for VRRP virtual routers, with the VRID in the final
+octet. A gateway MAC matching that prefix tells you three things for free,
+with no SNMP at all: the gateway is VRRP-managed, its MAC is stable across
+failover (so MAC-keying is *safe* here), and the VRID is readable directly.
+Checked against the current gateway: `bc:b9:23:81:a6:d4` — an ordinary
+hardware MAC, so this router is not presenting a VRRP virtual gateway today,
+and MAC stability across a future failover can't be assumed.
+
+### Suggested resolution
+
+Keep a deterministic key (router MAC + subnet) as the stored identity, and
+record SSID and public IP as *attributes* of the network rather than
+components of its fingerprint. Then add reconciliation as a separate,
+explicit step: when a network is seen that matches an existing one on two of
+three signals but not on the key, treat that as evidence they're the same
+network and offer to merge — carrying the user's label across.
+
+That keeps keyed lookup and a stable primary key, while still healing the
+renumber and router-swap cases that pure MAC+subnet loses. It also makes the
+non-transitivity harmless, because merging is a deliberate one-time
+reconciliation rather than an identity computed fresh on every sighting.
+
+### Open questions before implementing
+
+- What do untagged rows do — show on every network until re-discovered, or
+  stay hidden until a poll can tag them? Showing them reproduces today's
+  flat-list behaviour for legacy data, which is at least not a regression.
+- Backfill or re-discover? A one-time backfill can't know which network a
+  historical device was on, so the honest options are "tag on next successful
+  poll" or "leave legacy rows untagged forever."
+- Should the UI show only the primary network's devices, or all networks
+  currently attached? While dual-homed both are genuinely reachable, so
+  showing both is defensible — but it reproduces the duplicate-router
+  complaint that started this. Primary-only is the likely answer.
+- Does `DiscoveredDeviceRecord` (LAN/ARP results) want the same treatment
+  for consistency, or is per-snapshot association already enough there?
+- Is reconciliation automatic or offered? Merging silently would make two
+  networks the user considers distinct collapse without warning; prompting
+  needs UI that doesn't currently exist anywhere in the popover.
+- On Ethernet, 2-of-3 has only two signals to work with. Is a wired renumber
+  or router swap reading as a new network acceptable, or does that case want
+  something else (DHCP `server_identifier`, say, which `ipconfig getpacket`
+  already exposes per the DHCP entry above)?
+- None of this touches VRRP: AP1 at `10.0.0.16` and `10.0.0.17` is one
+  device at two addresses on the *same* network, so no amount of network
+  tagging separates them. See "Classical dual-router VRRP identity."

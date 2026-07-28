@@ -804,6 +804,96 @@ expected during development, not a bug.
   default) or use a non-default community. Restart and software-change
   event generation is logic-verified but has *not* been observed against a
   real device reboot or firmware upgrade yet.
+
+  **"Scan" is a genuine clear-and-rediscover**, not just a fresh
+  in-memory list layered on old rows: `SNMPViewModel.scan()` now calls
+  `SnapshotStore.deleteAllSNMPDevices()` before sweeping, so a device no
+  longer present doesn't linger in the persisted store and reappear on
+  next launch (previously, only the *displayed* list was replaced on
+  scan — the underlying `SNMPDeviceRecord` rows were never pruned, so
+  stale entries survived indefinitely since `SNMPViewModel.init()`
+  rehydrates from everything ever persisted). Real cost, accepted since
+  this only runs on an explicit, manual click: any device still around
+  gets a fresh `firstSeenAt` on rediscovery instead of keeping its actual
+  history.
+
+  **Devices from networks you've left are hidden, not deleted.**
+  `SNMPViewModel.pruneStaleDevices` runs at launch and after every poll or
+  scan, rebuilding the list from the persisted set and keeping only devices
+  that belong to the network currently attached. The case that prompted it:
+  joining a guest SSID discovered its gateway at `10.0.102.1`, and coming
+  back to the main LAN left it listed forever alongside `10.0.0.1` — the
+  same Alta router, identical `sysName` *and* `sysDescr`, showing up twice.
+
+  **It hides rather than deletes for a reason learned the hard way.** The
+  first implementation deleted the persisted rows, which was actively
+  destructive: joining a guest SSID makes *every* main-LAN device off-subnet
+  at once, so a brief visit to the guest network silently wiped the entire
+  device inventory, recoverable only by a manual Scan from the main network.
+  Observed live — six devices at `00:18:01.910`, zero 54ms later. Rebuilding
+  from the store instead means leaving a network hides its devices and
+  returning brings them straight back. `apply` upserts every polled device
+  before this runs, so the store is never staler than memory.
+
+  Hiding is still much worse to get wrong than showing a stale row, so a
+  device survives on *either* of two independent grounds: it's on the
+  current subnet, or it's an address the next sweep would probe anyway
+  (`candidateAddresses`, covering an off-subnet router or an off-subnet
+  local traceroute hop — both legitimate, both invisible to a plain subnet
+  test). `SubnetCalculator.isOnSameSubnet` returns `nil` rather than `false`
+  when it can't parse an input, and "can't tell" always means keep.
+
+  **One device answering at two addresses is merged by MAC.** AP1 answers
+  both its own `10.0.0.17` and the VRRP virtual `10.0.0.16`, and the ARP
+  table already proves they're one interface:
+
+  ```
+  ? (10.0.0.16) at e8:10:98:ca:a9:22 on en0
+  ? (10.0.0.17) at e8:10:98:ca:a9:22 on en0   <- same MAC
+  ? (10.0.0.18) at e8:10:98:ca:9f:66 on en0   <- AP2, its own
+  ```
+
+  `SNMPViewModel.mergingSharedMACs` collapses entries sharing a MAC, using
+  the ARP data `LANDiscoveryService` already collects. Keyed on MAC rather
+  than `sysName` (which was tried and reverted): two addresses sharing a MAC
+  is a fact about the hardware, needs no community string, and can't be
+  fooled by two devices configured with the same name — two devices cannot
+  share a NIC. Devices with no ARP entry are left alone rather than guessed
+  at.
+
+  Neither address is discarded. The lowest becomes primary — a deterministic
+  tie-break, not a claim about which is "real", since nothing available can
+  distinguish a virtual address from an individual one — and the rest are
+  carried as `aliasAddresses` and shown in the row, so a merged device still
+  reveals every address it answers at. Verified against the real ARP data
+  above plus order-independence, three-addresses-on-one-MAC, distinct MACs,
+  and the no-ARP-data case.
+
+  **The merge depends on ARP data, so it can't run at launch.**
+  `LANDiscoveryViewModel.scan()` is asynchronous (it had to become so, to
+  stop `arp` blocking the main thread), which means `SNMPViewModel.init()`
+  rebuilds its device list before any MACs exist — the subprocess trace
+  shows `arp -n -a` starting 1ms *after* that rebuild. Left alone, the merge
+  wouldn't land until the first poll 60 seconds later, which is exactly what
+  the log showed. `NMSApp` therefore calls `snmp.rebuildDeviceList()` again
+  from `lanDiscovery.onScanCompleted`. Verified live: merge now lands 657ms
+  after launch instead of 60s, and `10.0.0.17` correctly disappears from the
+  ping target list, so AP1 is probed once rather than twice.
+
+  The asymmetry bounds what this can do: a MAC match *proves* one device, but
+  a MAC mismatch proves nothing. It works here because Aruba answers the
+  virtual address from the master's own physical MAC; a proper VRRP virtual
+  MAC (`00:00:5e:00:01:XX`, RFC 5798) would resolve differently and the two
+  would look like separate devices. A sound positive signal, not a complete
+  VRRP solution — see `DESIGN-NOTES.md`.
+
+  **Device identity is IP-based**, including for VRRP pairs — a
+  `sysName`-based identity was tried and reverted (it collapsed a VRRP
+  pair member's own address and the shared virtual address it holds as
+  master into one ambiguous entry, which doesn't actually model VRRP,
+  just hides the duplicate that results from it). See "Classical
+  dual-router VRRP identity" in `DESIGN-NOTES.md` for what was tried and
+  what a proper fix likely needs.
 - **Overall status (menu bar color)**: `OverallStatus` reduces everything
   down to one at-a-glance signal on the menu bar icon itself — green
   (normal), yellow (marginal), or red (critical) — verified against 10
@@ -918,11 +1008,65 @@ expected during development, not a bug.
   `onChangePersisted` above never fires for it, and re-tracing only every
   10 minutes made that kind of outage slow to notice. `ConnectivityViewModel
   .onInternetUnreachable` fires specifically when the raw IP check (ping
-  to `1.1.1.1`) transitions to unreachable — not router/DNS/HTTP, and not
-  recoveries — and `NMSApp` wires that straight to an immediate
+  to `1.1.1.1`) transitions to unreachable — not router/DNS/HTTP — and
+  `NMSApp` wires that straight to an immediate
   `traceroute.run()`, since a real path change (not just the same hop
   going quiet) still needs a fresh trace to detect, and that's the
-  earliest signal something broke upstream. Once a hop is confirmed, the
+  earliest signal something broke upstream.
+
+  `onInternetReachable` is the recovery counterpart, and exists because of
+  a bug caught in a real upstream-outage test (an uplink pulled between a
+  desktop switch and the switch above it, visible in the UI state log): the
+  outage's own re-trace runs *while the path is still down*, so it fails
+  and clears `monitoredHop` — which removes the ISP Edge Router target from
+  `buildTargets()` entirely. With no check left, connectivity returning
+  produced no recovery, and the run ended with `peRouterUnreachable` = 2
+  against `peRouterReachable` = 1, an outage never bracketed by its own
+  recovery. Nothing else re-traced, since an upstream break never touches
+  the Mac's interface and so never fires `onChangePersisted`; the check
+  simply stayed missing until the next periodic trace, up to 10 minutes
+  later. Recovery now re-traces, restoring the hop and the check.
+
+  `TracerouteViewModel.run()` defers rather than drops a call that arrives
+  mid-trace (`rerunRequested`, fired from `finishRun()`). Without that, the
+  recovery re-trace would be swallowed by the existing `guard !isRunning`
+  for any outage shorter than a failing trace takes to finish — quietly
+  reintroducing the same bug for exactly the short outages most likely to
+  occur. Verified against the state machine directly: a deferred re-run
+  fires exactly once, ten rapid calls collapse to one, and a
+  continuously-failing trace stays bounded to one extra run rather than
+  chaining.
+
+  **`TracerouteViewModel.onTraceCompleted` closes a separate, launch-time
+  race**, diagnosed from the UI state log: `traceroute` and `connectivity`
+  are constructed back-to-back in `NMSApp.init()`, and `connectivity`'s very
+  first check round — fired synchronously from its own `init()` — decides
+  whether to include the ISP Edge Router target by reading
+  `traceroute.monitoredHop` *at that instant*, before the launch-time
+  `traceroute.run()` (dispatched, not awaited) has resolved anything. The
+  trace itself finishes in under a second — confirmed directly, hops
+  populated 655ms after launch — but the row was simply absent from Network
+  Health (not red, not pending — not built at all) until the next periodic
+  check, up to 30s later. `onTraceCompleted` fires from
+  `TracerouteViewModel.finishRun()` (both the success and failure paths,
+  since `monitoredHop` can change either way) and `NMSApp` wires it straight
+  to `connectivity.runChecks()` — which also means every later trace (the
+  10-minute periodic one, "Trace Now", and the two re-traces above) reflects
+  a changed edge-router address immediately instead of waiting out whatever
+  interval happened to be running.
+
+  This reintroduces the identical collision `onInternetReachable` already
+  hit: the callback can land while `connectivity`'s own launch-time round is
+  still running its async pings. `ConnectivityViewModel.runChecks()` now
+  defers rather than drops a call that arrives mid-round
+  (`recheckRequested`, fired from `finishChecking()`), mirroring
+  `TracerouteViewModel`'s fix exactly. Verified against the state machine
+  directly, including the specific launch collision (round already in
+  flight when the completion callback lands): deferred rather than dropped,
+  fires exactly once on completion, and rapid-fire calls collapse to a
+  single extra round rather than chaining.
+
+  Once a hop is confirmed, the
   Path to
   Internet section just shows a "Stop monitoring hop N" button plus the hop
   list (local hops greyed out, the confirmed hop in blue, unresponsive hops
@@ -1003,6 +1147,101 @@ order, sequence order and timestamp order all agree. Verified across a real
 run: 54 lines, zero sequence problems, zero timestamp inversions, and all 14
 subprocess invocations correctly paired.
 
+### Degraded derivations
+
+Two view models compute state from other view models —
+`ConnectivityViewModel` (reads `networkMonitor`, `traceroute`, `publicIP`,
+`snmp`) and `SNMPViewModel` (reads `networkMonitor`, `lanDiscovery`,
+`bonjourDiscovery`, `traceroute`). Every one of those reads is
+optional-chained with a silent fallback: `snmp?.devices ?? []`,
+`traceroute?.monitoredHop?.address`, `lanDiscovery?.devices ?? []`.
+
+That tolerance is what makes a whole class of bug invisible. A dependency
+that isn't ready yet doesn't error — it yields a quietly incomplete result,
+which then sits cached until some unrelated *timer* recomputes it. This app
+hit it twice in one session: the ISP Edge Router row was absent for 30
+seconds at launch because `traceroute.monitoredHop` hadn't resolved, and the
+SNMP MAC merge didn't land for 60 seconds because the ARP table was still
+empty. Neither looked wrong; both just showed less than they should have.
+
+So both derivations now log what they *couldn't* use:
+
+```
+ConnectivityViewModel.buildTargets   | 4 targets — unavailable: monitoredHop
+SNMPViewModel.rebuildDeviceList      | 6 devices — unavailable: arpMACs (no MAC merge this pass)
+```
+
+This prevents nothing — it makes the omission legible instead of silent, so
+"why is that row missing?" is a line you read rather than a bug you report.
+Logged only when an input is genuinely absent, so healthy rounds stay quiet
+and this doesn't add noise every 30 seconds.
+
+### One place for cross-view-model wiring
+
+`NMSApp.wireDependencies` holds every connection between view models,
+grouped into topology fan-out, derived-state dependencies, reachability
+transitions, and event-log refresh. It was extracted from `init()` for the
+reason above: the dependency matrix is only about eight edges, small enough
+to audit by reading one function, and a missing edge in the "derived state"
+group is precisely the shape both bugs above took. Each edge there carries a
+comment naming the bug that shipped without it.
+
+`UIStateLogger.record` is `nonisolated` for this`UIStateLogger.record` is `nonisolated` for this — `log` is `@MainActor`
+(it must render SwiftData models on the main thread), but subprocess events
+originate on whatever background queue the shell-out is running on.
+
+Currently instrumented — deliberately staged rather than all 28 `@Published`Currently instrumented — deliberately staged rather than all 28 `@Published`
+properties at once: `ConnectivityViewModel.checks`,
+`NetworkMonitorViewModel.currentInterface`, `WiFiSSIDViewModel.currentSSID`,
+`EventLogViewModel.events`, `SNMPViewModel.devices`, `LANDiscoveryViewModel.devices`, plus
+`TracerouteViewModel`'s `hops`, `lastError` and `monitoredHopNumber`.
+
+The traceroute three were added after the first real use of this log: working
+out why the ISP Edge Router check vanished during an upstream outage required
+reading source to deduce that `monitoredHop` had been cleared, because none
+of that state was observable. Instrumenting it turned the next occurrence
+from an inference into a reading.
+
+Things worth knowing before relying on it:
+
+- **It logs writes, not changes.** `didSet` fires on identical reassignment
+  too, so `checks` produces a line every 30s whether or not anything moved
+  (seq 5 and 6 above). That's deliberate: it separates "the code never ran"
+  from "the code ran and produced the same value," usually the more useful
+  distinction. Don't read it as a diff.
+- **It won't catch rendering bugs.** Truncated text, wrong colors, or a view
+  that fails to re-render despite correct backing data all look perfectly
+  healthy here. This replaces visual inspection only for *data* questions.
+- **Truncated at each launch**, not appended forever — session-scoped
+  tooling, so it never grows without bound. The corollary: a crash and
+  relaunch destroys the log covering the crash.
+- **Ordering is guaranteed, and that took some care.** Sequence numbers and
+  timestamps are captured at the call site rather than on the writer queue
+  (a timestamp taken at drain time would measure queue latency), and the
+  writer queue is *serial* — `DispatchQueue.global()` is concurrent and could
+  complete two writes out of order. Verified over a real run: no sequence
+  gaps, no timestamp regressions.
+- **Values are escaped to exactly one line.** SNMP `sysDescr` is multi-line
+  on plenty of gear and `lastError` comes straight from
+  `error.localizedDescription`, so a stray newline would silently split one
+  write into two apparent ones.
+
+`AppEventRecord` conforms to `UIStateLoggable` because it's a SwiftData
+`@Model` *class*: verified that a class without a custom description renders
+as bare `NMS.AppEventRecord`, so an event list would otherwise log as
+`[NMS.AppEventRecord, NMS.AppEventRecord]`. The struct-backed value types
+need no conformance — they render their full contents already.
+
+Release builds compile it out entirely: every method body is `#if DEBUG`, and
+a Release binary was checked to contain zero occurrences of the log path or
+queue label. That's what bounds the privacy question — these lines contain
+SSIDs, the public IP and SNMP descriptors, and `~/Library/Logs/` is collected
+by sysdiagnose, so it matters that a shipping build *cannot* be made to write
+them. This is also why it's on by default in DEBUG with no runtime flag: a
+log you must opt into before the fact is empty at the exact moment you want
+it, and a runtime flag would reopen the privacy question that compile-time
+gating closes. See `DESIGN-NOTES.md` for the reasoning in full, including why
+`os_log` can't serve this purpose.
 
 ## Notes on network identity
 

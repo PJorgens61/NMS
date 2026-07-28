@@ -3,7 +3,26 @@ import Combine
 
 @MainActor
 final class SNMPViewModel: ObservableObject {
-    @Published private(set) var devices: [SNMPDevice] = []
+    @Published private(set) var devices: [SNMPDevice] = [] {
+        didSet {
+            UIStateLogger.log("SNMPViewModel.devices", devices)
+            // Compared on ping-target identity rather than with `!=`, because
+            // a plain equality check would fire on *every* poll: `uptimeTicks`
+            // and `polledAt` change each time by design, so whole-value
+            // inequality says nothing about whether the targets moved.
+            let identity = Self.targetIdentity(devices)
+            if identity != Self.targetIdentity(oldValue) {
+                onDeviceListChanged?()
+            }
+        }
+    }
+
+    /// What `ConnectivityViewModel.buildTargets` actually consumes from a
+    /// device: the address it pings and the label it files the result under.
+    /// Everything else can change without affecting the target list.
+    private static func targetIdentity(_ devices: [SNMPDevice]) -> [String] {
+        devices.map { "\($0.ipAddress)|\($0.displayName)" }
+    }
     @Published private(set) var isScanning = false
     @Published private(set) var lastScanAt: Date?
     @Published private(set) var lastError: String?
@@ -43,6 +62,25 @@ final class SNMPViewModel: ObservableObject {
     /// software changed), so the event log view can refresh.
     var onEventLogged: (() -> Void)?
 
+    /// Fired when the device list actually changes — these devices are the
+    /// infrastructure ping targets in `ConnectivityViewModel.buildTargets`,
+    /// which reads them as `snmp?.devices ?? []` and so silently monitors
+    /// nothing when the list isn't ready yet.
+    ///
+    /// That is not hypothetical: `NMSApp` constructs `connectivity` before
+    /// `snmp` and injects the back-reference afterward, so the first check
+    /// round at launch runs with `snmp` still nil and pings no infrastructure
+    /// at all. It recovered within ~500ms only because
+    /// `traceroute.onTraceCompleted` happened to rebuild the target list
+    /// shortly after — coincidental coupling, not a guarantee. Surfaced by
+    /// the "unavailable: snmpDevices" line this logging now emits.
+    ///
+    /// Deliberately on *change*, not on every rebuild: `rebuildDeviceList()`
+    /// runs after every 60s poll, and firing unconditionally would add a
+    /// redundant check round every minute for a list that usually hasn't
+    /// moved.
+    var onDeviceListChanged: (() -> Void)?
+
     init(
         snapshotStore: SnapshotStore,
         networkMonitor: NetworkMonitorViewModel,
@@ -71,21 +109,23 @@ final class SNMPViewModel: ObservableObject {
         // intermittent-empty-results bug in Bonjour discovery. Known
         // devices show (and start being polled and pinged) immediately;
         // the sweep itself is on demand via the popover's "Scan" button.
-        devices = snapshotStore.fetchSNMPDevices().map {
-            SNMPDevice(
-                ipAddress: $0.ipAddress,
-                sysDescr: $0.sysDescr,
-                sysName: $0.sysName,
-                uptimeTicks: $0.uptimeTicks,
-                community: $0.community,
-                polledAt: $0.lastSeenAt
-            )
-        }
+        devices = snapshotStore.fetchSNMPDevices().map(Self.device(from:))
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.poll()
             }
         }
+        // Rehydration above restores everything ever persisted, including
+        // devices from networks since left — so filter immediately rather
+        // than showing them until the first poll a minute later.
+        //
+        // This pass cannot do the MAC merge, and that's expected: it needs
+        // ARP data, and `LANDiscoveryViewModel.scan()` is asynchronous, so
+        // at this moment its device list is still empty. `NMSApp` calls
+        // this again from `lanDiscovery.onScanCompleted`; without that the
+        // merge wouldn't happen until the first poll 60s later — observed
+        // directly in the log, `arp -n -a` starting 1ms *after* this ran.
+        rebuildDeviceList()
     }
 
     deinit {
@@ -185,6 +225,7 @@ final class SNMPViewModel: ObservableObject {
     private func apply(_ found: [SNMPDevice], isFullScan: Bool) {
         isScanning = false
         lastScanAt = Date()
+        defer { rebuildDeviceList() }
 
         if isFullScan {
             devices = found
@@ -221,6 +262,163 @@ final class SNMPViewModel: ObservableObject {
         if loggedAny {
             onEventLogged?()
         }
+    }
+
+    /// Drops devices belonging to a network that's no longer attached, and
+    /// deletes their persisted rows so they don't return on next launch.
+    /// The concrete case: joining a guest SSID discovers its gateway
+    /// (`10.0.102.1`), and switching back to the main LAN left that entry
+    /// listed indefinitely — the same router already listed at `10.0.0.1`,
+    /// showing up twice. Re-polls deliberately keep devices that don't
+    /// answer (a missed SNMP reply is usually a dropped packet, not a
+    /// vanished device), which is right for a device that's still on this
+    /// network and wrong for one that never will be again; only the manual
+    /// "Scan" cleared them, and only by clearing everything.
+    ///
+    /// Two independent reasons to keep a device, because pruning
+    /// automatically is far worse to get wrong than leaving a stale row:
+    /// it's on the current subnet, or it's an address the next sweep would
+    /// probe anyway (`candidateAddresses`, which covers an off-subnet
+    /// router or an off-subnet local traceroute hop — both legitimate, and
+    /// both invisible to a plain subnet test). Anything the subnet test
+    /// can't parse counts as "can't tell" and is kept. Note this
+    /// deliberately does *not* address a single device answering at two
+    /// addresses on the *same* subnet — AP1 at `.16`/`.17` under VRRP stays
+    /// listed twice; see `DESIGN-NOTES.md`.
+    /// Callable from `NMSApp` so a completed LAN scan can trigger it — the
+    /// MAC merge depends on ARP data this cannot produce itself.
+    func rebuildDeviceList() {
+        guard
+            let info = networkMonitor?.currentInterface,
+            let localIP = info.ipAddress,
+            let mask = info.subnetMask
+        else {
+            // Silent no-op otherwise: the list simply keeps whatever it had,
+            // which looks identical to "nothing needed changing".
+            UIStateLogger.log("SNMPViewModel.rebuildDeviceList", "skipped — no current interface")
+            return
+        }
+
+        let probeable = Set(candidateAddresses())
+        // Rebuilt from the store rather than filtered in place, and nothing
+        // is deleted. The first cut deleted the rows, which was actively
+        // destructive: joining a guest SSID makes *every* main-LAN device
+        // off-subnet at once, so a brief visit to the guest network wiped
+        // the entire inventory permanently — recoverable only by a manual
+        // Scan from the main network. Re-reading the persisted set here
+        // means leaving a network hides its devices and returning brings
+        // them straight back. `apply` upserts every polled device before
+        // this runs, so the store is never staler than memory.
+        let kept = snapshotStore.fetchSNMPDevices()
+            .map(Self.device(from:))
+            .filter { device in
+                if probeable.contains(device.ipAddress) { return true }
+                // `nil` (unparseable) means "can't tell", which keeps it —
+                // only a definite `false` hides a device.
+                return SubnetCalculator.isOnSameSubnet(device.ipAddress, as: localIP, subnetMask: mask) != false
+            }
+        let macs = macByAddress()
+        devices = Self.mergingSharedMACs(kept, macByAddress: macs)
+            .sorted {
+                (SubnetCalculator.packedIPv4($0.ipAddress) ?? 0) < (SubnetCalculator.packedIPv4($1.ipAddress) ?? 0)
+            }
+        logUnavailableInputs(macCount: macs.count, keptCount: kept.count)
+    }
+
+    /// Records when the merge ran without the ARP data it depends on. That
+    /// read is `lanDiscovery?.devices ?? []`, so an empty table isn't an
+    /// error — it just means no addresses get merged, silently, and the
+    /// duplicate stays visible until something recomputes this later. It is
+    /// exactly how the AP1 `.16`/`.17` merge failed to land for 60 seconds at
+    /// launch while looking entirely healthy.
+    ///
+    /// Only logged when the ARP table is actually empty, so the normal case
+    /// adds nothing.
+    private func logUnavailableInputs(macCount: Int, keptCount: Int) {
+        #if DEBUG
+        guard macCount == 0 else { return }
+        UIStateLogger.log(
+            "SNMPViewModel.rebuildDeviceList",
+            "\(keptCount) devices — unavailable: arpMACs (no MAC merge this pass)"
+        )
+        #endif
+    }
+
+    /// IP → MAC from the ARP table `LANDiscoveryService` already collects.
+    /// Devices with no ARP entry simply don't appear, and are then left
+    /// alone by the merge below.
+    private func macByAddress() -> [String: String] {
+        (lanDiscovery?.devices ?? []).reduce(into: [:]) { table, device in
+            guard let mac = device.macAddress, !mac.isEmpty else { return }
+            table[device.ipAddress] = mac
+        }
+    }
+
+    /// Collapses entries whose addresses resolve to the *same MAC* — one
+    /// physical interface answering at several addresses. The case this
+    /// exists for: AP1 answering both its own `10.0.0.17` and the VRRP
+    /// virtual `10.0.0.16`, which ARP shows sharing `e8:10:98:ca:a9:22`
+    /// while AP2 at `.18` has its own.
+    ///
+    /// Deliberately keyed on MAC rather than `sysName` (which was tried and
+    /// reverted): two addresses sharing a MAC is a fact about the hardware,
+    /// needs no community string, and can't be fooled by two devices
+    /// configured with the same name. Two devices cannot share a NIC.
+    ///
+    /// The asymmetry is worth stating, because it bounds what this can do: a
+    /// MAC match proves one device, but a MAC *mismatch* proves nothing.
+    /// This works here because Aruba answers the virtual address from the
+    /// master's own physical MAC; a proper VRRP virtual MAC
+    /// (`00:00:5e:00:01:XX`, RFC 5798) would resolve differently and the two
+    /// would correctly-but-unhelpfully look like separate devices. So this
+    /// is a sound positive signal, not a complete VRRP solution — see
+    /// `DESIGN-NOTES.md`.
+    ///
+    /// Neither address is discarded: the lowest becomes the primary (a
+    /// deterministic tie-break, not a claim about which is "real" — nothing
+    /// available here can tell a virtual address from an individual one) and
+    /// the rest are carried as `aliasAddresses` so the UI can show them.
+    private static func mergingSharedMACs(
+        _ devices: [SNMPDevice],
+        macByAddress: [String: String]
+    ) -> [SNMPDevice] {
+        var primaryByMAC: [String: SNMPDevice] = [:]
+        var unknownMAC: [SNMPDevice] = []
+
+        for device in devices {
+            guard let mac = macByAddress[device.ipAddress] else {
+                unknownMAC.append(device)
+                continue
+            }
+            guard var primary = primaryByMAC[mac] else {
+                primaryByMAC[mac] = device
+                continue
+            }
+            let primaryPacked = SubnetCalculator.packedIPv4(primary.ipAddress) ?? .max
+            let candidatePacked = SubnetCalculator.packedIPv4(device.ipAddress) ?? .max
+            if candidatePacked < primaryPacked {
+                var promoted = device
+                promoted.aliasAddresses = (primary.aliasAddresses + [primary.ipAddress]).sorted()
+                primaryByMAC[mac] = promoted
+            } else {
+                primary.aliasAddresses = (primary.aliasAddresses + [device.ipAddress]).sorted()
+                primaryByMAC[mac] = primary
+            }
+        }
+        return Array(primaryByMAC.values) + unknownMAC
+    }
+
+    /// Shared by rehydration and by `rebuildDeviceList`, which both need to
+    /// turn persisted rows back into the value type.
+    private static func device(from record: SNMPDeviceRecord) -> SNMPDevice {
+        SNMPDevice(
+            ipAddress: record.ipAddress,
+            sysDescr: record.sysDescr,
+            sysName: record.sysName,
+            uptimeTicks: record.uptimeTicks,
+            community: record.community,
+            polledAt: record.lastSeenAt
+        )
     }
 
     /// The local subnet (when it's small enough to sweep safely) plus every

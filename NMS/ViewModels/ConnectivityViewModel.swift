@@ -18,6 +18,14 @@ final class ConnectivityViewModel: ObservableObject {
     private weak var traceroute: TracerouteViewModel?
     private weak var snmp: SNMPViewModel?
     private weak var publicIP: PublicIPViewModel?
+    /// Set when `runChecks()` is called while a round is already in flight;
+    /// the deferred round fires from `finishChecking()`. Needed because
+    /// `TracerouteViewModel.onTraceCompleted` can land while the very first
+    /// launch-time round (started synchronously from `init()`) is still
+    /// running its own async pings — dropping that call instead of
+    /// deferring it would silently reintroduce the up-to-30s gap this
+    /// exists to close.
+    private var recheckRequested = false
     private var timer: Timer?
 
     /// Labels of the infrastructure (SNMP) devices in the current round, so
@@ -51,6 +59,20 @@ final class ConnectivityViewModel: ObservableObject {
     /// pinpoint, but which wouldn't otherwise prompt a re-trace for up to
     /// 10 minutes, since it doesn't touch the Mac's own interface/IP/router.
     var onInternetUnreachable: (() -> Void)?
+
+    /// The recovery counterpart, and not merely for symmetry — without it
+    /// the ISP Edge Router check silently disappears for up to 10 minutes
+    /// after any upstream outage. Observed in a real test (an uplink pulled
+    /// between a desktop switch and the switch above it): the outage fires
+    /// `onInternetUnreachable`, that re-trace fails while the path is down,
+    /// `TracerouteViewModel.monitoredHop` goes nil, and the PE target
+    /// vanishes from `buildTargets()` — so when connectivity returns there
+    /// is no PE check left to recover, and `peRouterUnreachable` never gets
+    /// its matching `peRouterReachable`. Nothing else re-runs a trace here,
+    /// since an upstream break never touches the Mac's own interface and so
+    /// never fires `onChangePersisted`. Re-tracing on recovery repopulates
+    /// `monitoredHop` and restores the check.
+    var onInternetReachable: (() -> Void)?
 
     init(
         networkMonitor: NetworkMonitorViewModel,
@@ -98,7 +120,10 @@ final class ConnectivityViewModel: ObservableObject {
     /// for up to a couple of seconds each, so they run off the main thread;
     /// the HTTP fetch is genuinely async and doesn't need that.
     func runChecks() {
-        guard !isChecking else { return }
+        guard !isChecking else {
+            recheckRequested = true
+            return
+        }
         isChecking = true
 
         guard networkMonitor?.currentInterface != nil else {
@@ -133,7 +158,7 @@ final class ConnectivityViewModel: ObservableObject {
 
         let targets = buildTargets()
         guard !targets.isEmpty else {
-            isChecking = false
+            finishChecking()
             return
         }
         let service = self.service
@@ -183,7 +208,6 @@ final class ConnectivityViewModel: ObservableObject {
         let previous = checks
         checks = snapshotStore.saveConnectivityChecks(results)
         lastCheckedAt = Date()
-        isChecking = false
         logTransitions(previous: previous, current: checks)
 
         // Scoped to router/internet/DNS/HTTP specifically (the ones Network
@@ -193,6 +217,21 @@ final class ConnectivityViewModel: ObservableObject {
         // a real outage.
         let anyUnhealthy = checks.contains { OverallStatus.criticalLabels.contains($0.label) && !$0.success }
         scheduleNextCheck(after: anyUnhealthy ? Self.fastCheckInterval : Self.checkInterval)
+        // Last, not first: mirrors `TracerouteViewModel.finishRun()` — the
+        // round isn't really over until the next one is scheduled, and this
+        // can immediately start a fresh round in its place.
+        finishChecking()
+    }
+
+    /// The single place a round ends, so a deferred recheck can't be missed
+    /// on either completion path (the empty-targets early exit and the
+    /// normal ping-results path both call this). Recursion is bounded to
+    /// one extra round — the flag is cleared before re-entering.
+    private func finishChecking() {
+        isChecking = false
+        guard recheckRequested else { return }
+        recheckRequested = false
+        runChecks()
     }
 
     /// Logs an event only for the router/internet/DNS/HTTP targets (not
@@ -232,6 +271,9 @@ final class ConnectivityViewModel: ObservableObject {
             } else if check.success, wasFailing {
                 snapshotStore.logEvent(kinds.recovery, message: "\(check.label) reachable again")
                 loggedAny = true
+                if check.label == OverallStatus.internetLabel {
+                    onInternetReachable?()
+                }
             }
         }
         if loggedAny {
@@ -282,6 +324,33 @@ final class ConnectivityViewModel: ObservableObject {
             targets.append(ConnectivityService.Target(label: OverallStatus.publicIPLabel, host: publicIPAddress, timeoutSeconds: 1))
         }
 
+        logUnavailableInputs(targetCount: targets.count)
         return targets
+    }
+
+    /// Records which inputs weren't available when this round's targets were
+    /// built. Every read in `buildTargets` is optional-chained with a silent
+    /// fallback, so a dependency that isn't ready yet doesn't error — it just
+    /// omits a row, and the omission then persists until the next timer tick.
+    /// That is precisely how the ISP Edge Router row went missing for 30
+    /// seconds at launch with nothing appearing wrong. Making the omission
+    /// visible doesn't prevent it, but turns "why is that row absent?" into a
+    /// line you can read.
+    ///
+    /// Only logged when something is actually missing, so a healthy round
+    /// stays silent and this doesn't add a line every 30 seconds.
+    private func logUnavailableInputs(targetCount: Int) {
+        #if DEBUG
+        var unavailable: [String] = []
+        if networkMonitor?.currentInterface == nil { unavailable.append("interface") }
+        if traceroute?.monitoredHop?.address == nil { unavailable.append("monitoredHop") }
+        if (snmp?.devices ?? []).isEmpty { unavailable.append("snmpDevices") }
+        if publicIP?.currentIP == nil { unavailable.append("publicIP") }
+        guard !unavailable.isEmpty else { return }
+        UIStateLogger.log(
+            "ConnectivityViewModel.buildTargets",
+            "\(targetCount) targets — unavailable: \(unavailable.joined(separator: ", "))"
+        )
+        #endif
     }
 }

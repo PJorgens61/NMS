@@ -51,6 +51,20 @@ struct SubnetCalculator {
         return result
     }
 
+    /// Whether `address` sits on the same subnet as `ipAddress` under
+    /// `subnetMask`. Returns `nil` — deliberately, rather than `false` —
+    /// when any input can't be parsed, so a caller deciding whether to
+    /// *discard* something can distinguish "definitely elsewhere" from
+    /// "can't tell" and refuse to act on the latter.
+    static func isOnSameSubnet(_ address: String, as ipAddress: String, subnetMask: String) -> Bool? {
+        guard
+            let candidate = packedIPv4(address),
+            let local = packedIPv4(ipAddress),
+            let mask = packedIPv4(subnetMask)
+        else { return nil }
+        return (candidate & mask) == (local & mask)
+    }
+
     static func dottedQuad(_ address: UInt32) -> String {
         "\((address >> 24) & 0xFF).\((address >> 16) & 0xFF).\((address >> 8) & 0xFF).\(address & 0xFF)"
     }

@@ -60,48 +60,17 @@ struct NMSApp: App {
         // Two-phase: `SNMPViewModel` needs view models built alongside
         // `connectivity`, so the back-reference is injected once both exist.
         connectivity.attach(snmp: snmp)
-        // Tie a LAN scan to every observed topology change, not just the
-        // manual "Scan" button.
-        networkMonitor.onChangePersisted = { snapshot in
-            lanDiscovery.scan(for: snapshot)
-            // A topology change is the most likely moment the public IP
-            // actually changed, so check it right away rather than waiting
-            // for the next periodic tick.
-            publicIP.check()
-            // Same for the Wi-Fi SSID — e.g. unplugging Ethernet and
-            // falling back to Wi-Fi is exactly this kind of change.
-            wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
-            // The path to the internet (and the ISP edge router) can change
-            // along with the topology change itself, so re-trace now rather
-            // than waiting up to 10 minutes for the next periodic run.
-            traceroute.run()
-            // Router/internet/DNS/HTTP reachability is exactly what just
-            // changed too (e.g. an interface coming back up, or a failover
-            // to a different one) — re-check now instead of leaving Network
-            // Health showing stale router/internet/DNS/HTTP status for up
-            // to 30s until the next periodic round.
-            connectivity.runChecks()
-        }
-        // Refresh the event log whenever any producer logs a new event
-        // (interface down, router/internet/DNS/HTTP unreachable, or the
-        // public IP changed).
-        networkMonitor.onEventLogged = { eventLog.refresh() }
-        connectivity.onEventLogged = { eventLog.refresh() }
-        publicIP.onEventLogged = { eventLog.refresh() }
-        snmp.onEventLogged = { eventLog.refresh() }
-        // An upstream failure (e.g. a switch between the local router and
-        // the ISP) doesn't touch the Mac's own interface/IP/router, so
-        // `onChangePersisted` above never fires for it — the raw IP check
-        // failing is the earliest signal something's wrong upstream, so
-        // re-trace immediately instead of waiting on traceroute's own
-        // (much slower) schedule to notice.
-        connectivity.onInternetUnreachable = { traceroute.run() }
-        // Recognizing the current network depends on the router's MAC,
-        // which only comes from a LAN scan — so identity recognition rides
-        // along with every scan, automatic or manual.
-        lanDiscovery.onScanCompleted = { devices in
-            networkIdentity.recognize(routerAddress: networkMonitor.currentInterface?.routerAddress, from: devices)
-        }
+        Self.wireDependencies(
+            networkMonitor: networkMonitor,
+            lanDiscovery: lanDiscovery,
+            connectivity: connectivity,
+            networkIdentity: networkIdentity,
+            publicIP: publicIP,
+            wifiSSID: wifiSSID,
+            eventLog: eventLog,
+            traceroute: traceroute,
+            snmp: snmp
+        )
         _networkMonitor = StateObject(wrappedValue: networkMonitor)
         _lanDiscovery = StateObject(wrappedValue: lanDiscovery)
         _connectivity = StateObject(wrappedValue: connectivity)
@@ -125,6 +94,139 @@ struct NMSApp: App {
         // scanning for now-redundant data isn't worth it, so this no
         // longer runs at launch. `bonjourDiscovery`/`BonjourDiscoveryService`
         // are otherwise untouched if the section comes back later.
+    }
+
+    /// Every cross-view-model connection in the app, in one place.
+    ///
+    /// Grouped here deliberately rather than scattered through `init()`.
+    /// Only two view models consume other view models' state —
+    /// `ConnectivityViewModel` (reads `networkMonitor`, `traceroute`,
+    /// `publicIP`, `snmp`) and `SNMPViewModel` (reads `networkMonitor`,
+    /// `lanDiscovery`, `bonjourDiscovery`, `traceroute`) — so the whole
+    /// dependency matrix is roughly eight edges and small enough to audit by
+    /// reading one function.
+    ///
+    /// That matters because of a bug class this app has now hit three times.
+    /// Every one of those reads is optional-chained with a silent fallback
+    /// (`snmp?.devices ?? []`, `traceroute?.monitoredHop?.address`), so a
+    /// dependency that isn't ready yet doesn't error — it quietly yields an
+    /// incomplete result that then sits cached until some *timer* recomputes
+    /// it. The ISP Edge Router row vanished for 30s that way, and the SNMP
+    /// MAC merge for 60s. The fix in both cases was to make the recompute
+    /// trigger belong to the dependency rather than the clock, which is what
+    /// the "derived state" section below wires. An edge missing from that
+    /// section is the shape this bug takes, so it should be possible to spot
+    /// one by inspection instead of by user report.
+    private static func wireDependencies(
+        networkMonitor: NetworkMonitorViewModel,
+        lanDiscovery: LANDiscoveryViewModel,
+        connectivity: ConnectivityViewModel,
+        networkIdentity: NetworkIdentityViewModel,
+        publicIP: PublicIPViewModel,
+        wifiSSID: WiFiSSIDViewModel,
+        eventLog: EventLogViewModel,
+        traceroute: TracerouteViewModel,
+        snmp: SNMPViewModel
+    ) {
+        // MARK: Topology change fan-out
+        // A change to the Mac's own interface/IP/router invalidates nearly
+        // everything, so it re-runs nearly everything.
+        networkMonitor.onChangePersisted = { snapshot in
+            lanDiscovery.scan(for: snapshot)
+            // A topology change is the most likely moment the public IP
+            // actually changed, so check it right away rather than waiting
+            // for the next periodic tick.
+            publicIP.check()
+            // Same for the Wi-Fi SSID — e.g. unplugging Ethernet and
+            // falling back to Wi-Fi is exactly this kind of change.
+            wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+            // The path to the internet (and the ISP edge router) can change
+            // along with the topology change itself, so re-trace now rather
+            // than waiting up to 10 minutes for the next periodic run.
+            traceroute.run()
+            // Router/internet/DNS/HTTP reachability is exactly what just
+            // changed too (e.g. an interface coming back up, or a failover
+            // to a different one) — re-check now instead of leaving Network
+            // Health showing stale router/internet/DNS/HTTP status for up
+            // to 30s until the next periodic round.
+            connectivity.runChecks()
+        }
+
+        // MARK: Derived-state dependencies
+        // The edges that exist specifically so a consumer re-derives when its
+        // dependency resolves, instead of waiting for a timer. Each one here
+        // corresponds to a real bug that shipped without it.
+
+        // `ConnectivityViewModel.buildTargets` reads
+        // `traceroute.monitoredHop` to decide whether to include the ISP Edge
+        // Router target. `traceroute.run()` is async, so the first check round
+        // at launch runs before any hop exists and silently omits the row —
+        // invisible for up to 30s. Also covers every later trace, so a changed
+        // edge-router address is picked up at once.
+        traceroute.onTraceCompleted = { connectivity.runChecks() }
+
+        // `SNMPViewModel.rebuildDeviceList` reads `lanDiscovery.devices` for
+        // the MACs behind its merge (one device answering at several
+        // addresses). `lanDiscovery.scan()` is async — it had to be, to stop
+        // `arp` blocking the main thread — so `SNMPViewModel.init()` rebuilds
+        // before any MAC exists and the merge didn't land for 60s.
+        // `networkIdentity` shares this edge: recognizing a network needs the
+        // router's MAC, which only a LAN scan can supply.
+        lanDiscovery.onScanCompleted = { devices in
+            networkIdentity.recognize(routerAddress: networkMonitor.currentInterface?.routerAddress, from: devices)
+            snmp.rebuildDeviceList()
+        }
+
+        // `ConnectivityViewModel.buildTargets` pings the SNMP device list as
+        // its infrastructure targets, reading it as `snmp?.devices ?? []`.
+        // `connectivity` is constructed *before* `snmp` (the back-reference is
+        // injected afterward by `attach(snmp:)`), so the first check round at
+        // launch runs with `snmp` still nil and monitors no infrastructure at
+        // all. Until this edge existed it recovered only because
+        // `onTraceCompleted` above rebuilt the target list ~500ms later and
+        // happened to pick up SNMP too — a neighbour masking a missing edge,
+        // which is exactly what this grouping is meant to make visible.
+        // Found by the "unavailable: snmpDevices" line in the state log.
+        snmp.onDeviceListChanged = { connectivity.runChecks() }
+
+        // `ConnectivityViewModel.buildTargets` also reads `publicIP.currentIP`
+        // for the Public IP ping target, and `check()` is an async network
+        // fetch — same shape as the two edges above. Observed directly: the
+        // target was absent for the first two rounds at launch, appearing
+        // only 30 seconds in in via the periodic timer rather than anything
+        // noticing the fetch had resolved. This closes the last of
+        // `ConnectivityViewModel`'s four dependencies.
+        publicIP.onCurrentIPChanged = { connectivity.runChecks() }
+
+        // MARK: Reachability transitions
+        // An upstream failure (e.g. a switch between the local router and the
+        // ISP) doesn't touch the Mac's own interface/IP/router, so
+        // `onChangePersisted` never fires for it — the raw IP check failing is
+        // the earliest signal something broke upstream.
+        connectivity.onInternetUnreachable = { traceroute.run() }
+        // The recovery counterpart. The trace fired above runs while the path
+        // is still down, so it fails and clears the monitored hop, removing
+        // the ISP Edge Router target entirely — leaving an outage with no
+        // matching recovery until the next periodic trace up to 10 minutes
+        // later. Re-tracing on recovery restores the hop and the check.
+        connectivity.onInternetReachable = {
+            traceroute.run()
+            // Same stale-after-recovery problem, different symptom: a public
+            // IP fetch that fails mid-transition leaves `lastError` set, and
+            // the popover renders it verbatim — so URLError's "The Internet
+            // connection appears to be offline." sat under Info while every
+            // Network Health row was green, until the next 5-minute tick.
+            publicIP.check()
+        }
+
+        // MARK: Event log refresh
+        // Every producer that can write an `AppEventRecord` tells the log view
+        // to re-read.
+        networkMonitor.onEventLogged = { eventLog.refresh() }
+        connectivity.onEventLogged = { eventLog.refresh() }
+        publicIP.onEventLogged = { eventLog.refresh() }
+        wifiSSID.onEventLogged = { eventLog.refresh() }
+        snmp.onEventLogged = { eventLog.refresh() }
     }
 
     /// The at-a-glance severity: interface down and router/internet/DNS/HTTP

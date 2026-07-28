@@ -10,6 +10,16 @@ struct SNMPDevice: Equatable, Identifiable {
     var id: String { ipAddress }
 
     let ipAddress: String
+    /// Other addresses that resolved to the *same MAC* as `ipAddress` — one
+    /// physical interface answering at several addresses, which is what a
+    /// VRRP virtual address looks like when the master answers it from its
+    /// own hardware MAC. Populated by `SNMPViewModel`, not by SNMP itself:
+    /// the evidence comes from the ARP table. Empty for the normal case.
+    ///
+    /// Kept rather than discarded so the merge stays honest — the device is
+    /// genuinely reachable at all of these, and which one is "the real" one
+    /// is not something ARP or SNMP can answer.
+    var aliasAddresses: [String] = []
     /// `sysDescr.0` — vendor's own description, which in practice carries
     /// the model *and* the running software version (e.g. "Alta Route10
     /// 1.5b"). A change here means the device's software changed.
@@ -36,6 +46,17 @@ struct SNMPDevice: Equatable, Identifiable {
         guard let sysName, !sysName.isEmpty else { return ipAddress }
         return sysName
     }
+
+    /// Every address this device answers at, primary first. One entry in the
+    /// normal case; more when `aliasAddresses` caught a second address on
+    /// the same MAC (a VRRP virtual address, typically).
+    var allAddresses: [String] { [ipAddress] + aliasAddresses }
+
+    /// Shown under the name so a merged device still reveals both addresses
+    /// rather than silently presenting one — which address is the "real" one
+    /// isn't knowable from ARP or SNMP, so the honest answer is to show all
+    /// of them.
+    var addressDescription: String { allAddresses.joined(separator: ", ") }
 
     var uptimeInterval: TimeInterval {
         TimeInterval(uptimeTicks) / 100

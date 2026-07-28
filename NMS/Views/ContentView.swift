@@ -350,6 +350,16 @@ struct ContentView: View {
                             // needs instead of truncating, unlike the
                             // single-line convention used elsewhere in
                             // this popover.
+                            // Addresses shown only when there's more than
+                            // one — a single address is already implied by
+                            // the row and would just cost a line.
+                            if !device.aliasAddresses.isEmpty {
+                                Text(device.addressDescription)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
                             Text(device.sysDescr)
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)

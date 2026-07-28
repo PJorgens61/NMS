@@ -25,6 +25,23 @@ final class TracerouteViewModel: ObservableObject {
     private let reverseDNSService = ReverseDNSService()
     private let snapshotStore: SnapshotStore
     private var timer: Timer?
+    /// Set when `run()` is called while a trace is already in flight; the
+    /// deferred run fires from `finishRun()`. See `run()` for why dropping
+    /// the call instead would reintroduce the ISP-Edge-Router-vanishes bug.
+    private var rerunRequested = false
+
+    /// Fired once a trace completes, win or lose. Exists specifically for
+    /// the launch-time race between this view model and
+    /// `ConnectivityViewModel`: both are constructed back-to-back in
+    /// `NMSApp.init()`, and `ConnectivityViewModel`'s very first check round
+    /// decides whether to include the ISP Edge Router target by reading
+    /// `monitoredHop` *at that instant* — before this view model's own
+    /// launch-time `run()` (dispatched, not awaited) has had any chance to
+    /// resolve it. Without this hook the row is simply absent from Network
+    /// Health until the next periodic check, up to 30s later, even though
+    /// the trace itself finishes in under a second. `NMSApp` wires this to
+    /// `connectivity.runChecks()`.
+    var onTraceCompleted: (() -> Void)?
 
     private static let target = "1.1.1.1"
     // Traceroute is much heavier than a ping or an HTTP lookup (up to 20
@@ -56,7 +73,18 @@ final class TracerouteViewModel: ObservableObject {
     }
 
     func run() {
-        guard !isRunning else { return }
+        guard !isRunning else {
+            // Deferred rather than dropped. The concrete case: an upstream
+            // outage fires a trace that fails slowly (every hop timing out),
+            // and connectivity returns *before* it finishes — so the
+            // recovery re-trace from `onInternetReachable` would hit this
+            // guard and be swallowed, leaving the ISP Edge Router check
+            // missing for up to 10 minutes. That is precisely the bug the
+            // recovery hook exists to fix, so dropping the call here would
+            // quietly reintroduce it for any outage shorter than a trace.
+            rerunRequested = true
+            return
+        }
         isRunning = true
         let service = self.service
         let target = Self.target
@@ -69,7 +97,7 @@ final class TracerouteViewModel: ObservableObject {
             } catch {
                 Task { @MainActor in
                     self?.lastError = error.localizedDescription
-                    self?.isRunning = false
+                    self?.finishRun()
                 }
             }
         }
@@ -109,10 +137,29 @@ final class TracerouteViewModel: ObservableObject {
     private func apply(_ result: [TracerouteHop]) {
         hops = result
         lastRunAt = Date()
-        isRunning = false
         lastError = nil
         persistMonitoredHopIfNeeded()
         enrichHostnames(for: result)
+        // Last, not first: the run isn't really over until the monitored
+        // hop has been persisted, and `finishRun()` can start the next
+        // trace immediately.
+        finishRun()
+    }
+
+    /// The single place a run ends, so the deferred-rerun check can't be
+    /// missed on one of the two completion paths (success and failure).
+    /// Recursion is bounded to one extra run — the flag is cleared before
+    /// re-entering, so a trace that keeps failing can't chain.
+    private func finishRun() {
+        isRunning = false
+        // Fired here, not just from `apply()`'s success path, so a failed
+        // trace notifies too — the failure path (`run()`'s `catch`) calls
+        // `finishRun()` as well, and `monitoredHop` may have changed either
+        // way.
+        onTraceCompleted?()
+        guard rerunRequested else { return }
+        rerunRequested = false
+        run()
     }
 
     /// Resolves each responsive hop's hostname via reverse DNS, in the

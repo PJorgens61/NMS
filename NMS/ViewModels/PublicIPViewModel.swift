@@ -21,6 +21,22 @@ final class PublicIPViewModel: ObservableObject {
     /// the event log view can refresh.
     var onEventLogged: (() -> Void)?
 
+    /// Fired when `currentIP` actually changes — including nil → a value,
+    /// which is the case that matters most.
+    ///
+    /// `ConnectivityViewModel.buildTargets` reads `publicIP?.currentIP` to
+    /// decide whether to include the Public IP ping target, and `check()` is
+    /// an async network fetch, so the target is simply absent from every
+    /// round until it resolves. Observed directly: absent for the first two
+    /// check rounds at launch, present only at the third — 30 seconds later,
+    /// once the periodic timer happened to recompute targets rather than
+    /// anything actually noticing `check()` had finished. This is the fourth
+    /// instance of the same shape (`traceroute.monitoredHop`,
+    /// `snmp.devices`, now this) — every optional-chained dependency
+    /// `ConnectivityViewModel.buildTargets` reads is now covered by exactly
+    /// this kind of edge.
+    var onCurrentIPChanged: (() -> Void)?
+
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         currentIP = snapshotStore.latestPublicIP()?.ipAddress
@@ -64,6 +80,10 @@ final class PublicIPViewModel: ObservableObject {
         lastCheckedAt = info.checkedAt
         lastError = nil
         isChecking = false
+
+        if previousIP != currentIP {
+            onCurrentIPChanged?()
+        }
 
         let changed = snapshotStore.recordPublicIPIfChanged(info)
         if changed, previousIP != nil {
