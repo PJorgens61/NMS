@@ -121,6 +121,30 @@ final class TracerouteViewModel: ObservableObject {
         return hops.first { $0.hopNumber == monitoredHopNumber }
     }
 
+    /// The address `ConnectivityViewModel` should actually ping for the ISP
+    /// Edge Router check — `monitoredHop?.address` when the latest trace
+    /// resolved it, falling back to the last-persisted `ProviderEdgeRecord`
+    /// address when it didn't.
+    ///
+    /// The fallback matters because a hop that stops responding during a
+    /// real outage parses as `address: nil` (see `TracerouteHop.address`),
+    /// same as a hop that's simply never been resolved yet — and `apply(_:)`
+    /// fully replaces `hops` on every trace, so that one bad attempt erases
+    /// the previously-known address outright. Without this, unplugging the
+    /// upstream link made the ISP Edge Router row show "Not checked" for
+    /// the outage's duration instead of "unreachable": the re-trace
+    /// `onInternetUnreachable` fires runs while the path is still down,
+    /// times out, and `buildTargets` had nothing left to ping. This mirrors
+    /// `persistMonitoredHopIfNeeded`, which already tolerates exactly this
+    /// by simply not overwriting the persisted address on a failed
+    /// resolution — this extends the same tolerance to the live ping
+    /// target, reusing that same persisted value rather than caching a
+    /// second copy of it.
+    var monitoredHopAddress: String? {
+        guard monitoredHopNumber != nil else { return nil }
+        return monitoredHop?.address ?? snapshotStore.latestProviderEdge()?.address
+    }
+
     /// Confirms which hop is "the" router to monitor going forward, by
     /// position in the path. Pass `nil` to clear the selection and fall
     /// back to `suggestedEdgeHop`.

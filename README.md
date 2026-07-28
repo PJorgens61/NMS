@@ -1066,6 +1066,23 @@ expected during development, not a bug.
   fires exactly once on completion, and rapid-fire calls collapse to a
   single extra round rather than chaining.
 
+  **`TracerouteViewModel.monitoredHopAddress` closes a gap the recovery fix
+  above didn't**: during the outage itself (not just its recovery), the
+  ISP Edge Router row read "Not checked" instead of "unreachable." Cause:
+  `apply(_:)` fully replaces `hops` on every trace, and a hop that times out
+  parses as `address: nil` — indistinguishable from a hop that's simply
+  never been resolved yet. The outage's own re-trace (from
+  `onInternetUnreachable`) runs while the path is down, every hop times out,
+  and `monitoredHop.address` goes nil — so `buildTargets` had nothing left
+  to ping and omitted the row entirely, rather than pinging a known address
+  and reporting it unreachable. `persistMonitoredHopIfNeeded` already
+  tolerated exactly this for the *persisted* `ProviderEdgeRecord` (it simply
+  skips updating on an unresolved hop); `monitoredHopAddress` extends the
+  same tolerance to the *live* ping target by falling back to that same
+  persisted address when the current trace didn't resolve one, rather than
+  caching a second copy of it.
+
+
   Once a hop is confirmed, the
   Path to
   Internet section just shows a "Stop monitoring hop N" button plus the hop

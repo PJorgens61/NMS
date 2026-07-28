@@ -146,7 +146,7 @@ final class ConnectivityViewModel: ObservableObject {
                 ConnectivityCheck(label: OverallStatus.dnsLabel, target: "apple.com (random subdomain probe)", success: false, latencyMs: nil, checkedAt: now),
                 ConnectivityCheck(label: OverallStatus.httpLabel, target: "captive.apple.com", success: false, latencyMs: nil, checkedAt: now)
             ]
-            if let address = traceroute?.monitoredHop?.address {
+            if let address = traceroute?.monitoredHopAddress {
                 results.append(ConnectivityCheck(label: OverallStatus.peRouterLabel, target: address, success: false, latencyMs: nil, checkedAt: now))
             }
             if let publicIPAddress = publicIP?.currentIP {
@@ -311,7 +311,7 @@ final class ConnectivityViewModel: ObservableObject {
         // watching whether it's still reachable belongs here, not in a
         // full re-trace every time (much cheaper, and no longer tied to
         // traceroute's own much slower schedule).
-        if let address = traceroute?.monitoredHop?.address {
+        if let address = traceroute?.monitoredHopAddress {
             targets.append(ConnectivityService.Target(label: OverallStatus.peRouterLabel, host: address))
         }
         // The router's own public/WAN address — pinging it from inside the
@@ -343,7 +343,7 @@ final class ConnectivityViewModel: ObservableObject {
         #if DEBUG
         var unavailable: [String] = []
         if networkMonitor?.currentInterface == nil { unavailable.append("interface") }
-        if traceroute?.monitoredHop?.address == nil { unavailable.append("monitoredHop") }
+        if traceroute?.monitoredHopAddress == nil { unavailable.append("monitoredHop") }
         if (snmp?.devices ?? []).isEmpty { unavailable.append("snmpDevices") }
         if publicIP?.currentIP == nil { unavailable.append("publicIP") }
         guard !unavailable.isEmpty else { return }
