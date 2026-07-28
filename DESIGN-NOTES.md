@@ -245,6 +245,7 @@ labels, so they're closer to self-explanatory already.
 
 ## Network Quality (speed / responsiveness) testing, on demand
 
+Two candidate implementations, covering different parts of the signal.
 Apple ships `/usr/bin/networkQuality` (confirmed present on this machine)
 — the same test behind Settings → Network Quality Test. It measures
 throughput (Mbps up/down) and, more interestingly, **responsiveness under
@@ -253,6 +254,11 @@ essentially a bufferbloat measurement. This is a genuinely different kind
 of signal from anything else in the app — every existing check tests
 reachability and idle latency of small packets; this tests capacity and
 behavior under stress.
+
+Separately, Cloudflare's own public speed-test backend — plain HTTPS,
+verified working directly, no account or hosting needed — is the chosen
+mechanism for the throughput half. See "Two implementation candidates"
+below for why, and what each one can and can't measure.
 
 ### Why this doesn't fit the existing change-log pattern
 
@@ -264,7 +270,75 @@ worse last Tuesday during the call?"). It needs a genuine time series —
 every run gets a row, no dedup logic — which makes it architecturally
 distinct from every other persisted table in the app so far.
 
+### Two implementation candidates: Apple's CLI vs. Cloudflare's public endpoint
+
+**Cloudflare runs a free, public backend for exactly this** — the same one
+behind speed.cloudflare.com, no account, no hosting, no marketing site
+needed:
+
+```
+GET  https://speed.cloudflare.com/__down?bytes=N   — download, any size
+POST https://speed.cloudflare.com/__up             — upload, any size body
+```
+
+Verified directly, both directions:
+
+```
+1 MB download:  76.7ms total (19.7ms of that just the TLS handshake) → ~13.0 MB/s measured
+25 MB download: 275.8ms total                                        → ~90.6 MB/s measured
+5 MB upload:    127.0ms total, HTTP 200                               → ~41.3 MB/s measured
+```
+
+**The 1MB vs. 25MB gap is the whole finding, and it rules out a small
+payload.** Same endpoint, same network, same moment — a ~7x difference in
+measured throughput purely from file size (~104 Mbps vs. ~725 Mbps). A
+transfer that small finishes before TCP slow-start ramps up, so most of
+what gets measured is TLS handshake overhead, not sustained capacity. This
+was checked *because* a plain 1MB file hosted on a future marketing site
+was the original idea — the numbers are why that was dropped in favor of
+requesting a large-enough payload directly from Cloudflare's endpoint
+instead, which also sidesteps depending on some other site's uptime and
+caching behavior entirely.
+
+**Advantages over shelling out to `networkQuality`:** plain `URLSession`
+GET/POST, no subprocess, no macOS-version dependency, no bundled-binary
+removal risk (the same category of risk already flagged for `snmpget` and
+`dig`). Runs identically regardless of what Apple ships or deprecates.
+
+**What it can't do: no RPM, no bufferbloat signal.** A raw file transfer
+measures throughput only — it says nothing about round-trips-per-minute
+under load, which is the genuinely novel part of what `networkQuality`
+provides and the reason this section existed in the first place. The two
+are complementary, not substitutes: Cloudflare's endpoint for throughput
+(chosen, no CLI dependency), `networkQuality` still worth keeping around if
+the RPM/responsiveness signal is wanted, accepting its availability risk.
+
 ### Proposed design
+
+Throughput, via Cloudflare's endpoint (`NetworkQualityService.measureThroughput()`):
+
+- Plain `URLSession` `GET .../__down?bytes=N` and `POST .../__up`, timed by
+  wall clock around the request, `Mbps = bytes * 8 / elapsedSeconds / 1_000_000`.
+- **`N` cannot default to something small** — per the measurement above, at
+  least 25MB, possibly larger still on genuinely fast links (worth
+  re-testing against whatever this network's real ceiling turns out to be
+  before picking a final constant). A fixed size is simpler than adaptive
+  sizing (probe small, then scale up based on the result, the way real
+  speed-test tools do) — worth deciding once real usage shows whether a
+  fixed size is good enough across slow and fast connections alike, or
+  whether it under/over-shoots badly at one end.
+- A safety cap on total wall-clock time, mirroring `networkQuality`'s `-M
+  45` — a large payload over a genuinely slow link could otherwise run far
+  longer than a user pressing "Run Speed Test" is willing to wait.
+- **No equivalent to `-I <interface>`** — `URLSession` doesn't offer
+  interface binding as directly as the CLI's flag does. On a multi-homed
+  Mac this could measure the wrong interface's speed. Worth resolving
+  before implementing (see open questions).
+- Availability isn't a real concern here the way it is for `networkQuality`
+  — this only needs internet reachability, already tracked elsewhere in the
+  app, not a local binary that might not exist.
+
+RPM/responsiveness, via `networkQuality`, if kept:
 
 - **`NetworkQualityService`** — shells out to
   `/usr/bin/networkQuality -c -s -M 45 -I <interface>`:
@@ -287,25 +361,28 @@ distinct from every other persisted table in the app so far.
     already choosing to wait.
   - Availability guard mirroring `SNMPService.isAvailable` — this is an
     Apple-bundled tool, not a guaranteed-forever syscall.
-- **`NetworkQualityResult`** (value type) — `downloadMbps`, `uploadMbps`,
-  `downloadResponsivenessRPM: Int?`, `uploadResponsivenessRPM: Int?`,
-  `baseRTTMs`, `interfaceName`, `testedAt`. RPM fields optional in case a
-  run ever falls back to parallel mode.
+- **`NetworkQualityResult`** (value type, shared by both implementations)
+  — `downloadMbps`, `uploadMbps`, `downloadResponsivenessRPM: Int?`,
+  `uploadResponsivenessRPM: Int?`, `baseRTTMs: Double?`, `interfaceName`,
+  `testedAt`, plus a `source` field (`.cloudflareEndpoint` /
+  `.appleNetworkQuality`) so a persisted row records which method produced
+  it. RPM/RTT fields are optional not just for `networkQuality`'s parallel-
+  mode fallback but as the normal case for the Cloudflare-endpoint path,
+  which never produces them at all.
 - **`NetworkQualityRecord`** (SwiftData model) — same fields, persisted
   unconditionally per run via
   `SnapshotStore.recordNetworkQualityResult(_:)` — deliberately not
   "IfChanged" like the other record types, since every run is wanted.
 - **`NetworkQualityViewModel`** — no timer, on purpose. Unlike every other
   view model in this app, this one has zero automatic trigger. `func run()`
-  is the only entry point, called from a button press, dispatched to a
-  background queue the same way `ConnectivityService`/`SNMPService`'s
-  callers already do. This must never be added to `NMSApp.init()`'s
-  launch-time kicks — the whole point is that it costs real bandwidth, so
-  it must never run without the user asking. Worth a `cancel()` too,
-  backed by `Process.terminate()` on the running subprocess: a 45-second
-  worst case is long enough that "I didn't mean to start that" is a real
-  scenario, unlike every other check in this app, which finishes in under
-  a couple seconds.
+  is the only entry point, called from a button press. This must never be
+  added to `NMSApp.init()`'s launch-time kicks — the whole point is that it
+  costs real bandwidth, so it must never run without the user asking.
+  Cancellation is worth building given the worst-case wait either way, but
+  the mechanism differs by implementation: `URLSessionTask.cancel()` for
+  the Cloudflare path (dispatched the same way
+  `ConnectivityService`/`SNMPService`'s callers already do), vs.
+  `Process.terminate()` on the subprocess for `networkQuality`.
 
 ### The dependency worth knowing about
 
@@ -339,9 +416,14 @@ vertical space, same constraint as the tooltips section above.
 
 `networkQuality`'s own man page states plainly: *"This tool will connect
 to the Internet to perform its tests. This will use data on your Internet
-service plan."* Every existing check in NMS is deliberately near-zero-cost
-so it can run continuously in the background (a ping, a single DNS query,
-a small HTTP fetch); this one does a real upload+download saturation test.
+service plan."* The same is true of the Cloudflare-endpoint path, and more
+directly so: `networkQuality` sizes its own test traffic internally, while
+requesting from `.../__down?bytes=N` means NMS itself is choosing exactly
+how many megabytes to pull down every run (25MB+ per the measurement
+above, likely per direction if upload is also run). Every other check in
+NMS is deliberately near-zero-cost so it can run continuously in the
+background (a ping, a single DNS query, a small HTTP fetch); this one is
+a real, sizable transfer regardless of which implementation runs it.
 That's exactly why it's on-demand-only rather than timer-driven — but
 whether the button itself needs a first-run confirmation/warning, or
 whether the "Run Speed Test" label is self-explanatory enough on its own,
@@ -349,14 +431,32 @@ is an open UX question.
 
 ### Open questions before implementing
 
-- `-s` (sequential, gets RPM, slower) vs. default parallel (throughput
-  only, faster) — decide the default, possibly exposed as a toggle.
+- **Resolved:** Cloudflare's public endpoint is the chosen mechanism for
+  throughput — verified working, no hosting, no subprocess dependency. Open
+  underneath that decision:
+  - What byte count to request — a fixed constant (25MB was enough to move
+    off the clearly-wrong 1MB result on this network, but "enough" hasn't
+    been tested against a genuinely fast link) or adaptive sizing (probe
+    small, scale up based on the result)?
+  - How to bind the request to a specific interface on a multi-homed Mac —
+    `URLSession` has no direct equivalent to `networkQuality -I`. Worth
+    checking whether `URLSessionConfiguration` or a lower-level socket
+    option can do this before assuming it can't.
+  - Both directions every run (down + up), or download by default with
+    upload as a separate, explicit action?
+- Is `networkQuality` worth keeping at all for the RPM/bufferbloat signal,
+  given it now duplicates part of what the Cloudflare path also measures
+  (throughput) — or is throughput-via-Cloudflare-only enough, with RPM
+  dropped as a signal the app just doesn't provide?
+- If `networkQuality` is kept: `-s` (sequential, gets RPM, slower) vs.
+  default parallel (throughput only, faster) — decide the default,
+  possibly exposed as a toggle.
 - Minimal inline recent-runs list now, or defer historical comparison
   entirely to the future general history view?
 - Does running the test need any user-facing warning about data usage, or
   is the button label enough?
-- Is a cancel affordance worth building given the up-to-45s worst case, or
-  is letting it run to completion (or the `-M` cap) acceptable?
+- Is a cancel affordance worth building given the worst-case wait either
+  way, or is letting it run to completion (or a safety cap) acceptable?
 
 ## Latency history sparklines
 
