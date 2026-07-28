@@ -68,26 +68,26 @@ enum UIStateLogger {
     nonisolated static func record(_ label: String, _ message: String) {
         #if DEBUG
         // Sequence and timestamp are both taken at the call site, never on
-        // the writer queue — a timestamp taken at drain time would measure
-        // queue latency rather than when the event happened, and a counter
-        // incremented there could not preserve ordering at all.
+        // the writer thread — a timestamp taken at drain time would measure
+        // scheduling latency rather than when the event happened, and a
+        // counter incremented there could not preserve ordering at all.
         //
-        // The lock deliberately spans the `queue.async` as well, not just
-        // the counter increment. Taking the number and *then* enqueueing
-        // lets two concurrent callers hand work to the writer queue in the
+        // The lock deliberately spans the enqueue as well, not just the
+        // counter increment. Taking the number and *then* enqueueing lets
+        // two concurrent callers hand work to the writer thread in the
         // opposite order from the numbers they were given — observed
         // directly with two pings finishing in the same millisecond, which
         // wrote seq 14 to the file ahead of seq 13. Enqueueing under the
         // lock makes file order, sequence order and timestamp order all
-        // agree. The lock is held for microseconds around a non-blocking
-        // `async`, so even a 32-way SNMP sweep contends for nothing that
+        // agree. The lock is held for microseconds around appending to an
+        // array, so even a 32-way SNMP sweep contends for nothing that
         // matters next to forking a process.
         sequenceLock.lock()
         defer { sequenceLock.unlock() }
         sequence += 1
         let seq = sequence
         let at = Date()
-        queue.async { write(seq: seq, at: at, property: label, value: message) }
+        writerThread.enqueue { write(seq: seq, at: at, property: label, value: message) }
         #endif
     }
 
@@ -103,21 +103,78 @@ enum UIStateLogger {
     private nonisolated(unsafe) static var sequence = 0
     private nonisolated static let sequenceLock = NSLock()
 
-    /// Serial on purpose, not `DispatchQueue.global()`. The global queues
-    /// are concurrent, so two writes dispatched in order could complete out
-    /// of order — which would corrupt the single property this whole
-    /// feature exists to provide.
-    private nonisolated static let queue = DispatchQueue(label: "Thistle.NMS.ui-state-log", qos: .utility)
+    /// Serial, and deliberately a dedicated `Thread` rather than a
+    /// `DispatchQueue` — even a private serial one. A `DispatchQueue`
+    /// (unless targeted elsewhere) runs its work on a thread borrowed from
+    /// the process-wide QoS thread pool, the same bounded pool that
+    /// `DispatchQueue.global(qos: .utility)` hands out everywhere else in
+    /// this app (ping/SNMP subprocesses, and — until this was diagnosed —
+    /// `DNSResolutionService`/`ReverseDNSService`'s calls into
+    /// `getaddrinfo`/`getnameinfo`, which have no cancellation and can run
+    /// far past their own stated timeout). Enough of that pool blocked at
+    /// once starves every queue drawing from it, including an unrelated
+    /// private serial one. That's the best explanation found for a real
+    /// 17+ minute gap in this file with no crash and nothing else wrong: a
+    /// concurrency change to `ConnectivityViewModel` landed shortly before
+    /// the gap started, adding more simultaneous blocking calls onto that
+    /// pool per round. A dedicated thread owns its own pthread outright, so
+    /// it keeps draining no matter how saturated the shared pool gets.
+    private nonisolated static let writerThread: WriterThread = {
+        let thread = WriterThread()
+        thread.name = "Thistle.NMS.ui-state-log"
+        thread.qualityOfService = .utility
+        thread.start()
+        return thread
+    }()
+
+    /// A run loop of one: waits for work, drains it, and — finding none —
+    /// wakes on its own every `heartbeatInterval` to prove it's still
+    /// alive. That last part is the whole point: a stalled `DispatchQueue`
+    /// can't be asked "are you still draining?" after the fact, which is
+    /// exactly how the 17-minute gap above was only found by comparing
+    /// wall-clock timestamps days later. A heartbeat line makes a future
+    /// stall visible immediately, in the file itself, from whatever *did*
+    /// keep running.
+    private final class WriterThread: Thread {
+        static let heartbeatInterval: TimeInterval = 20
+        private let condition = NSCondition()
+        private var pending: [() -> Void] = []
+
+        func enqueue(_ work: @escaping () -> Void) {
+            condition.lock()
+            pending.append(work)
+            condition.signal()
+            condition.unlock()
+        }
+
+        override func main() {
+            condition.lock()
+            while true {
+                while pending.isEmpty {
+                    let signaled = condition.wait(until: Date().addingTimeInterval(Self.heartbeatInterval))
+                    if !signaled && pending.isEmpty {
+                        condition.unlock()
+                        UIStateLogger.record("heartbeat", "writer thread alive")
+                        condition.lock()
+                    }
+                }
+                let work = pending.removeFirst()
+                condition.unlock()
+                work()
+                condition.lock()
+            }
+        }
+    }
 
     private nonisolated static let fileURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/NMS", isDirectory: true)
         .appendingPathComponent("ui-state.log")
 
-    /// These three are touched *only* from `queue`, which is what makes
-    /// them safe without a lock — hence `nonisolated(unsafe)`, which states
-    /// that invariant rather than hiding it. `ISO8601DateFormatter` in
-    /// particular is not documented as thread-safe, so confining it to the
-    /// serial queue is load-bearing, not incidental.
+    /// These three are touched *only* from `writerThread`, which is what
+    /// makes them safe without a lock — hence `nonisolated(unsafe)`, which
+    /// states that invariant rather than hiding it. `ISO8601DateFormatter`
+    /// in particular is not documented as thread-safe, so confining it to
+    /// that one thread is load-bearing, not incidental.
     private nonisolated(unsafe) static var handle: FileHandle?
     private nonisolated(unsafe) static var didPrepare = false
     private nonisolated(unsafe) static let formatter: ISO8601DateFormatter = {
@@ -146,7 +203,7 @@ enum UIStateLogger {
     /// self-contained in this one file — nothing to remember to call.
     /// Stamped with the *first write's* timestamp rather than `Date()` at
     /// prepare time. Those differ: a real line's timestamp is captured at
-    /// its call site, while this runs later, on the writer queue — using
+    /// its call site, while this runs later, on the writer thread — using
     /// the current time here produced a header stamped after the line
     /// below it, so the file opened with the sequence already reading
     /// backwards. For a log whose entire purpose is a faithful ordering,

@@ -14,6 +14,13 @@ import Foundation
 /// own (the DNS-check bug where `getaddrinfo` blocked for ~30s during a
 /// real outage). A hung reverse lookup here should just mean "no hostname
 /// this time," never a stuck enrichment task.
+///
+/// Also, like `DNSResolutionService`, dispatched onto a dedicated `Thread`
+/// rather than `DispatchQueue.global`: an orphaned, still-running
+/// `getnameinfo` call left on the shared `.utility` worker pool after this
+/// function's own timeout fires is exactly the kind of thing that starved
+/// that pool for everyone else drawing from it — see the longer note on
+/// `DNSResolutionService.probe()`.
 struct ReverseDNSService {
     private static let timeout: TimeInterval = 2
 
@@ -25,7 +32,7 @@ struct ReverseDNSService {
         let semaphore = DispatchSemaphore(value: 0)
         var result: String?
 
-        DispatchQueue.global(qos: .utility).async {
+        Thread.detachNewThread {
             result = Self.lookup(ipAddress)
             semaphore.signal()
         }

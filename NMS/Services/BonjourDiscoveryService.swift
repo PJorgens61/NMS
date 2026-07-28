@@ -16,6 +16,20 @@ import Network
 /// "usually wins the race"). The *only* continuation used is a single
 /// one-shot read of already-settled state after the browse/resolve window
 /// has closed — nothing left to double-resume.
+/// Holds state mutated from `NWBrowser`/`NWConnection`'s callback closures
+/// and read back afterward. `@unchecked Sendable` because the actual safety
+/// guarantee — every write and the final read all happen on the one serial
+/// `DispatchQueue` passed to `start(queue:)` — is enforced by
+/// Network.framework's documented callback behavior, not by anything the
+/// compiler can see from a plain captured `var`; hence the "mutation of
+/// captured var in concurrently-executing code" warning this exists to
+/// silence correctly, by making the same invariant explicit instead of
+/// implicit.
+private nonisolated final class UnsafeBox<Value>: @unchecked Sendable {
+    var value: Value
+    init(_ value: Value) { self.value = value }
+}
+
 struct BonjourDiscoveryService {
     /// Common service types worth checking. Not exhaustive — Bonjour has
     /// hundreds of registered service types — but covers printers, file
@@ -87,14 +101,14 @@ struct BonjourDiscoveryService {
         // final value via the same queue guarantees we see the last write,
         // not a stale pre-update snapshot.
         let queue = DispatchQueue(label: "NMS.bonjour.browse")
-        var latestResults: Set<NWBrowser.Result> = []
+        let latestResults = UnsafeBox<Set<NWBrowser.Result>>([])
 
         let parameters = NWParameters()
         parameters.includePeerToPeer = true
         let browser = NWBrowser(for: .bonjour(type: type, domain: nil), using: parameters)
 
         browser.browseResultsChangedHandler = { results, _ in
-            latestResults = results
+            latestResults.value = results
         }
 
         browser.start(queue: queue)
@@ -103,7 +117,7 @@ struct BonjourDiscoveryService {
 
         let results: Set<NWBrowser.Result> = await withCheckedContinuation { continuation in
             queue.async {
-                continuation.resume(returning: latestResults)
+                continuation.resume(returning: latestResults.value)
             }
         }
 
@@ -119,11 +133,11 @@ struct BonjourDiscoveryService {
         // real happens-before relationship instead of a race between "did
         // the callback's effect land yet" and "we're reading now."
         let queue = DispatchQueue(label: "NMS.bonjour.resolve")
-        var resolvedIP: String?
+        let resolvedIP = UnsafeBox<String?>(nil)
 
         let connection = NWConnection(to: endpoint, using: .tcp)
         connection.stateUpdateHandler = { state in
-            guard resolvedIP == nil, case .ready = state else { return }
+            guard resolvedIP.value == nil, case .ready = state else { return }
             guard case let .hostPort(host, _) = connection.currentPath?.remoteEndpoint else { return }
             switch host {
             case .ipv4(let addr):
@@ -132,9 +146,9 @@ struct BonjourDiscoveryService {
                 // for IPv4 (zone IDs are an IPv6 concept) and inconsistent
                 // with the plain "a.b.c.d" format ARP-based discovery
                 // already uses, so strip it.
-                resolvedIP = "\(addr)".split(separator: "%").first.map(String.init) ?? "\(addr)"
+                resolvedIP.value = "\(addr)".split(separator: "%").first.map(String.init) ?? "\(addr)"
             case .ipv6(let addr):
-                resolvedIP = "\(addr)"
+                resolvedIP.value = "\(addr)"
             default:
                 break
             }
@@ -146,7 +160,7 @@ struct BonjourDiscoveryService {
 
         return await withCheckedContinuation { continuation in
             queue.async {
-                continuation.resume(returning: resolvedIP)
+                continuation.resume(returning: resolvedIP.value)
             }
         }
     }

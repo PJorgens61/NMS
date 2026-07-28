@@ -60,12 +60,24 @@ struct DNSResolutionService {
     /// `getaddrinfo` has no native cancellation, so on a timeout the
     /// underlying call is left to finish on its own in the background —
     /// its result is simply discarded when it eventually arrives.
+    ///
+    /// Run on a dedicated `Thread`, not `DispatchQueue.global`. That call
+    /// was measured directly to block ~30s during a real outage (see above)
+    /// rather than failing fast, and `DispatchQueue.global`'s worker
+    /// threads are drawn from a small, process-wide pool shared with every
+    /// other `.utility` queue in the app. An orphaned call parked there
+    /// during a real, sustained outage — fired repeatedly at the 5s fast
+    /// poll interval — was the best explanation found for a real 17+ minute
+    /// gap in `UIStateLogger`'s output with no crash: enough orphaned
+    /// lookups accumulated to starve that shared pool, stalling unrelated
+    /// queues drawing from it too. A dedicated thread means an orphaned
+    /// call blocks only itself.
     func probe() throws {
         let hostname = "nms-check-\(UUID().uuidString.prefix(12).lowercased()).\(Self.probeBaseDomain)"
         let semaphore = DispatchSemaphore(value: 0)
         var capturedStatus: Int32?
 
-        DispatchQueue.global(qos: .utility).async {
+        Thread.detachNewThread {
             var hints = addrinfo(
                 ai_flags: 0,
                 ai_family: AF_UNSPEC,
