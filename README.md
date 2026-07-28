@@ -611,10 +611,22 @@ expected during development, not a bug.
   recordDHCPLeaseIfChanged` persists a new `DHCPLeaseRecord` only when the
   transaction ID actually changes — same transaction always means the
   same lease content by protocol definition, so comparing just that one
-  field is a cheaper and sufficient change check. The popover's **DHCP
-  History** section lists every real change, newest first; the newest row
-  doubles as "the current lease," so there's no separate current-lease
-  display.
+  field is a cheaper and sufficient check for whether to persist a new
+  history row. The popover's **DHCP History** section lists every real
+  change, newest first; the newest row doubles as "the current lease," so
+  there's no separate current-lease display.
+
+  **`.dhcpLeaseChanged` events say what actually changed**, not just that
+  a renewal happened: `DHCPLeaseViewModel.fieldChanges` compares every
+  tracked field (excluding the transaction ID itself, which changes on
+  every renewal by definition and would never be informative) against the
+  previous lease, and only logs an event — one line per differing field,
+  e.g. "gateway 10.0.0.1 → 10.0.0.2, DNS 10.0.0.1 → 8.8.8.8" — when at
+  least one actually differs. A routine renewal that returns the exact
+  same values logs nothing at all. Built specifically for spotting a
+  change *someone else* made (an admin editing the DHCP scope, say) at
+  the moment a problem is reported, rather than only being able to say a
+  renewal occurred.
 
   **Two independent failure signals**, both explored non-disruptively
   before being written: (1) the interface falling back to a self-assigned
@@ -628,9 +640,7 @@ expected during development, not a bug.
   first seen — since `ipconfig getpacket` reports lease *durations*, never
   an absolute grant timestamp; a renewal that succeeds on schedule resets
   this anchor before the deadline is ever reached, so a healthy renewal
-  never falsely alarms. A lease whose content changes without the
-  transaction ID changing can't happen by the protocol's own definition, so
-  no separate field-by-field comparison is needed alongside the ID check.
+  never falsely alarms.
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as

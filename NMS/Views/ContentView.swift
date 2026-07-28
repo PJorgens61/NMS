@@ -597,15 +597,11 @@ struct ContentView: View {
         if let router = record.router { parts.append("gw \(router)") }
         if !record.dnsServers.isEmpty { parts.append("dns \(record.dnsServers.joined(separator: ","))") }
         if let domain = record.domainName, !domain.isEmpty { parts.append(domain) }
-        parts.append("lease \(Self.dhcpDurationText(record.leaseSeconds))")
-        parts.append("T1 \(Self.dhcpDurationText(record.t1Seconds))")
-        parts.append("T2 \(Self.dhcpDurationText(record.t2Seconds))")
+        parts.append("lease \(DHCPLeaseInfo.durationText(record.leaseSeconds))")
+        parts.append("T1 \(DHCPLeaseInfo.durationText(record.t1Seconds))")
+        parts.append("T2 \(DHCPLeaseInfo.durationText(record.t2Seconds))")
         parts.append(record.transactionID)
         return parts.joined(separator: " · ")
-    }
-
-    private static func dhcpDurationText(_ seconds: Int) -> String {
-        seconds >= 3600 ? "\(seconds / 3600)h" : "\(seconds / 60)m"
     }
 
     /// Community strings are shared read-only passwords, not per-user

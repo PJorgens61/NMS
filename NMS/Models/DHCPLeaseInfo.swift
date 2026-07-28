@@ -24,4 +24,11 @@ struct DHCPLeaseInfo: Equatable, Codable {
     /// without an absolute grant timestamp from the protocol itself.
     let transactionID: String
     let checkedAt: Date
+
+    /// Shared by the popover's DHCP History rows and
+    /// `DHCPLeaseViewModel`'s change-event messages, so a duration reads
+    /// identically in both places.
+    static func durationText(_ seconds: Int) -> String {
+        seconds >= 3600 ? "\(seconds / 3600)h" : "\(seconds / 60)m"
+    }
 }
