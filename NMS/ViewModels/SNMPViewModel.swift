@@ -56,6 +56,15 @@ final class SNMPViewModel: ObservableObject {
     /// watches, this is what notices a restart or an upgrade.
     private static let pollInterval: TimeInterval = 60
 
+    /// Bounds how often a missing ARP entry can trigger a LAN rescan —
+    /// see `refreshARPIfMergeDataIsStale`, where it's what stops the
+    /// `onScanCompleted` → `rebuildDeviceList` → scan cycle from looping.
+    /// Matched to `pollInterval` because a poll is the other thing that
+    /// rebuilds this list, so at worst one rescan per poll round.
+    private static let macRefreshThrottle: TimeInterval = 60
+    /// When the last such rescan was requested. `nil` until the first one.
+    private var lastMACRefreshAt: Date?
+
     var isAvailable: Bool { SNMPService.isAvailable }
 
     /// Fired when an `AppEventRecord` gets logged (a device restarted or its
@@ -335,6 +344,7 @@ final class SNMPViewModel: ObservableObject {
             .sorted {
                 (SubnetCalculator.packedIPv4($0.ipAddress) ?? 0) < (SubnetCalculator.packedIPv4($1.ipAddress) ?? 0)
             }
+        refreshARPIfMergeDataIsStale(kept: kept, macs: macs, localIP: localIP, mask: mask)
         // Keeps every alias row's persisted state as fresh as its primary
         // — see `SnapshotStore.syncAliasFreshness`. Runs on every rebuild
         // (after each poll, each scan, and each completed LAN scan), which
@@ -343,6 +353,78 @@ final class SNMPViewModel: ObservableObject {
             snapshotStore.syncAliasFreshness(primary: device)
         }
         logUnavailableInputs(macCount: macs.count, keptCount: kept.count)
+    }
+
+    /// Re-runs the LAN scan when a device we can reach over SNMP has no
+    /// ARP entry in our own cached copy — the condition that silently
+    /// breaks the shared-MAC merge.
+    ///
+    /// Observed for real: after a Wi-Fi reconnect, a LAN scan landed
+    /// before the OS had ARP-resolved `10.0.0.17`, so `macByAddress()`
+    /// knew `.16` but not `.17` and AP1 rendered as two rows. The live
+    /// system `arp -n -a` had both, with the same MAC — only our cached
+    /// copy was short. Nothing re-triggered a scan, so it stayed wrong
+    /// until the next topology change or relaunch.
+    ///
+    /// `logUnavailableInputs` below couldn't catch this: it only fires
+    /// when the ARP table is *entirely* empty, and this is the partial
+    /// case, which is both more common and more confusing to look at.
+    ///
+    /// **Scoped to same-subnet devices only.** An off-subnet device (an
+    /// off-subnet router, a local traceroute hop) legitimately never
+    /// appears in ARP, so treating its absence as staleness would rescan
+    /// forever. An on-subnet device is different: we just polled it over
+    /// SNMP, so the OS must have resolved its MAC to send those packets
+    /// — if our copy lacks it, our copy is stale, not the network.
+    ///
+    /// **Throttled, and that's load-bearing rather than defensive.**
+    /// `NMSApp` wires `lanDiscovery.onScanCompleted` straight back to
+    /// `rebuildDeviceList()`, so an unthrottled rescan here would loop:
+    /// rebuild → scan → rebuild → scan. The throttle bounds it to one
+    /// attempt per interval, which terminates even when a device
+    /// genuinely never shows up in ARP.
+    private func refreshARPIfMergeDataIsStale(
+        kept: [SNMPDevice],
+        macs: [String: String],
+        localIP: String,
+        mask: String
+    ) {
+        let missing = kept.filter { device in
+            guard macs[device.ipAddress] == nil else { return false }
+            // Strictly `true` — `nil` means "couldn't parse", which is not
+            // evidence of anything and must not trigger a rescan.
+            return SubnetCalculator.isOnSameSubnet(device.ipAddress, as: localIP, subnetMask: mask) == true
+        }
+        guard !missing.isEmpty else { return }
+
+        // A scan already running will finish and call `rebuildDeviceList`
+        // again through `onScanCompleted`, so requesting another would be
+        // dropped by `LANDiscoveryViewModel.scan`'s own `guard
+        // !isScanning` anyway. Returning *before* touching the throttle is
+        // the point: spending it here would burn the one attempt per
+        // interval on a request that never ran, leaving a genuine
+        // staleness moments later with nothing left to trigger a refresh.
+        //
+        // Note this does *not* fire at launch, which was the first guess:
+        // traced directly, `SNMPViewModel.init` calls `rebuildDeviceList`
+        // *before* `NMSApp` gets to `lanDiscovery.scan()`, so `isScanning`
+        // is still false here and this path legitimately initiates the
+        // launch scan itself — `NMSApp`'s later call is the one dropped.
+        // One `arp` run either way; the throttle is spent on a scan that
+        // really happened, which is correct. This guard is for the
+        // genuinely concurrent cases (a topology change or manual Scan
+        // already in flight).
+        guard lanDiscovery?.isScanning != true else { return }
+
+        if let lastMACRefreshAt, Date().timeIntervalSince(lastMACRefreshAt) < Self.macRefreshThrottle {
+            return
+        }
+        lastMACRefreshAt = Date()
+        UIStateLogger.log(
+            "SNMPViewModel.rebuildDeviceList",
+            "no ARP entry for \(missing.map(\.ipAddress).sorted().joined(separator: ", ")) — rescanning to refresh merge data"
+        )
+        lanDiscovery?.scan()
     }
 
     /// Records when the merge ran without the ARP data it depends on. That

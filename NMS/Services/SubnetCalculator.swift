@@ -5,7 +5,7 @@ import Foundation
 /// large: a /24 is 254 hosts, which is a reasonable sweep, but the same
 /// code pointed at a /16 would try to produce 65,534 — and at ~2s per
 /// unresponsive host that's not a sweep anyone wants to start by accident.
-struct SubnetCalculator {
+nonisolated struct SubnetCalculator {
     /// Above this, `hostAddresses` returns `nil` rather than a huge array.
     /// 512 comfortably covers /24 (254) and /23 (510) — the sizes where a
     /// sweep is still sane — while ruling out /22 and larger.

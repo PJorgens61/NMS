@@ -17,7 +17,11 @@ final class LANDiscoveryViewModel: ObservableObject {
     private let snapshotStore: SnapshotStore
     /// Guards against piling up overlapping `arp` subprocesses if topology
     /// changes arrive faster than a scan completes.
-    private var isScanning = false
+    /// `private(set)` rather than `private`: `SNMPViewModel` needs to
+    /// know whether a scan is already in flight before requesting one, so
+    /// it doesn't spend its own rescan throttle on a request this would
+    /// just drop. Still only mutable here.
+    private(set) var isScanning = false
 
     /// Fired with the freshly-scanned devices after every scan (automatic or
     /// manual) — this is what lets `NetworkIdentityViewModel` find the
