@@ -194,9 +194,20 @@ gateway, DNS, domain, lease/T1/T2 timers, transaction ID) on the second.
 ### Footer controls
 
 **Refresh** re-reads network state immediately. The camera icon saves a
-screenshot of the popover and logs an event naming the file. **Quit**
-exits NMS. The small gray line underneath shows the build hash and the
-store's on-disk size.
+screenshot of the popover and logs an event naming the file. **Open in
+Window** opens the same live data in a separate, resizable window (see
+below). **Quit** exits NMS. The small gray line underneath shows the
+build hash and the store's on-disk size.
+
+### Open in Window
+
+The popover has a fixed height and can't scroll, so a long Events or
+DHCP History list is always cropped to what fits. **Open in Window**
+opens the same data in an ordinary, resizable window instead: each
+history section scrolls independently in its own box, and a scrollbar
+on the right reaches anything taller than the window itself. Both stay
+open to the same live state — closing the window doesn't stop
+monitoring, and the popover keeps working normally alongside it.
 
 ## 4. Usage scenarios
 

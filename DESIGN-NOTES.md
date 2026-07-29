@@ -977,6 +977,74 @@ expected, much less jarring residual than the previous cross-row
 misalignment, not something this change was trying to eliminate
 entirely. Scenario suite still 11/11.
 
+### A resizable comparison window, born from this exact ceiling
+
+Every fix above was still working within the popover's fundamental
+constraint: `MenuBarExtra(.window)` forces a fixed-height, no-scroll
+layout, so every screen-fit problem has to be solved by trimming
+content rather than letting the container adapt. A second `Window`
+scene was added alongside it — same live view models, opened via an
+"Open in Window" button in the popover's footer — as a real, resizable,
+scrollable alternative to compare against, not yet a replacement.
+`ContentView.isInWindow` is the one thing that differs between the two:
+each history box (Events, SNMP Devices, DHCP History, Speed Test,
+traceroute hops) gets a taller, independently-scrolling box instead of
+the popover's cramped mini-scrollers.
+
+That surfaced a genuine, multi-round scroll-mechanics problem of its
+own. Nesting SwiftUI `ScrollView`s of the same axis — one per tile,
+inside an outer one wrapping the whole window — hit AppKit's default
+nested-scroll-view chaining: once a tile's own box couldn't consume any
+more scroll delta, `NSScrollView` forwarded the remainder to
+`nextResponder`, which bounced the *entire window*, not just the tile,
+whenever a tile's own limit was reached.
+
+Four designs were tried before landing on the current one
+(`NMS/Views/NoBounceScrollView.swift`):
+
+1. **Remove the outer `ScrollView` entirely.** Fixed the bounce — with
+   nothing to chain into, there was nothing to bounce. But it also
+   floor-clamped the window to its full content height. Confirmed
+   broken on the M1 MacBook Air specifically: the window came up taller
+   than the screen, with no way to reach the lower half at all.
+2. **A custom `NSScrollView` that severed `nextResponder` during
+   `scrollWheel(with:)`.** Restored the ability to shrink the window and
+   killed the bounce, but also killed the *pass-through*: scrolling past
+   a tile's own limit did nothing instead of continuing into the
+   window's scroll, so the window could only be scrolled from the
+   narrow gaps between tiles.
+3. **`verticalScrollElasticity = .none` on just the tile boxes**, with a
+   plain SwiftUI `ScrollView` (`.scrollBounceBehavior(.basedOnSize)`)
+   for the outer container. Chaining and per-tile bounce were both
+   fixed — Events, in the middle of the document, scrolled seamlessly
+   into the outer view with no visible bounce. But Speed Test and DHCP
+   History sit near the very top and bottom of the whole document, so
+   forwarded scroll from them reached the outer view's own *genuine*
+   edge, where `.basedOnSize` still allows the native elastic bounce.
+4. **Disabling elasticity on the outer container too**, using the same
+   custom `NSScrollView` type for both. Fixed the remaining bounce
+   everywhere — but scroll-wheel chaining out of an exhausted tile
+   turned out to behave inconsistently across input devices: reliable
+   on a trackpad, erratic and largely unusable with a Magic Mouse
+   (confirmed directly on the iMac).
+
+Design (1)'s MacBook Air finding and design (4)'s Magic Mouse finding
+together ruled out relying on scroll-wheel chaining as the *only* way to
+reach content below the fold — outer scrolling isn't optional (screens
+smaller than the content demand it), but it can't depend on a mechanism
+that doesn't work the same way on every input device. The fix that
+shipped: `NoBounceScrollView(persistentScrollbar: true)` on the outer
+container, using a `.legacy`, always-visible `NSScroller` whose thumb
+can be grabbed and dragged directly — a `mouseDown`/`mouseDragged`
+interaction, entirely unrelated to `scrollWheel(with:)`, so it works
+identically regardless of input device. Wheel-scrolling over the gaps
+between tiles, and chaining out of an exhausted tile, still work too;
+the scrollbar is just the guaranteed path now, not the only one.
+Verified directly on both machines: the iMac (Magic Mouse) and the M1
+MacBook Air (trackpad, and the one with the real screen-height
+constraint) both confirmed independent tile scrolling, no bounce, and
+the scrollbar reaching the full document.
+
 ## Interface-down injection can now produce real events
 
 Returning to the pre-existing punch list: `NMSInjectInterfaceDown` could

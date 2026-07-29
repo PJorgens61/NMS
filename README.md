@@ -56,9 +56,22 @@ Xcode 15+.
   gap under the shorter tile.
 - **Events**, **SNMP Devices**, and **DHCP History**, full width, in that
   order.
-- A footer: **Refresh**, a camera icon (screenshot), and **Quit**, with a
-  small build-hash / store-size line and, when a debug override is active,
-  an orange warning line beneath it.
+- A footer: **Refresh**, a camera icon (screenshot), **Open in Window**,
+  and **Quit**, with a small build-hash / store-size line and, when a
+  debug override is active, an orange warning line beneath it.
+
+### Open in Window
+
+`MenuBarExtra(.window)` forces a fixed-height popover with no scrolling,
+which means every screen-fit problem has to be solved by trimming
+content rather than letting the container adapt — a recurring source of
+work documented at length in `DESIGN-NOTES.md`. **Open in Window** opens
+the same live data in a real, resizable window instead: each history
+section (Events, SNMP Devices, DHCP History, Speed Test, traceroute
+hops) scrolls independently in its own taller box, and an always-visible
+scrollbar on the right reaches whatever doesn't fit on screen. It's a
+comparison alternative alongside the popover for now, not a replacement
+— both stay open to the same underlying state.
 
 ### Network Health
 
