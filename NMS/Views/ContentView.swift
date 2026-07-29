@@ -8,6 +8,7 @@ struct ContentView: View {
     @ObservedObject var publicIP: PublicIPViewModel
     @ObservedObject var dhcpLease: DHCPLeaseViewModel
     @ObservedObject var networkQuality: NetworkQualityViewModel
+    @ObservedObject var screenshot: ScreenshotViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
@@ -116,6 +117,17 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Refresh")
                 .accessibilityHint("Re-reads network state, public IP and Wi-Fi network")
+                // Icon-only so it adds no new row — this whole feature
+                // exists to save a manual screenshot-and-hand-it-over
+                // step, so it needs to cost as little popover space as
+                // the thing it replaces cost none.
+                Button {
+                    screenshot.capture(self)
+                } label: {
+                    Image(systemName: "camera")
+                }
+                .accessibilityLabel("Screenshot")
+                .accessibilityHint("Saves an image of this popover and logs an event naming the file, so it can be found without guessing")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
@@ -470,41 +482,7 @@ struct ContentView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(snmp.devices) { device in
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack {
-                                Circle()
-                                    .fill(deviceStatusColor(deviceReachability(device)))
-                                    .frame(width: 8, height: 8)
-                                Text(device.displayName)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                                Text(device.uptimeDescription)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.system(size: 12))
-                            // No lineLimit here, deliberately — sysDescr
-                            // (a raw SNMP-provided string, no length
-                            // guarantee) wraps to as many lines as it
-                            // needs instead of truncating, unlike the
-                            // single-line convention used elsewhere in
-                            // this popover.
-                            // Addresses shown only when there's more than
-                            // one — a single address is already implied by
-                            // the row and would just cost a line.
-                            if !device.aliasAddresses.isEmpty {
-                                Text(device.addressDescription)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            Text(device.sysDescr)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    infrastructureRows
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -524,6 +502,43 @@ struct ContentView: View {
         }
 
         communityRow
+    }
+
+    private var infrastructureRows: some View {
+        ForEach(snmp.devices) { device in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Circle()
+                        .fill(deviceStatusColor(deviceReachability(device)))
+                        .frame(width: 8, height: 8)
+                    Text(device.displayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Text(device.uptimeDescription)
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+                // No lineLimit here, deliberately — sysDescr (a raw
+                // SNMP-provided string, no length guarantee) wraps to as
+                // many lines as it needs instead of truncating, unlike
+                // the single-line convention used elsewhere in this
+                // popover.
+                // Addresses shown only when there's more than one — a
+                // single address is already implied by the row and would
+                // just cost a line.
+                if !device.aliasAddresses.isEmpty {
+                    Text(device.addressDescription)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(device.sysDescr)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// Every real DHCP lease change (server, address, or timing actually
@@ -750,19 +765,7 @@ struct ContentView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(eventLog.events) { event in
-                        HStack {
-                            Text(event.message)
-                                .font(.system(size: 12))
-                                .foregroundStyle(eventColor(for: event))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer()
-                            Text(event.occurredAt, format: .dateTime.month().day().hour().minute())
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    eventRows
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -774,6 +777,22 @@ struct ContentView: View {
             // two rows' worth (~34pt) to fit the popover within an M1
             // MacBook Air's shorter menu bar screen real estate.
             .frame(height: 136)
+        }
+    }
+
+    private var eventRows: some View {
+        ForEach(eventLog.events) { event in
+            HStack {
+                Text(event.message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(eventColor(for: event))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(event.occurredAt, format: .dateTime.month().day().hour().minute())
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

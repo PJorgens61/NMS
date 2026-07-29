@@ -65,6 +65,13 @@ enum AppEventKind: String, Codable {
     /// Signal 2.
     case dhcpRenewalOverdue
     case dhcpRenewalRecovered
+    /// A user-triggered popover screenshot, not a state transition —
+    /// logged specifically so the file it produced can be found later by
+    /// reading the event log instead of guessing which file on disk is
+    /// the relevant one (or worse, which file with a name containing
+    /// spaces is the relevant one — see `ScreenshotService`'s fixed,
+    /// space-free filename format). See DESIGN-NOTES.md.
+    case screenshotCaptured
 
     enum Polarity {
         case positive, negative, neutral
@@ -82,7 +89,8 @@ enum AppEventKind: String, Codable {
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
              .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue:
             return .negative
-        case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged:
+        case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
+             .screenshotCaptured:
             return .neutral
         }
     }

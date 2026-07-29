@@ -700,6 +700,19 @@ expected during development, not a bug.
   the two implementation candidates and the payload-size measurements
   above, in DESIGN-NOTES.md's "Network Quality" section before this was
   written.
+- **Screenshot button**: the camera icon next to Refresh renders the
+  popover's own content directly to a PNG via `ImageRenderer` (not a real
+  screen capture — no Screen Recording permission needed, and no risk of
+  capturing anything outside the app's own window), saved to
+  `~/Library/Logs/NMS/screenshots/` and logged as a `.screenshotCaptured`
+  event naming the exact file. Known limitation, confirmed directly:
+  `ImageRenderer` doesn't render `ScrollView` content off-screen at all,
+  so Events, SNMP Devices, and Speed Test's run history render blank in
+  the capture even with real data behind them — buttons and every other
+  section capture correctly. See DESIGN-NOTES.md's "Popover screenshot
+  button" for what was tried to fix the `ScrollView` gap (and why it
+  didn't work) and the real fix, deferred pending its own tradeoffs
+  (almost certainly needs Screen Recording permission).
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as

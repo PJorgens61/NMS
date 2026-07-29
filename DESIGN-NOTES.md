@@ -1531,3 +1531,89 @@ list in a fixed-height window, not a scrollable table).
 - Is Ethernet link speed worth the different code path (IOKit vs CoreWLAN)
   for one more row, or does it wait until there's a broader Ethernet-side
   feature to justify the investment?
+
+## Popover screenshot button
+
+Built to close the loop on a real, recurring cost this whole project's
+development has paid: verifying a UI change meant the user manually
+screenshotting the popover and handing the file over — several times a
+session, every session. `ScreenshotViewModel.capture` renders the
+popover's own SwiftUI view tree directly to a PNG via `ImageRenderer`
+(macOS 13+) — not a real screen capture, so no Screen Recording
+permission and no risk of grabbing anything outside the app's own window
+(a real screen-capture attempt earlier in this project's history grabbed
+the whole desktop by accident). Saves to
+`~/Library/Logs/NMS/screenshots/NMS-<timestamp>.png` and logs a
+`.screenshotCaptured` event naming the exact file, so it's findable by
+reading the event log instead of guessing which file on disk is the
+relevant one (a real, separately-hit problem this project had: a user
+screenshot's filename containing a non-ASCII space character defeated
+literal-string file access, only working via a glob pattern).
+
+**Confirmed working**: Network Health, Info, Path to Internet, Speed
+Test's header/cost-note, and DHCP History (small enough to render
+without its own `ScrollView`) all capture correctly, including live
+data.
+
+**Confirmed broken, and why**: every `Button` initially rendered as a
+generic broken-image placeholder instead of its label — fixed by
+applying `.buttonStyle(.plain)` to the rendered copy only, since
+`ImageRenderer` doesn't reliably draw macOS's native bordered-button
+chrome off-screen but has no trouble with a style that has no native
+bezel to draw.
+
+**Confirmed broken, not yet fixed**: Events, SNMP Devices, and Speed
+Test's run list all render entirely blank — not clipped, absent — with
+real, non-empty data behind every one of them (42 events, 6 SNMP
+devices, 17 speed test runs, at time of testing). `ImageRenderer`
+genuinely does not render `ScrollView` content when rendering off-screen
+on this macOS version. A fix was attempted and reverted: an
+`@Environment` flag telling those sections to swap `ScrollView` for a
+plain unclipped list during capture (which would have been a genuine
+improvement even beyond fixing the bug — a screenshot meant to be read
+later is more useful showing full history than whatever currently fits
+an ~8-row scroll window). Built, tested, and confirmed *not* to work:
+logged the environment value from inside `eventList` during a real
+capture and it read `false` every time — the modifier never propagates
+into `ImageRenderer`'s render pass, at least not the way it was applied
+here (`view.buttonStyle(.plain).environment(\.isCapturingScreenshot,
+true)`, handed straight to `ImageRenderer(content:)`).
+
+### The real fix, deferred
+
+Capture the actual live window's pixels instead of asking SwiftUI to
+re-render a detached copy — `CGWindowListCreateImage`, scoped to just
+NMS's own window by its `CGWindowID` (via `NSApplication.shared.windows`
+→ the specific window backing the popover), not the whole screen. Since
+this reads real, already-correctly-rendered pixels rather than
+re-rendering anything, none of `ImageRenderer`'s limitations apply —
+buttons and `ScrollView` content would both just work, because they're
+already genuinely on screen.
+
+**The real cost**: this almost certainly requires Screen Recording
+permission (System Settings → Privacy & Security), even scoped to the
+app's own window — that TCC gate is believed to apply per-API, not
+per-window-ownership, though this hasn't been verified directly against
+this specific scoped-capture path. That's a one-time setup prompt, but a
+more alarming-sounding one than anything else this app currently asks
+for (Local Network, Location for Wi-Fi SSID) — worth weighing against
+how much the missing scrollable content actually matters in practice
+before implementing.
+
+### Open questions before implementing
+
+- Does scoping `CGWindowListCreateImage` to one window ID actually avoid
+  the Screen Recording permission prompt for a self-owned window, or is
+  the belief above wrong? Worth five minutes of direct testing before
+  assuming either way.
+- If permission is required: prompt proactively (e.g., on first button
+  click) or let the OS's own denial path handle it (the button would
+  just silently fail until granted, mirroring how `WiFiSSIDViewModel`
+  already treats a denied Location permission as "no SSID," not an
+  error)?
+- Is capturing just the *window* (native pixels) worth building at all,
+  given the current `ImageRenderer` version already covers most of the
+  popover correctly — or is a permission prompt too high a cost for
+  closing a gap that's mostly Events/SNMP Devices/Speed Test history,
+  which a person (or Claude) can still ask about directly through
+  conversation even without a screenshot?

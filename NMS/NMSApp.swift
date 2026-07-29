@@ -20,6 +20,7 @@ struct NMSApp: App {
     @StateObject private var publicIP: PublicIPViewModel
     @StateObject private var dhcpLease: DHCPLeaseViewModel
     @StateObject private var networkQuality: NetworkQualityViewModel
+    @StateObject private var screenshot: ScreenshotViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
@@ -57,6 +58,7 @@ struct NMSApp: App {
         // own — deliberately never triggered automatically. See
         // `NetworkQualityViewModel`'s own doc comment.
         let networkQuality = NetworkQualityViewModel(snapshotStore: store)
+        let screenshot = ScreenshotViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
@@ -85,6 +87,7 @@ struct NMSApp: App {
             networkIdentity: networkIdentity,
             publicIP: publicIP,
             dhcpLease: dhcpLease,
+            screenshot: screenshot,
             wifiSSID: wifiSSID,
             eventLog: eventLog,
             traceroute: traceroute,
@@ -97,6 +100,7 @@ struct NMSApp: App {
         _publicIP = StateObject(wrappedValue: publicIP)
         _dhcpLease = StateObject(wrappedValue: dhcpLease)
         _networkQuality = StateObject(wrappedValue: networkQuality)
+        _screenshot = StateObject(wrappedValue: screenshot)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
@@ -145,6 +149,7 @@ struct NMSApp: App {
         networkIdentity: NetworkIdentityViewModel,
         publicIP: PublicIPViewModel,
         dhcpLease: DHCPLeaseViewModel,
+        screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
         eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
@@ -252,6 +257,7 @@ struct NMSApp: App {
         connectivity.onEventLogged = { eventLog.refresh() }
         publicIP.onEventLogged = { eventLog.refresh() }
         dhcpLease.onEventLogged = { eventLog.refresh() }
+        screenshot.onEventLogged = { eventLog.refresh() }
         wifiSSID.onEventLogged = { eventLog.refresh() }
         snmp.onEventLogged = { eventLog.refresh() }
     }
@@ -273,6 +279,7 @@ struct NMSApp: App {
                 publicIP: publicIP,
                 dhcpLease: dhcpLease,
                 networkQuality: networkQuality,
+                screenshot: screenshot,
                 wifiSSID: wifiSSID,
                 eventLog: eventLog,
                 traceroute: traceroute,
