@@ -60,7 +60,7 @@ final class TracerouteViewModel: ObservableObject {
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         monitoredHopNumber = UserDefaults.standard.object(forKey: Self.monitoredHopDefaultsKey) as? Int
-        timer = Timer.scheduledTimer(withTimeInterval: Self.runInterval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.runInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.run()
             }

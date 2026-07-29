@@ -46,7 +46,7 @@ final class DHCPLeaseViewModel: ObservableObject {
         self.snapshotStore = snapshotStore
         self.networkMonitor = networkMonitor
         history = snapshotStore.fetchDHCPLeaseHistory()
-        timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.checkInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.check()
             }

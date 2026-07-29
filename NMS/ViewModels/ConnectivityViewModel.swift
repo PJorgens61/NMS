@@ -275,7 +275,12 @@ final class ConnectivityViewModel: ObservableObject {
             recheckRequested = true
         }
         wasUnhealthy = anyUnhealthy
-        scheduleNextCheck(after: anyUnhealthy ? Self.fastCheckInterval : Self.checkInterval)
+        // Both scaled by the same divisor, so the 6:1 ratio between the
+        // normal and fast cadence — itself a behaviour under test —
+        // survives at any speed. See `FailureInjector.acceleratedInterval`.
+        scheduleNextCheck(
+            after: FailureInjector.acceleratedInterval(anyUnhealthy ? Self.fastCheckInterval : Self.checkInterval)
+        )
         // Last, not first: mirrors `TracerouteViewModel.finishRun()` — the
         // round isn't really over until the next one is scheduled, and this
         // can immediately start a fresh round in its place.

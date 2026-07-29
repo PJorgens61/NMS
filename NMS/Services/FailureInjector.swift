@@ -229,6 +229,43 @@ enum FailureInjector {
         #endif
     }
 
+    /// Divides a poll interval, so a scripted scenario doesn't spend
+    /// most of its runtime asleep.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSPollSpeedup -int 10
+    /// defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSPollSpeedup
+    /// ```
+    ///
+    /// A **divisor rather than an absolute interval**, deliberately.
+    /// Flattening everything to one value would destroy the relationships
+    /// between intervals, and at least one of those is itself under test:
+    /// `ConnectivityViewModel` drops from its 30s cadence to a 5s one
+    /// while anything is unhealthy, which can't be observed if both
+    /// become the same number. Scaling keeps 6:1 at any speed.
+    ///
+    /// Floored at one second. Without it, a large divisor would turn real
+    /// `ping`/`snmpget` subprocess fan-out into a tight loop — the
+    /// connectivity round alone shells out to roughly ten targets, so
+    /// sub-second scheduling would be self-inflicted load rather than a
+    /// faster test.
+    ///
+    /// Applied to the connectivity, SNMP, DHCP and traceroute timers, but
+    /// deliberately **not** to `PublicIPViewModel`: that one calls a
+    /// third-party service (`api.ipify.org`), and its 300s cadence is
+    /// partly politeness rather than a tuning decision. Nothing testable
+    /// depends on its frequency anyway — a `publicIPChanged` event needs
+    /// the address to actually change, which no injection here does.
+    static func acceleratedInterval(_ interval: TimeInterval) -> TimeInterval {
+        #if DEBUG
+        let divisor = UserDefaults.standard.double(forKey: "NMSPollSpeedup")
+        guard divisor > 1 else { return interval }
+        return max(1, interval / divisor)
+        #else
+        return interval
+        #endif
+    }
+
     /// True if either SNMP key names this device, for prefixing its event
     /// message the same way connectivity failures are prefixed.
     static func isSNMPForced(_ displayName: String) -> Bool {

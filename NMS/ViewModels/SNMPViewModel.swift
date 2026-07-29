@@ -110,7 +110,7 @@ final class SNMPViewModel: ObservableObject {
         // devices show (and start being polled and pinged) immediately;
         // the sweep itself is on demand via the popover's "Scan" button.
         devices = snapshotStore.fetchSNMPDevices().map(Self.device(from:))
-        timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.pollInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.poll()
             }

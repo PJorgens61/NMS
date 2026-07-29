@@ -1434,6 +1434,27 @@ on the real network, and a real overdue renewal means waiting 21 hours for T2
 on a 24h lease *and* the server misbehaving. Both are additive (`||`), so
 injection can force a failure but never mask a real one.
 
+**Speeding everything up.** `NMSPollSpeedup` divides every poll interval, so
+a scripted scenario doesn't spend most of its runtime asleep:
+
+```bash
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSPollSpeedup -int 30
+```
+
+A divisor rather than a flat interval, deliberately — flattening every timer
+to one value would destroy the relationships between them, and one of those
+is itself under test: the connectivity cadence drops from 30s to 5s while
+anything is unhealthy, which can't be observed if both become the same
+number. Measured at 6×: healthy rounds land at 5.1s and injected-failure
+rounds at 1.1s, preserving the ratio. At 30×, 42 rounds run in the 25 seconds
+that would normally produce one.
+
+Floored at one second, since the connectivity round shells out to ~10 real
+`ping` targets and sub-second scheduling would be self-inflicted load rather
+than a faster test. Applied to the connectivity, SNMP, DHCP and traceroute
+timers — deliberately *not* to `PublicIPViewModel`, which calls a third-party
+service whose 300s cadence is partly politeness.
+
 **How long each takes to bite differs, which is worth knowing before you sit
 watching a log:**
 
