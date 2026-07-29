@@ -44,6 +44,24 @@ struct ContentView: View {
     /// history than whatever happened to fit an 8-row scroll window.
     var isCapturingScreenshot = false
 
+    /// True only for the copy hosted in the comparison `Window` scene (see
+    /// `NMSApp`), never for the popover. Each fixed-height mini-`ScrollView`
+    /// (Events, SNMP Devices, DHCP History, Speed Test history, traceroute
+    /// hops) still scrolls *within its own box* here rather than unclipping
+    /// — a fully unclipped Events list ran to hundreds of rows and made the
+    /// whole window scroll past everything else just to see later sections.
+    /// What this actually changes is the box height: the window has room
+    /// the popover doesn't, so each section gets a taller fixed frame
+    /// (still a bounded, independently-scrolling box) instead of the
+    /// popover's cramped one.
+    var isInWindow = false
+
+    /// Lets the footer's "Open in Window" button bring up the comparison
+    /// `Window` scene declared in `NMSApp` — see that scene for why it
+    /// exists (a resizable/scrollable alternative to this fixed-height
+    /// popover, added to compare side by side rather than replace outright).
+    @Environment(\.openWindow) private var openWindow
+
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false
     /// Keyed by `ConnectionLayer.id`. Populated by the Network Health
@@ -189,6 +207,14 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Screenshot")
                 .accessibilityHint("Saves an image of this popover and logs an event naming the file, so it can be found without guessing")
+                // Temporary, for comparing this fixed-height popover against
+                // a resizable/scrollable window (see `NMSApp`'s "nms-window"
+                // scene) — not a permanent footer addition.
+                Button("Open in Window") {
+                    openWindow(id: "nms-window")
+                }
+                .accessibilityLabel("Open in Window")
+                .accessibilityHint("Opens the same content in a resizable, scrollable window")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
@@ -621,7 +647,7 @@ struct ContentView: View {
                 infrastructureRows
             }
         } else {
-            ScrollView {
+            NoBounceScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     infrastructureRows
                 }
@@ -641,7 +667,11 @@ struct ContentView: View {
             // column the shorter one. A full-width section like this adds
             // to the total regardless of which column is taller, so it's
             // the lever that still moves.
-            .frame(height: 123)
+            // 200 in the window: comfortably more than the popover's 123,
+            // while still shorter than this network's current 5-6 devices
+            // — confirmed nested scrolling actually works here (not just
+            // theoretically bounded) before settling on this height.
+            .frame(height: isInWindow ? 200 : 123)
         }
 
         if let error = snmp.lastError {
@@ -722,11 +752,17 @@ struct ContentView: View {
             Text("No DHCP lease observed yet")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-        } else if dhcpLease.history.count > 2 && !isCapturingScreenshot {
+        } else if (dhcpLease.history.count > 2 || isInWindow) && !isCapturingScreenshot {
             // A fixed-height ScrollView only earns its keep once there are
             // actually more rows than fit — same reasoning as
             // `tracerouteSection`'s `displayedHops.count > 3` check. Below
             // that, it left visible blank space under 1-2 real entries.
+            // That reasoning is popover-specific, though: in the window,
+            // where the box is taller and the layout isn't fighting a
+            // height ceiling, this always gets a scrollable box regardless
+            // of count, so the section behaves consistently rather than
+            // silently having no scroll container at all whenever there
+            // happen to be too few rows to cross this threshold.
             //
             // Trimmed from 90 to 56 (2 rows × 17pt) — the popover grew past
             // fitting an M1 MacBook Air's shorter screen again after
@@ -741,13 +777,17 @@ struct ContentView: View {
             // because it's a scrollable history already — shaving its
             // window drops nothing, everything stays reachable by
             // scrolling, unlike trimming a section with no scroll at all.
-            ScrollView {
+            NoBounceScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     dhcpHistoryRows
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 56)
+            // 100 in the window: more than the popover's 56, and — with
+            // only 4 real leases right now — still short enough to
+            // confirm scrolling actually works rather than just having
+            // room to spare.
+            .frame(height: isInWindow ? 100 : 56)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 dhcpHistoryRows
@@ -836,8 +876,8 @@ struct ContentView: View {
             Text(networkQuality.isRunning ? "Testing…" : "No speed test run yet")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-        } else if networkQuality.recentRuns.count > 3 && !isCapturingScreenshot {
-            ScrollView {
+        } else if (networkQuality.recentRuns.count > 3 || isInWindow) && !isCapturingScreenshot {
+            NoBounceScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     speedTestRows
                 }
@@ -863,7 +903,11 @@ struct ContentView: View {
             // are the full-width sections below the grid (Events, SNMP
             // Devices, DHCP History), which add to the total regardless of
             // which column is taller.
-            .frame(height: 56)
+            // 140 in the window: more than the popover's 56, and still
+            // short enough against the 10 displayed runs to confirm
+            // scrolling actually works rather than just having room to
+            // spare.
+            .frame(height: isInWindow ? 140 : 56)
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 speedTestRows
@@ -1021,13 +1065,13 @@ struct ContentView: View {
             Text("No events yet — everything's healthy. Entries appear here when something changes (an outage or a recovery).")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-                .frame(height: 136, alignment: .top)
+                .frame(height: isInWindow ? 300 : 136, alignment: .top)
         } else if isCapturingScreenshot {
             VStack(alignment: .leading, spacing: 2) {
                 eventRows
             }
         } else {
-            ScrollView {
+            NoBounceScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     eventRows
                 }
@@ -1039,8 +1083,12 @@ struct ContentView: View {
             // Message and timestamp now share one row instead of two, so
             // this is sized for ~8 single-line rows, not ~10 — trimmed by
             // two rows' worth (~34pt) to fit the popover within an M1
-            // MacBook Air's shorter menu bar screen real estate.
-            .frame(height: 136)
+            // MacBook Air's shorter menu bar screen real estate. The
+            // window gets a taller box instead of the popover's cramped
+            // one — still its own scrolling section, not unclipped, so a
+            // long history doesn't push the rest of the window's sections
+            // out of easy reach.
+            .frame(height: isInWindow ? 300 : 136)
         }
     }
 
@@ -1115,14 +1163,14 @@ struct ContentView: View {
             // and a `.frame(height: 60)` sized for the worst case (3+ rows,
             // before confirmation) left visible blank space below them. A
             // plain VStack sizes to exactly what's there instead.
-            if displayedHops.count > 3 && !isCapturingScreenshot {
-                ScrollView {
+            if (displayedHops.count > 3 || isInWindow) && !isCapturingScreenshot {
+                NoBounceScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         hopRows
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: 60)
+                .frame(height: isInWindow ? 150 : 60)
             } else {
                 VStack(alignment: .leading, spacing: 2) {
                     hopRows

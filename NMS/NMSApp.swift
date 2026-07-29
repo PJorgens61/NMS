@@ -288,29 +288,63 @@ struct NMSApp: App {
         OverallStatus.compute(interfaceIsDown: networkMonitor.currentInterface == nil, checks: connectivity.checks)
     }
 
+    /// Built once here rather than duplicated at each of the two call
+    /// sites below — the popover and the comparison window show the exact
+    /// same live view models, just hosted in a different `Scene`.
+    /// `isInWindow` is the one thing that differs: see `ContentView`'s
+    /// property of the same name for why.
+    private func contentView(isInWindow: Bool) -> ContentView {
+        ContentView(
+            viewModel: networkMonitor,
+            lanDiscovery: lanDiscovery,
+            connectivity: connectivity,
+            networkIdentity: networkIdentity,
+            publicIP: publicIP,
+            dhcpLease: dhcpLease,
+            networkQuality: networkQuality,
+            screenshot: screenshot,
+            wifiSSID: wifiSSID,
+            eventLog: eventLog,
+            traceroute: traceroute,
+            bonjourDiscovery: bonjourDiscovery,
+            snmp: snmp,
+            buildInfo: buildInfo,
+            storeURL: storeURL,
+            isInWindow: isInWindow
+        )
+    }
+
     var body: some Scene {
         MenuBarExtra {
-            ContentView(
-                viewModel: networkMonitor,
-                lanDiscovery: lanDiscovery,
-                connectivity: connectivity,
-                networkIdentity: networkIdentity,
-                publicIP: publicIP,
-                dhcpLease: dhcpLease,
-                networkQuality: networkQuality,
-                screenshot: screenshot,
-                wifiSSID: wifiSSID,
-                eventLog: eventLog,
-                traceroute: traceroute,
-                bonjourDiscovery: bonjourDiscovery,
-                snmp: snmp,
-                buildInfo: buildInfo,
-                storeURL: storeURL
-            )
+            contentView(isInWindow: false)
         } label: {
             Image(nsImage: Self.statusIcon(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color))
         }
         .menuBarExtraStyle(.window)
+
+        // Comparison window, opened via the popover's "Open in Window"
+        // button (see `ContentView`) — not yet a replacement for the
+        // popover above, just a side-by-side alternative to evaluate.
+        //
+        // Deliberately no outer scroll container. An outer `ScrollView`
+        // (plain, then `NoBounceScrollView` — see that type's doc comment
+        // for the chain of attempts) let the window shrink below its
+        // total content height, but every fix for the resulting
+        // nested-scroll chaining/bounce worked inconsistently across
+        // input devices — trackpad was fine, a Magic Mouse on the iMac
+        // made the outer scroll erratic and largely unreliable, confirmed
+        // directly, not theoretical. With no outer scroll region, there's
+        // nothing left to chain into: each `NoBounceScrollView` box inside
+        // `ContentView` still scrolls independently, on any input device,
+        // and that's the only scrolling this window does. The trade-off,
+        // also confirmed directly: the window can't shrink below its full
+        // content height anymore. As more tiles get added later, resize
+        // the window taller instead — a real, resizable window can do
+        // that; the popover it's compared against never could.
+        Window("NMS", id: "nms-window") {
+            contentView(isInWindow: true)
+        }
+        .defaultSize(width: 600, height: 700)
     }
 
     /// macOS forces menu bar icons to render as monochrome "template"
