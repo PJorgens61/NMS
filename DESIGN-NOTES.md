@@ -914,6 +914,37 @@ is observability, not yet enforcement — the honest state of "tracking
 this," short of the calibration data needed to also "prevent" it
 automatically.
 
+### The calibration data finally arrived, and a real ceiling with it
+
+Testing on the MacBook Air put the popover "about one line too tall" at
+846pt — which makes the usable ceiling roughly **829pt**, and shows the
+earlier 750-770pt estimate was too conservative by a wide margin. That
+estimate came from reasoning about the logical screen size; the measured
+answer is about 60pt more generous. Worth preferring the measurement.
+
+Two rows were then trimmed from Speed Test, and **only one row's worth
+of height actually came off**: 846pt → 829pt for a 34pt cut. The reason
+is the independent-column layout above. Total height is
+`max(leftColumn, rightColumn)`, and Speed Test lives in the right one,
+which was taller by about a row. The first ~17pt brought the columns
+level; the remaining ~17pt just made the right column *shorter* than the
+left, moving nothing. Trimming further there would have been pure
+placebo.
+
+The fix that worked was trimming a **full-width** section instead —
+SNMP Devices, 140pt → 123pt — which came straight off the total: 829pt →
+812pt, the full row. That's the rule worth remembering:
+
+- A section inside the tile grid only shortens the popover while its
+  column is the taller of the two.
+- A full-width section below the grid (Events, SNMP Devices, DHCP
+  History) shortens it unconditionally.
+
+Net for the session: 846 → 812pt, roughly two rows under where the
+overflow was reported. With a measured ~829pt ceiling now on record, a
+hard regression check against `ContentView.liveHeight` is finally
+possible — that was the one missing input, and it isn't missing anymore.
+
 ### The tile grid itself was the next thing flagged — and reclaimed real height
 
 Reported directly: the four top tiles (Network Health/Info/Path to

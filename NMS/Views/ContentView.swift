@@ -631,9 +631,17 @@ struct ContentView: View {
             // popover — `.frame(maxHeight:)` alone can collapse to zero
             // visible height even with real content in this MenuBarExtra
             // context (confirmed directly earlier in this app's history).
-            // Taller than the 90px other lists use, since sysDescr now
-            // wraps instead of truncating and needs the extra room.
-            .frame(height: 140)
+            // Still taller than the other lists because sysDescr wraps
+            // instead of truncating and needs the extra room.
+            //
+            // Trimmed 140 → 123 (one row × 17pt) for the M1 MacBook Air.
+            // Chosen over shaving Speed Test again, which had stopped
+            // helping: the tile grid's height is `max(leftColumn,
+            // rightColumn)`, and that trim had already made the right
+            // column the shorter one. A full-width section like this adds
+            // to the total regardless of which column is taller, so it's
+            // the lever that still moves.
+            .frame(height: 123)
         }
 
         if let error = snmp.lastError {
@@ -835,7 +843,27 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 90)
+            // Trimmed from 90 to 56 (2 rows × 17pt) — the popover measured
+            // about one line too tall on the M1 MacBook Air, and two rows
+            // are taken rather than one so the fix lands with a row of
+            // headroom instead of exactly on the boundary. Same 17pt/row
+            // constant used for the Events and DHCP History trims; see
+            // DESIGN-NOTES.md's "The MacBook Air height constraint".
+            //
+            // **Only the first ~17pt of this trim actually shortened the
+            // popover, and that's worth knowing before trimming here
+            // again.** The height is `max(leftColumn, rightColumn)`; this
+            // (Info + Speed Test) was the taller column by about one row,
+            // so removing two rows dropped the total by one and left the
+            // *other* column — Network Health + Path to Internet — as the
+            // binding constraint. Measured directly via
+            // `ContentView.liveHeight`: 846pt → 829pt for a 34pt cut.
+            //
+            // So further shaving here buys nothing. The remaining levers
+            // are the full-width sections below the grid (Events, SNMP
+            // Devices, DHCP History), which add to the total regardless of
+            // which column is taller.
+            .frame(height: 56)
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 speedTestRows

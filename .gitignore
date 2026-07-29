@@ -5,3 +5,6 @@ DerivedData/
 xcuserdata/
 .swiftpm/
 *.profraw
+# Local Claude Code settings (Bash allowlist) — machine-specific, not
+# something a clone should inherit.
+.claude/
