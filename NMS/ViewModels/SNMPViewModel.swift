@@ -335,6 +335,13 @@ final class SNMPViewModel: ObservableObject {
             .sorted {
                 (SubnetCalculator.packedIPv4($0.ipAddress) ?? 0) < (SubnetCalculator.packedIPv4($1.ipAddress) ?? 0)
             }
+        // Keeps every alias row's persisted state as fresh as its primary
+        // — see `SnapshotStore.syncAliasFreshness`. Runs on every rebuild
+        // (after each poll, each scan, and each completed LAN scan), which
+        // is exactly as often as the primary's own row can have changed.
+        for device in devices where !device.aliasAddresses.isEmpty {
+            snapshotStore.syncAliasFreshness(primary: device)
+        }
         logUnavailableInputs(macCount: macs.count, keptCount: kept.count)
     }
 

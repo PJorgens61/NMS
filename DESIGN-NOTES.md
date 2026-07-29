@@ -1420,6 +1420,34 @@ Either way, individual and virtual addresses should end up as distinct,
 related entries — never merged into one ambiguous record the way the
 reverted `sysName` approach did.
 
+### A smaller, unrelated bug this merge caused (since fixed)
+
+Separate from the modeling question above: merging by MAC means only the
+primary address is ever polled again (`SNMPViewModel.poll` builds its
+targets from the already-merged `devices` list), so the alias's own
+`SNMPDeviceRecord` row stopped being written to entirely. Found via
+`StoreInspector` — `10.0.0.17` (AP1's VRRP address) sat with a `lastSeenAt`
+about 12 hours stale while `10.0.0.16` (same physical AP) polled
+successfully every minute. Invisible in the popover, since the merge
+already hides the duplicate — but a raw dump or a direct `sqlite3` query
+read it as a device gone silent, when it's the exact same hardware the
+primary had just proved was alive.
+
+Fixed with `SnapshotStore.syncAliasFreshness`, called from
+`SNMPViewModel.rebuildDeviceList` after every merge: for each alias
+address, copy the primary's `sysDescr`/`sysName`/`uptimeTicks`/`lastSeenAt`
+onto its row. No restart/software-change detection runs against the
+alias — `recordSNMPDevice` already reports those once, for the primary;
+doing it again here on the same underlying data would double the event.
+Verified against a scratch copy of the real store: `10.0.0.17` jumped from
+~12 hours stale to matching `10.0.0.16`'s timestamp exactly after one poll
+cycle, with zero events logged.
+
+This is purely a store-freshness fix, not a step toward the "proper fix"
+above — it doesn't change what the popover shows or attempt to model VRRP
+at all, only keeps the alias's persisted row honest about a fact the merge
+already established.
+
 ### Open questions before implementing
 
 - Manual config or VRRP-MIB (or both) — does auto-detection via the MIB

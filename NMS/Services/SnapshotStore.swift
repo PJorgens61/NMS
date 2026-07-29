@@ -367,6 +367,39 @@ final class SnapshotStore {
         return restarted ? .restarted : .unchanged
     }
 
+    /// Keeps an alias address's row from looking permanently dead once its
+    /// physical device gets folded into a primary elsewhere by
+    /// `SNMPViewModel.mergingSharedMACs` — the primary is the only address
+    /// actually polled from then on (see `SNMPViewModel.poll`), so without
+    /// this the alias's `lastSeenAt` freezes at whatever the last full
+    /// Scan recorded. Found this way: `10.0.0.17` (AP1's VRRP address)
+    /// sat unrefreshed for ~12 hours while its merged partner `10.0.0.16`
+    /// polled successfully every minute — invisible in the popover, since
+    /// the merge already hides the duplicate, but a `StoreInspector` dump
+    /// or a direct query reads it as a device gone silent when it's the
+    /// exact same hardware the primary just proved is alive.
+    ///
+    /// Deliberately quiet — no restart/software-change detection, no
+    /// event logged. `recordSNMPDevice` already reports those for the
+    /// merged device under its one display name; running the same
+    /// detection again here on the same underlying data would just
+    /// double the event.
+    func syncAliasFreshness(primary: SNMPDevice) {
+        guard !primary.aliasAddresses.isEmpty else { return }
+        for alias in primary.aliasAddresses {
+            var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+                predicate: #Predicate { $0.ipAddress == alias }
+            )
+            descriptor.fetchLimit = 1
+            guard let record = (try? context.fetch(descriptor))?.first else { continue }
+            record.sysDescr = primary.sysDescr
+            record.sysName = primary.sysName
+            record.uptimeTicks = primary.uptimeTicks
+            record.lastSeenAt = primary.polledAt
+        }
+        try? context.save()
+    }
+
     func fetchSNMPDevices(limit: Int = 100) -> [SNMPDeviceRecord] {
         var descriptor = FetchDescriptor<SNMPDeviceRecord>(
             sortBy: [SortDescriptor(\.lastSeenAt, order: .reverse)]
