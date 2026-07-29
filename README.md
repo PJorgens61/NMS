@@ -1648,11 +1648,24 @@ watching a log:**
 | `NMSInjectDHCP*` | up to 5 minutes — `DHCPLeaseViewModel`'s poll timer |
 | `NMSInjectInterfaceDown` | only on the Refresh button or a real topology change; nothing polls `networkMonitor.refresh()` |
 
-`NMSInjectInterfaceDown` also has a real limit: it can make
-`currentInterface` nil — exercising `runChecks`' no-interface short-circuit,
-the "No active network connection" row, and the critical menu bar state — but
-it **cannot** produce `interfaceDown`/`interfaceUp` events. Those are logged
-only from the `SCDynamicStore` change callback, which injection doesn't fake.
+`NMSInjectInterfaceDown` makes `currentInterface` nil — exercising
+`runChecks`' no-interface short-circuit, the "No active network connection"
+row, and the critical menu bar state — and now *also* produces real
+`interfaceDown`/`interfaceUp` events: `NetworkMonitorViewModel.refresh()`
+and the real `SCDynamicStore` observer callback were merged into one
+`updateInterface()`, so a Refresh-button press reacts exactly as a real
+topology change would. Set the key, press Refresh, and the real
+`interfaceDown` event logs; clear it, press Refresh again, and `interfaceUp`
+logs. `init()`'s very first read stays a bare, uncompared assignment
+specifically so a normal launch never logs a bogus "back up" event —
+only a *later* read (Refresh, or a real change) goes through the shared
+path.
+
+One real limit remains, and it's structural: this only fires from a
+Refresh **click**, so `script/scenarios.sh` can't exercise it the way it
+does the other six scenarios — the script deliberately drives everything
+through `defaults write` and polling, no UI automation, matching this
+tool's own "no UI" design. Verified manually instead.
 
 **Clear the key in place rather than relaunching, if you want to see the
 recovery.** `logTransitions` compares against the previous round's in-memory

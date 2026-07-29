@@ -946,6 +946,52 @@ expected, much less jarring residual than the previous cross-row
 misalignment, not something this change was trying to eliminate
 entirely. Scenario suite still 11/11.
 
+## Interface-down injection can now produce real events
+
+Returning to the pre-existing punch list: `NMSInjectInterfaceDown` could
+force `currentInterface` to `nil` but could never produce the
+`interfaceDown`/`interfaceUp` events themselves, since those only ever
+logged from `NetworkMonitorViewModel.handleObservedChange()` — reachable
+exclusively from the real `SCDynamicStore` callback, which injection
+doesn't fake. Documented as a known limit at the time this was built.
+
+Fixed without faking the callback. `refresh()` (the popover's Refresh
+button) previously just re-read `currentInterface` with no change
+detection or event logging at all — `handleObservedChange()` had all of
+that, but only the real observer could call it. Merged both into one
+`updateInterface()`, called by both the Refresh button and the real
+`observeChanges` callback, so a manual refresh now reacts exactly as a
+real topology change would.
+
+One thing required care: `init()` used to call `refresh()` directly,
+which would now mean every launch runs through the merged change-
+detecting path — and since `currentInterface` starts as `nil` before the
+very first read, that would have logged a bogus "Interface back up"
+event on *every single launch*, not just a real recovery. Fixed by
+keeping `init()`'s first read as a bare assignment (no comparison, no
+event), since there is no genuine "previous" state to compare against at
+launch — only `refresh()` (called afterward, by an actual user action)
+and the real observer path go through `updateInterface()`.
+
+Verified all three parts directly: a clean launch logs no interface
+event at all (confirmed against the real store, still exactly the 3
+historical events from real changes over the past two days); forcing
+the override and pressing Refresh logs a real `interfaceDown`; clearing
+it and pressing Refresh again logs a real `interfaceUp`. Both directions
+tested against a scratch store, real store untouched throughout,
+scenario suite still 11/11 after.
+
+**One limit remains, and it's structural, not a bug**: this only fires
+from a Refresh *click* — nothing polls `NetworkMonitorViewModel` on a
+timer, by design. That also means `script/scenarios.sh` can't exercise
+this scenario the way it does the other six: the script drives
+everything purely through `defaults write` and polling, deliberately
+with no UI automation (matching `FailureInjector`'s own "no UI, script-
+only" design), and there's no non-interactive way to trigger a Refresh
+click. Verified manually instead, once each direction, rather than
+adding UI automation to close this — that would cut against the
+existing design rather than complete it.
+
 ## UI state debug log (for AI-assisted verification)
 
 > **Status: implemented** for the staged five-property set — see the "UI

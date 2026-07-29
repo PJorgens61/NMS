@@ -22,19 +22,36 @@ final class NetworkMonitorViewModel: ObservableObject {
 
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
-        refresh()
+        // A plain read, not `updateInterface()` — there's no genuine
+        // "previous" state to compare against at launch, so this must
+        // never log a recovery event the way a real, later transition
+        // would. `currentInterface` starting `nil` here is an artifact of
+        // not having read yet, not evidence of an outage just recovered
+        // from.
+        currentInterface = readInterface()
+        lastUpdated = Date()
         service.observeChanges { [weak self] in
             // The SCDynamicStore callback can land on a background thread
             // depending on run loop context, so hop back to main.
             Task { @MainActor in
-                self?.handleObservedChange()
+                self?.updateInterface()
             }
         }
     }
 
+    /// Manual re-read (the popover's Refresh button). Runs through the
+    /// same change-detection-and-event-logging path a real topology
+    /// change does (`updateInterface()`) rather than a bare re-read, so a
+    /// Refresh press reacts exactly as a real change would — including
+    /// closing a real gap in `FailureInjector`'s interface-down
+    /// injection: previously, only the path reachable exclusively from
+    /// the real `SCDynamicStore` callback ever logged
+    /// `interfaceDown`/`interfaceUp`, and injection has no way to fake
+    /// that callback. Forcing the interface down and pressing Refresh
+    /// used to silently update `currentInterface` with no event at all;
+    /// now the same press produces the real event pair.
     func refresh() {
-        currentInterface = readInterface()
-        lastUpdated = Date()
+        updateInterface()
     }
 
     /// The single place the interface is read, so debug injection applies
@@ -44,11 +61,13 @@ final class NetworkMonitorViewModel: ObservableObject {
         FailureInjector.applyInterfaceDown(to: service.currentPrimaryInterface())
     }
 
-    /// Called only from the `observeChanges` callback — this is the actual
-    /// "something changed" signal, so it's the point at which we persist a
-    /// snapshot, as opposed to `refresh()` which just re-reads current state
-    /// (e.g. for the manual Refresh button).
-    private func handleObservedChange() {
+    /// Shared by `refresh()` and the real `observeChanges` callback — the
+    /// actual "something changed" signal, so it's the point at which we
+    /// persist a snapshot and log events. Merged from what used to be two
+    /// separate methods (`refresh()` doing a bare re-read, and a private
+    /// `handleObservedChange()` reachable only from the observer) so
+    /// event logging is reachable from either path, not just one.
+    private func updateInterface() {
         let updated = readInterface()
         let didChange = updated != currentInterface
         let previous = currentInterface

@@ -106,14 +106,21 @@ enum FailureInjector {
     /// attempting them, specifically because `getaddrinfo` was measured
     /// returning a bogus ~1ms success with no interface up.
     ///
-    /// **Two limits, both found by testing rather than reasoning.** It
-    /// only bites when something calls `NetworkMonitorViewModel.refresh()`
-    /// — the popover's Refresh button, or a real topology change — since
-    /// nothing polls it on a timer. And it cannot produce
-    /// `interfaceDown`/`interfaceUp` events at all: those are logged from
-    /// `handleObservedChange`, driven by the `SCDynamicStore` callback,
-    /// which this doesn't fake. What it does exercise is everything
-    /// downstream of a nil interface.
+    /// **One limit remains, one was closed.** It still only bites when
+    /// something calls `NetworkMonitorViewModel.refresh()` — the popover's
+    /// Refresh button, or a real topology change — since nothing polls it
+    /// on a timer.
+    ///
+    /// It previously could *not* produce `interfaceDown`/`interfaceUp`
+    /// events at all, since those were logged only from a path reachable
+    /// exclusively via the real `SCDynamicStore` callback, which this
+    /// doesn't fake. That's fixed now, without faking the callback:
+    /// `refresh()` and the real observer path were merged into one
+    /// `updateInterface()` that both call, so a Refresh press reacts
+    /// exactly as a real topology change would — set this key, press
+    /// Refresh, and the real `interfaceDown` event logs; clear it, press
+    /// Refresh again, and `interfaceUp` logs. What this exercises is
+    /// everything downstream of a nil interface, genuine events included.
     static var isInterfaceDownForced: Bool {
         #if DEBUG
         return UserDefaults.standard.bool(forKey: "NMSInjectInterfaceDown")
