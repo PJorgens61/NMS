@@ -1482,6 +1482,25 @@ the SwiftData batch-delete bug was caught.
 contain SSIDs, MAC addresses, the public IP and full event history, and
 `~/Library/Logs/` is collected by `sysdiagnose`.
 
+## Store size in the footer
+
+The popover footer shows the store's real on-disk size next to the
+build hash (e.g. "3.8 MB store"), read fresh on every render via
+`StoreSizeService.formattedSize(at:)` — not cached, since unlike the
+build hash, size genuinely changes while the app runs.
+
+**Sums three files, not one.** SwiftData's SQLite backend runs in WAL
+mode: recent writes live in a `-wal` file until a checkpoint flushes
+them into the main `.store`, plus a small `-shm` index. Verified
+directly against the real store: the `-wal` file was at one point
+larger than the main file itself (4.2 MB vs. 2.0 MB) — reporting only
+the base file would understate real usage by more than half.
+
+`nil` (shown as no text, not "0 bytes") before the store's first write,
+or in the in-memory fallback path where there's no real file at all —
+absence and zero mean different things here, same reasoning already
+applied to `NetworkQualityRecord`'s optional RPM fields.
+
 ## Live-height tracking
 
 This app is developed across two Macs with different screen heights (an

@@ -17,6 +17,10 @@ struct ContentView: View {
     /// Not `@ObservedObject` — a plain value computed once at launch (see
     /// `NMSApp`), not something that changes while the popover is open.
     let buildInfo: BuildInfoService.Info?
+    /// The store's location, not its size — unlike `buildInfo`, disk size
+    /// genuinely changes during a run, so it's read fresh from
+    /// `storeSizeText` on every render rather than cached here.
+    let storeURL: URL
 
     /// True only on the throwaway copy handed to `ImageRenderer` (see the
     /// camera button's action), never on the live popover. Makes the
@@ -193,17 +197,32 @@ struct ContentView: View {
                 .accessibilityHint("Quits NMS")
             }
 
-            if let buildInfo {
-                // Secondary, unobtrusive — this answers "which commit am I
-                // running" (for a single-developer tool, easy to lose track
-                // of after a few Cmd+R's), not a feature anyone needs to
-                // look at day to day.
-                Text("Build \(buildInfo.shortHash)\(buildInfo.isDirty ? "+" : "")")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityLabel(
-                        "Build \(buildInfo.shortHash)\(buildInfo.isDirty ? ", with uncommitted changes" : "")"
-                    )
+            if buildInfo != nil || storeSizeText != nil {
+                // Shares one row rather than adding a second — no new
+                // vertical space cost, matching the discipline every other
+                // footer addition here has followed. Store size answers
+                // "how big has this gotten" (this table has no size cap
+                // the way the pruned telemetry tables do; DHCP/SNMP/Events
+                // history accumulates indefinitely), read fresh on every
+                // render since — unlike the build hash — it genuinely
+                // changes during a run.
+                HStack(spacing: 4) {
+                    if let buildInfo {
+                        Text("Build \(buildInfo.shortHash)\(buildInfo.isDirty ? "+" : "")")
+                            .accessibilityLabel(
+                                "Build \(buildInfo.shortHash)\(buildInfo.isDirty ? ", with uncommitted changes" : "")"
+                            )
+                    }
+                    if let storeSizeText {
+                        if buildInfo != nil {
+                            Text("·")
+                        }
+                        Text("\(storeSizeText) store")
+                            .accessibilityLabel("Store size \(storeSizeText)")
+                    }
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
             }
 
             // Deliberately loud (unlike the build line above) and placed
@@ -1199,6 +1218,14 @@ struct ContentView: View {
             return ip
         }
         return "\(ip)/\(prefix)"
+    }
+
+    /// `nil` before anything has ever been written to `storeURL` (e.g.
+    /// the in-memory fallback path, or a fresh install's very first
+    /// instant) — see `StoreSizeService`, which reports that case as
+    /// absent rather than a misleading "0 bytes".
+    private var storeSizeText: String? {
+        StoreSizeService.formattedSize(at: storeURL)
     }
 
     private func row(_ label: String, _ value: String) -> some View {

@@ -38,10 +38,19 @@ struct NMSApp: App {
     /// shells out to `git`, so it belongs alongside `modelContainer` as a
     /// plain constant rather than being recomputed on every re-render.
     private let buildInfo: BuildInfoService.Info?
+    /// The store's resolved location, captured once so `ContentView` can
+    /// read its on-disk size fresh on every render (unlike `buildInfo`,
+    /// file *size* genuinely changes during a run, so only the path is
+    /// cached here — not a size snapshot that would go stale). Reusing
+    /// `makeModelContainer()`'s own resolution rather than calling
+    /// `storeURL()` a second time, which would log a duplicate `App.store`
+    /// line at every launch.
+    private let storeURL: URL
 
     init() {
-        let container = Self.makeModelContainer()
+        let (container, resolvedStoreURL) = Self.makeModelContainer()
         modelContainer = container
+        storeURL = resolvedStoreURL
         let buildInfo = BuildInfoService.current()
         self.buildInfo = buildInfo
         UIStateLogger.log(
@@ -295,7 +304,8 @@ struct NMSApp: App {
                 traceroute: traceroute,
                 bonjourDiscovery: bonjourDiscovery,
                 snmp: snmp,
-                buildInfo: buildInfo
+                buildInfo: buildInfo,
+                storeURL: storeURL
             )
         } label: {
             Image(nsImage: Self.statusIcon(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color))
@@ -396,7 +406,14 @@ struct NMSApp: App {
         return resolved
     }
 
-    private static func makeModelContainer() -> ModelContainer {
+    /// Returns the resolved store URL alongside the container — not just
+    /// for logging (that already happens inside `storeURL()`), but so
+    /// `ContentView` can read the store's on-disk size later. In the
+    /// in-memory fallback path there's no real file at this path at all;
+    /// `StoreSizeService` already reports that case as `nil` (the base
+    /// file genuinely doesn't exist there) rather than a misleading zero,
+    /// so no special-casing is needed here for it.
+    private static func makeModelContainer() -> (ModelContainer, URL) {
         let schema = Schema([
             NetworkSnapshot.self,
             DiscoveredDeviceRecord.self,
@@ -412,13 +429,15 @@ struct NMSApp: App {
         ])
         let storeURL = Self.storeURL()
         do {
-            return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
+            let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
+            return (container, storeURL)
         } catch {
             print("NMS: failed to open persistent store (\(error)); falling back to in-memory store")
-            return try! ModelContainer(
+            let container = try! ModelContainer(
                 for: schema,
                 configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
             )
+            return (container, storeURL)
         }
     }
 }

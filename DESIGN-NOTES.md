@@ -2075,6 +2075,43 @@ the entire point of the feature.
   anything this app currently asks for) to fix problems that are now
   fixed anyway.
 
+## Store size in the footer
+
+Returning to the tooling punch list. Small, well-scoped addition: the
+popover footer now shows the SwiftData store's real on-disk size next to
+the build hash — "3.8 MB store" — read fresh on every render via
+`StoreSizeService`.
+
+**Must sum three files, not one.** SwiftData's SQLite backend runs in
+WAL mode: recent writes live in a separate `-wal` file until a
+checkpoint flushes them into the main `.store`, plus a small `-shm`
+shared-memory index. Checked directly against the real store rather than
+assumed correct — at one point the `-wal` file (4.2 MB) was larger than
+the main `.store` file itself (2.0 MB). Reporting only the base file
+would have understated real disk usage by more than half.
+
+**Read fresh, not cached**, unlike `buildInfo` (which genuinely can't
+change during a run — the code doesn't change while running). Store
+size does change continuously, so `ContentView` holds only the store's
+*location* (`storeURL`, a `let` set once at launch) and recomputes the
+formatted size directly in `body` on every render — a cheap local file
+stat, the same class of "fine to call synchronously from body" as other
+computed properties already in this file.
+
+**`nil` reported as absence, not zero.** Before the very first write (or
+in the in-memory fallback path, where there's no real file on disk at
+all), `StoreSizeService.totalBytes` returns `nil` rather than a
+misleading "0 bytes" — same convention `NetworkQualityRecord`'s optional
+RPM fields and `ConnectivityCheckRecord.systemLoad` already established
+this session: absence and zero mean different things, and collapsing
+them loses information.
+
+Shares the existing build-hash row rather than adding a new one — no new
+vertical space cost, matching every other footer addition. Verified
+directly: measured the real store at 3.72 MB via `ls -la` on all three
+files, and a live capture showed the footer reading "3.8 MB store,"
+matching within expected rounding. Scenario suite still 11/11.
+
 ## No retention policy anywhere (measured)
 
 This document has now run into the same gap four separate times — from
