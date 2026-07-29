@@ -50,6 +50,19 @@ final class ScreenshotViewModel: ObservableObject {
             .buttonStyle(.plain)
             .background(Color(nsColor: .windowBackgroundColor))
         guard let filename = ScreenshotService.capture(renderable) else { return }
+
+        // One click, two artifacts, sharing a timestamp — deliberate.
+        // The recurring debugging question isn't "what did the UI look
+        // like" or "what was in the store," it's whether those two
+        // *agree*: a value can be stale in the view, or correct in the
+        // view and absent from the store. Capturing them separately
+        // means capturing them at different moments, which is precisely
+        // when a mismatch stops being evidence. Debug builds only — see
+        // `StoreInspector`.
+        if let dump = snapshotStore.dumpState() {
+            UIStateLogger.log("StoreInspector", "state dump saved: \(dump)")
+        }
+
         snapshotStore.logEvent(.screenshotCaptured, message: "Screenshot saved: \(filename)")
         onEventLogged?()
     }

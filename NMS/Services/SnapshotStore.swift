@@ -387,6 +387,14 @@ final class SnapshotStore {
         try? context.save()
     }
 
+    /// Debug-only plain-text dump of every table — see `StoreInspector`.
+    /// Lives here rather than taking a `ModelContext` at the call site so
+    /// `context` can stay private; this type is the only thing that owns
+    /// it.
+    func dumpState() -> String? {
+        StoreInspector.dump(context: context)
+    }
+
     @discardableResult
     func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date()) -> AppEventRecord {
         let event = AppEventRecord(kind: kind, message: message, occurredAt: date)

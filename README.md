@@ -82,6 +82,7 @@ NMS/
 │   │   ├── BonjourDiscoveryService.swift  # Browses/resolves Bonjour (mDNS) services
 │   │   ├── UIStateLogger.swift            # DEBUG-only log of every value pushed into the UI
 │   │   ├── SubprocessTracer.swift         # DEBUG-only trace of every shelled-out command
+│   │   ├── StoreInspector.swift           # DEBUG-only plain-text dump of every SwiftData table
 │   │   └── BuildInfoService.swift         # Reads git HEAD from the known checkout for the popover footer
 │   ├── ViewModels/
 │   │   ├── NetworkMonitorViewModel.swift  # Bridges SystemConfigurationService -> SwiftUI
@@ -1330,6 +1331,37 @@ expected during development, not a bug.
   is. Before confirmation, the full path still shows, since you need to
   see hops beyond the auto-suggested one to pick a different, correct one
   on networks where the suggestion doesn't hold.
+
+## Store dumps (DEBUG builds only)
+
+`StoreInspector` writes a plain-text snapshot of every SwiftData table to
+`~/Library/Logs/NMS/state-dumps/NMS-state-<timestamp>.txt` — per table, the
+row count, the time span it covers, and the newest few rows with real
+timestamps.
+
+It exists because the alternative is running `sqlite3` against the store by
+hand, and Core Data's on-disk schema is hostile to that: tables and columns
+are all `Z`-prefixed (`ZAPPEVENTRECORD`, `ZOCCURREDAT`), and dates use
+Apple's 2001 epoch, so even "show me recent events" needs
+`datetime(ZOCCURREDAT + 978307200, 'unixepoch', 'localtime')`. That query
+got hand-written more than a dozen times in one debugging session before
+this existed.
+
+**Written by the same camera button that takes a screenshot**, sharing its
+timestamp, and deliberately so: the recurring question during debugging is
+rarely "what did the UI show" or "what's in the store" separately — it's
+whether the two *agree*. Capturing them at different moments is exactly when
+a mismatch stops being evidence.
+
+The row counts and time spans matter as much as the rows themselves. "4280
+rows spanning 4h29m" is what made the growth rate measurable in the first
+place (see "Data retention" above), and a count that doesn't move after a
+prune is how a silently-failing delete gets noticed — which is precisely how
+the SwiftData batch-delete bug was caught.
+
+`#if DEBUG` throughout, for the same reason `UIStateLogger` is: these files
+contain SSIDs, MAC addresses, the public IP and full event history, and
+`~/Library/Logs/` is collected by `sysdiagnose`.
 
 ## UI state log (DEBUG builds only)
 
