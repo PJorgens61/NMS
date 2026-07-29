@@ -541,6 +541,33 @@ expected during development, not a bug.
   it. Worth being explicit about given how easy those three are to
   conflate.
 
+  **Latency sparklines**: each of the six rows backed by a real timed
+  probe (Router, Public IP, ISP Edge Router, Internet, DNS, HTTP) carries
+  an inline sparkline of its last 30 checks. Network and Interface don't
+  — they're connectivity/identity state with no latency concept.
+
+  Sized to one line of text so it costs width but *no height*, which is
+  the constraint that shaped it: the popover fits a 13" MacBook Air
+  exactly. Data comes from `SnapshotStore.fetchLatencyHistory`, bounded
+  by `fetchLimit` rather than by slicing in Swift — `ConnectivityCheck
+  Record` is ~90% of the store, so fetching a label's whole history to
+  take the last 30 would cost more every day the app runs. Loaded from a
+  `.task` when the section appears rather than maintained continuously,
+  since the popover is shut almost all the time.
+
+  **Failures are drawn, not smoothed.** A failed check has `latencyMs ==
+  nil`; interpolating across it would render an outage as a *faster*
+  response than normal. Instead the line breaks at failures and each one
+  gets a red mark along the bottom. Each layer scales independently too —
+  Public IP's sub-millisecond wobble and DNS's occasional 60ms+ spike
+  can't share an axis without flattening the former into a dead line.
+
+  Hand-drawn with `Canvas` rather than Swift Charts, deliberately: this
+  app has been caught out by `ImageRenderer` four times (see "Screenshot
+  button"), and a charting framework is a much bigger unknown in that
+  renderer than a `Path` — for auto-scaling that's three lines of
+  min/max. Verified by capturing the result; they render correctly.
+
   **Public IP row**: pings the router's own public/WAN address (whatever
   `PublicIPViewModel.currentIP` currently holds), not a remote host — a
   request from the user, who correctly identified that a router's WAN

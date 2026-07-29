@@ -42,6 +42,10 @@ struct ContentView: View {
 
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false
+    /// Keyed by `ConnectionLayer.id`. Populated by the Network Health
+    /// section's `.task`; empty until then, which simply renders no
+    /// sparklines rather than empty boxes.
+    @State private var latencyHistory: [String: [LatencySample]] = [:]
 
     /// Two equal-width, flexible columns — half the popover's width each
     /// at this width, but "flexible" (not a fixed pixel size) so this
@@ -422,7 +426,17 @@ struct ContentView: View {
                         .frame(width: 8, height: 8)
                     Text(layer.label)
                         .foregroundStyle(.secondary)
-                    Spacer()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    // Inline rather than on its own row: sized to one
+                    // line of text, so it costs width but no height —
+                    // the popover fits a 13" MacBook Air exactly.
+                    // Absent for Network/Interface, which have no
+                    // latency concept.
+                    if let samples = latencyHistory[layer.id] {
+                        Sparkline(samples: samples)
+                    }
                     Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
                         .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
                         .lineLimit(1)
@@ -436,6 +450,14 @@ struct ContentView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
             }
+        }
+        // Loaded when the section appears rather than kept continuously
+        // up to date — the popover is shut almost all the time. Keyed on
+        // `checks` so it also refreshes while the popover is *open* and a
+        // new round lands, which is exactly when someone is watching a
+        // problem develop.
+        .task(id: connectivity.lastCheckedAt) {
+            latencyHistory = connectivity.latencyHistory()
         }
     }
 

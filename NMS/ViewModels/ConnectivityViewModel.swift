@@ -100,6 +100,31 @@ final class ConnectivityViewModel: ObservableObject {
         self.snmp = snmp
     }
 
+    /// Recent latency per Network Health layer, keyed by
+    /// `ConnectionLayer.id`, for the row sparklines.
+    ///
+    /// Only the five layers that actually produce a timed probe. Network
+    /// and Interface are connectivity/identity state with no latency
+    /// concept, so they get no sparkline rather than an empty one.
+    ///
+    /// Fetched on demand rather than maintained continuously: the
+    /// popover is closed almost all the time, so keeping a live chart
+    /// buffer updated every check round would be work nobody is looking
+    /// at. Called from `.task` when the section actually appears.
+    func latencyHistory(limit: Int = 30) -> [String: [LatencySample]] {
+        let layers: [(id: String, label: String)] = [
+            ("localRouter", OverallStatus.routerLabel),
+            ("publicIP", OverallStatus.publicIPLabel),
+            ("peRouter", OverallStatus.peRouterLabel),
+            ("internet", OverallStatus.internetLabel),
+            ("dns", OverallStatus.dnsLabel),
+            ("http", OverallStatus.httpLabel)
+        ]
+        return layers.reduce(into: [:]) { result, layer in
+            result[layer.id] = snapshotStore.fetchLatencyHistory(label: layer.label, limit: limit)
+        }
+    }
+
     deinit {
         timer?.invalidate()
     }

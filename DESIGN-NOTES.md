@@ -689,14 +689,50 @@ them. That's the table this feature wants to read, so its retention
 window and this feature's time range are now coupled in practice, not
 just in principle.
 
-### Open questions before implementing
+### Built
 
-- Persisted (survives relaunch, needs the bounded-fetch discipline) vs.
-  in-memory rolling buffer (simpler, resets on relaunch) — which matches
-  the actual intent here?
-- Point count / time window — untested default guess: ~20–30 points
-  (roughly 10–15 minutes at the normal cadence), not exposed as a setting
-  for v1.
+Implemented as designed above, with one deliberate deviation and both
+open questions resolved.
+
+**Persisted, 30 points, fetched on demand.** `SnapshotStore
+.fetchLatencyHistory(label:limit:)` uses the bounded `fetchLimit`
+discipline this section warned about, and returns `LatencySample` value
+types rather than `@Model` objects — pointedly, having just fixed a bug
+where a SwiftData model crossed a thread boundary in
+`LANDiscoveryViewModel`. Loaded from a `.task(id:)` keyed on
+`lastCheckedAt`, so it refreshes while the popover is open and a new
+round lands, but does nothing while it's shut.
+
+**Deviation: hand-drawn `Canvas`, not Swift Charts.** This app has now
+been caught out by `ImageRenderer` four separate times — `ScrollView`
+content, native buttons, missing background, `NSViewRepresentable` — and
+the screenshot tool depends on it. A charting framework is a far larger
+unknown in that renderer than a `Path`, and a sparkline *is* a polyline:
+Charts would have contributed auto-scaling, which is three lines of
+min/max. Verified the choice was right by capturing the result — the
+sparklines render correctly in a screenshot.
+
+**Six layers, not five.** This section predicted five; Public IP is also
+a real ping target (added since), so it gets one too. Network and
+Interface still don't — no latency concept.
+
+### Verified against a real outage, without one
+
+The failure-representation problem this section flagged as "the single
+detail most worth getting right" was tested using the injection tooling
+rather than by waiting for real trouble: forcing Router and DNS to fail
+at 30x speed filled their sparklines with failures within seconds.
+
+Confirmed visually in a capture: failures render as discrete red marks
+along the bottom, the line is **absent** across them rather than
+interpolated, and healthy layers keep clean traces. The per-instance
+Y-scale is also doing real work — Public IP's sub-millisecond wobble is
+visible variation, which a shared axis with DNS (which showed a 64.5ms
+spike against a 6-10ms baseline in the same window) would have flattened
+into a dead line.
+
+The whole test ran against a scratch store and left zero injected events
+in real history.
 - ~~Does the recurring "no retention policy anywhere" theme deserve its
   own entry in this document, independent of any one feature that happens
   to depend on it?~~ **Answered: yes.** See "No retention policy anywhere

@@ -387,6 +387,29 @@ final class SnapshotStore {
         try? context.save()
     }
 
+    /// The most recent `limit` checks for one label, oldest-first for
+    /// drawing.
+    ///
+    /// **Bounded by `fetchLimit`, not by slicing in Swift**, which is the
+    /// trap this table specifically invites: it's the largest in the
+    /// store by an order of magnitude (~90% of all rows), so fetching a
+    /// label's entire history and taking the last 30 would cost more
+    /// every day the app runs. With the limit the query cost tracks the
+    /// point count instead of the table's lifetime.
+    ///
+    /// Returns value types, not `@Model` objects — see `LatencySample`.
+    func fetchLatencyHistory(label: String, limit: Int = 30) -> [LatencySample] {
+        var descriptor = FetchDescriptor<ConnectivityCheckRecord>(
+            predicate: #Predicate { $0.label == label },
+            sortBy: [SortDescriptor(\.checkedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        let records = (try? context.fetch(descriptor)) ?? []
+        // Fetched newest-first so the limit keeps the *recent* rows, then
+        // reversed for drawing left-to-right in time order.
+        return records.reversed().map { LatencySample(latencyMs: $0.latencyMs, checkedAt: $0.checkedAt) }
+    }
+
     /// Debug-only plain-text dump of every table — see `StoreInspector`.
     /// Lives here rather than taking a `ModelContext` at the call site so
     /// `context` can stay private; this type is the only thing that owns
