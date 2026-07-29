@@ -73,6 +73,14 @@ struct ContentView: View {
             // for non-negative sizes, so this is a guaranteed improvement
             // (or at worst a no-op), never a regression — it can't make
             // the popover taller than the grid did.
+            //
+            // Swapping Info and Path to Internet was tried directly
+            // (measured via `ContentView.liveHeight`, not just reasoned
+            // about): {NetworkHealth+Info} / {Path+Speed} measured 850pt,
+            // 4pt *taller* than this arrangement's 846pt, and visually just
+            // moved the same-size imbalance to the other column instead of
+            // reducing it. Of the three possible pairings of these four
+            // tiles, this one — not the swap — happens to be the shortest.
             HStack(alignment: .top, spacing: 12) {
                 VStack(spacing: 12) {
                     tile(title: "Network Health") {
