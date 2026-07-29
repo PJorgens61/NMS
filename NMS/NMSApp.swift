@@ -48,6 +48,11 @@ struct NMSApp: App {
             "App.build",
             buildInfo.map { "\($0.shortHash)\($0.isDirty ? "+dirty" : "") — \($0.subject)" } ?? "unknown"
         )
+        // Started before any view model, so the beat covers the whole
+        // launch sequence — the LAN scan, traceroute and connectivity
+        // round kicked off below are exactly the kind of work a wedge
+        // would happen during.
+        UIStateLogger.startMainThreadHeartbeat()
         let store = SnapshotStore(context: container.mainContext)
         let networkMonitor = NetworkMonitorViewModel(snapshotStore: store)
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)

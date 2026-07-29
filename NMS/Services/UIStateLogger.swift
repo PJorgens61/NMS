@@ -91,7 +91,65 @@ enum UIStateLogger {
         #endif
     }
 
+    /// Starts a liveness beat for the *main* thread, to sit alongside the
+    /// writer thread's own (see `WriterThread`). Call once, from app
+    /// startup.
+    ///
+    /// **One beat proves two threads.** A line only reaches the file if
+    /// the main thread scheduled it *and* the writer thread drained it,
+    /// so its presence clears both at once, and reading the log against
+    /// this discriminates every failure worth naming:
+    ///
+    /// ```
+    /// beats present                      -> main and writer both alive
+    /// beats absent, other lines present   -> main thread wedged    <- the useful one
+    /// file entirely silent                -> writer stalled, or process dead
+    /// ```
+    ///
+    /// This app has burned real time on exactly that middle case: a
+    /// beachballed menu bar that `kill -9` wouldn't touch, where "is the
+    /// main thread stuck, is the process gone, or is a debugger holding
+    /// it?" had to be answered with `lsof`, `ps` and guesswork. A `Timer`
+    /// on the main run loop cannot fire while that thread is blocked, so
+    /// the *absence* of these lines is the diagnosis.
+    ///
+    /// Note this largely silences `WriterThread`'s own heartbeat, which
+    /// only fires after its queue sits idle for a full interval —
+    /// measured directly, subprocess traces, check rounds, SNMP polls and
+    /// now this beat keep that queue busy, so it essentially never idles
+    /// that long. That's a net gain rather than a loss: the writer beat
+    /// existed to distinguish "nothing is happening" from "the writer
+    /// died" during quiet periods, and a main-thread beat that had to
+    /// pass *through* the writer to reach the file proves the same thing
+    /// more strongly, every interval, without needing quiet.
+    ///
+    /// Added to `.common` run loop modes, not the default: a menu bar
+    /// popover puts the run loop into event-tracking while the user
+    /// interacts with it, and a default-mode timer would silently pause
+    /// for exactly that period — producing a "wedged" reading at the one
+    /// moment the app is most obviously alive.
+    static func startMainThreadHeartbeat() {
+        #if DEBUG
+        guard mainThreadHeartbeatTimer == nil else { return }
+        // Same interval as the writer's, so a side-by-side read of the
+        // log makes a divergence obvious rather than requiring the two
+        // cadences to be mentally reconciled.
+        let timer = Timer(timeInterval: WriterThread.heartbeatInterval, repeats: true) { _ in
+            // `record` is `nonisolated`, so this needs no hop back to the
+            // main actor — which matters here: a heartbeat that had to
+            // queue work on the very executor it's testing would be a
+            // weaker signal than one that writes directly.
+            record("heartbeat", "main thread alive")
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        mainThreadHeartbeatTimer = timer
+        #endif
+    }
+
     #if DEBUG
+    private static var mainThreadHeartbeatTimer: Timer?
+
+
     /// Lock-protected rather than `@MainActor`-confined, because subprocess
     /// events arrive concurrently (a sweep runs up to 32 `snmpget`s at once,
     /// and ping fans out across every target). The lock keeps the counter

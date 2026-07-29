@@ -1389,6 +1389,47 @@ isn't, and unlike a screenshot it captures a sequence over time.
 6 | 2026-07-27T23:20:42.417Z | ConnectivityViewModel.checks | [ConnectivityCheck(label: "Router", success: true, …)]
 ```
 
+### Main-thread heartbeat
+
+`UIStateLogger.startMainThreadHeartbeat()` writes one line every 20s from a
+`Timer` on the main run loop:
+
+```
+81 | 2026-07-29T03:59:54.533Z | heartbeat | main thread alive
+99 | 2026-07-29T04:00:14.534Z | heartbeat | main thread alive
+```
+
+**One beat proves two threads.** A line only reaches the file if the main
+thread scheduled it *and* the writer thread drained it, so reading the log
+against it discriminates every failure worth naming:
+
+| What you see | What it means |
+|---|---|
+| Beats present | Main and writer both alive |
+| Beats absent, other lines present | **Main thread wedged** |
+| File entirely silent | Writer stalled, or process dead |
+
+That middle row is why this exists. A beachballed menu bar that `kill -9`
+wouldn't touch previously had to be diagnosed with `lsof`, `ps` and
+guesswork — "is the main thread stuck, is the process gone, or is a debugger
+holding it?" A `Timer` on the main run loop *cannot* fire while that thread
+is blocked, so the absence of these lines is the answer.
+
+Registered in `.common` run loop modes, not the default: a menu bar popover
+puts the run loop into event-tracking while the user interacts with it, and a
+default-mode timer would silently pause for exactly that span — a false
+"wedged" reading at the one moment the app is most obviously alive. Verified
+with the popover held open across two intervals: beats stayed at 20.0s,
+20.0s, 20.0s with no gap.
+
+This largely silences `WriterThread`'s own heartbeat, which only fires after
+its queue idles for a full interval — subprocess traces, check rounds, SNMP
+polls and this beat keep it busy, so it essentially never idles that long.
+Net gain rather than loss: the writer beat existed to tell "nothing is
+happening" apart from "the writer died" during quiet periods, and a
+main-thread beat that had to pass *through* the writer to reach the file
+proves the same thing more strongly, every interval, without needing quiet.
+
 ### Subprocess tracing
 
 `SubprocessTracer` writes every external command — `ping`, `arp`,
