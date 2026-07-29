@@ -164,6 +164,15 @@ mDNS scanning was buying nothing once it wasn't for display. Neither
 service was deleted, just no longer driven automatically, so either
 section could come back by re-adding its view code.
 
+**A clean build emits four concurrency warnings, and that's expected.**
+They're documented individually in DESIGN-NOTES.md's "The four remaining
+concurrency warnings" — three are code that deliberately runs off the
+main thread inheriting `@MainActor` isolation from an enclosing type,
+and one is a SwiftData model captured (but never dereferenced) across a
+thread hop. None carries the "this is an error in the Swift 6 language
+mode" marker; the thirteen that did have been fixed. If you see more
+than four, something changed.
+
 ## Building a universal (Intel + Apple Silicon) binary
 
 **In Xcode: Product → Archive.** That's it — the archive product is
