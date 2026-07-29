@@ -280,7 +280,20 @@ final class SnapshotStore {
         return event
     }
 
-    func fetchRecentEvents(limit: Int = 50) -> [AppEventRecord] {
+    /// 200, not the original 50 — an outage is bursty (a single
+    /// interface failover here produced 19 events in two seconds, and a
+    /// down/up cycle across router + 5 infrastructure devices + 5 network
+    /// layers reliably produces 30+), so 50 covers barely more than one
+    /// incident. The popover only ever shows ~8 rows at a time regardless;
+    /// this is scrollback depth, and a `fetchLimit`-bounded query stays
+    /// cheap no matter how large the table itself gets.
+    ///
+    /// Note this is a *fetch* bound, not retention: nothing in this type
+    /// ever deletes an `AppEventRecord`, so the table grows without limit
+    /// on disk. That's a real, known gap (see DESIGN-NOTES.md — it
+    /// applies to every table here, not just this one), deliberately not
+    /// solved by this constant.
+    func fetchRecentEvents(limit: Int = 200) -> [AppEventRecord] {
         var descriptor = FetchDescriptor<AppEventRecord>(
             sortBy: [SortDescriptor(\.occurredAt, order: .reverse)]
         )

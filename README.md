@@ -715,9 +715,13 @@ expected during development, not a bug.
   a mirror of it: `ContentView.isCapturingScreenshot` (a plain stored
   property, set on a throwaway struct copy — see DESIGN-NOTES.md for why
   `@Environment` doesn't work here) makes every scrollable section
-  render as a plain unclipped list, so the image shows the full fetched
-  history — 48 events and 10 speed-test runs where the live view clips
-  to ~8 and ~6 — instead of whatever currently fits a scroll window. The
+  render as a plain unclipped list, so the image shows every SNMP device
+  and all 10 fetched speed-test runs where the live view clips to ~4 and
+  ~6. Events are the one exception, capped at 50 rows in a capture even
+  though the popover itself scrolls back through 200: unclipped rows
+  become image *height*, and the full fetch would render ~10,000px tall,
+  which downscales to unreadable. Since being readable is the whole
+  point, a legible window beats a complete but illegible one. The
   rendered copy also gets `.buttonStyle(.plain)` and an explicit
   `windowBackgroundColor` background, both working around
   `ImageRenderer` limitations documented in full (with how each was

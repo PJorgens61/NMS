@@ -815,8 +815,18 @@ struct ContentView: View {
         }
     }
 
+    /// Capped when capturing, uncapped on screen — the opposite of every
+    /// other section here, and deliberate. On screen the list scrolls, so
+    /// depth is free; in a capture every row is rendered unclipped, so
+    /// depth is *height*, and height is legibility: a 39-event capture is
+    /// already ~3300px tall, and the full 200-event fetch would run
+    /// ~10,000px, which downscales to unreadable in any viewer. Since
+    /// being readable is the entire reason the capture exists (see
+    /// `ScreenshotService`), a legible window onto recent history beats a
+    /// complete but illegible one. 50 keeps captures at roughly the size
+    /// already confirmed readable.
     private var eventRows: some View {
-        ForEach(eventLog.events) { event in
+        ForEach(isCapturingScreenshot ? Array(eventLog.events.prefix(50)) : eventLog.events) { event in
             HStack {
                 Text(event.message)
                     .font(.system(size: 12))
