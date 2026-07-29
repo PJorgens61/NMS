@@ -479,6 +479,26 @@ struct ContentView: View {
         return check.success ? .healthy : .unhealthy
     }
 
+    /// Only the `.unknown` case really needs explaining — green and red
+    /// read themselves — but all three are worded so hovering any dot
+    /// answers the same question rather than leaving one silent.
+    private static func reachabilityHelp(_ status: LayerStatus) -> String {
+        switch status {
+        case .healthy:
+            return "Reachable — answered the most recent ping."
+        case .unhealthy:
+            return "Unreachable — did not answer the most recent ping."
+        case .unknown:
+            return """
+                Not checked yet — this device has no ping result in the \
+                current round, which is not the same as being down. The \
+                router is checked under its own Network Health row, and \
+                only the first few discovered devices are pinged each \
+                round.
+                """
+        }
+    }
+
     private func deviceStatusColor(_ status: LayerStatus) -> Color {
         switch status {
         case .healthy: return .green
@@ -542,6 +562,15 @@ struct ContentView: View {
                     Circle()
                         .fill(deviceStatusColor(deviceReachability(device)))
                         .frame(width: 8, height: 8)
+                        // Gray is the case this exists for: it means
+                        // "no ping result yet," which looks identical to
+                        // trouble at a glance and gets misread exactly
+                        // when someone is scanning this list during an
+                        // outage.
+                        .appKitToolTip(
+                            Self.reachabilityHelp(deviceReachability(device)),
+                            enabled: !isCapturingScreenshot
+                        )
                     Text(device.displayName)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -631,6 +660,12 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // The densest jargon in the app, and the reason
+                    // tooltips were built at all. Explains only the
+                    // genuinely opaque parts — bcast/gw/dns need no
+                    // gloss for this app's audience, while T1/T2 and a
+                    // bare hex transaction ID do.
+                    .appKitToolTip(Self.dhcpLeaseHelp, enabled: !isCapturingScreenshot)
             }
         }
     }
@@ -709,6 +744,18 @@ struct ContentView: View {
         }
         return "\(record.serverIdentifier) · \(address)"
     }
+
+    /// Written for this app's stated audience — a network engineer, not
+    /// a software developer — so it skips what that reader already knows
+    /// (broadcast, gateway, DNS, search domain all read themselves) and
+    /// covers only what the line genuinely doesn't explain: which of
+    /// T1/T2 is which, and what the trailing hex value even is.
+    private static let dhcpLeaseHelp = """
+        T1 is the renewal timer (half the lease by default), T2 the \
+        rebinding timer (87.5%). The trailing hex value is the DHCP \
+        transaction ID — a new one means a genuinely new lease, renewal \
+        or rebind, which is what this history keys on.
+        """
 
     /// Second line: every other field `DHCPLeaseService` parses —
     /// deliberately not a curated subset, since the point of this list is

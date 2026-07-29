@@ -184,25 +184,46 @@ SNMP fields — and someone in the app's actual target audience ("small
 networks and home labs," per the README) won't necessarily know all of it
 on sight.
 
-**Mechanism:** SwiftUI's `.help(_:)` modifier attaches a native macOS hover
-tooltip to any view, essentially for free — a one-line addition per view,
-no new component to build. Its key property for *this* app specifically:
-zero layout cost. That matters a lot given the popover's whole history is a
-fight for vertical space — LAN Devices and Bonjour Devices were removed
-from the UI outright (not just collapsed) because the popover was still
-too tall for a 13" screen even after every other space-saving pass. Unlike
-an inline caption or legend, a tooltip adds explanatory depth without
-consuming any of that scarce room.
+**Mechanism — spiked, and the obvious approach does not work.** The
+original plan here was SwiftUI's `.help(_:)`: one line per view, nothing
+to build, and — the property that made it attractive for *this* app
+specifically — zero layout cost, in a popover whose entire history is a
+fight for vertical space (LAN Devices and Bonjour Devices were removed
+outright rather than collapsed, and the Events list was later trimmed by
+two rows, both to fit a 13" MacBook Air).
 
-**One thing to verify before writing two dozen tooltips' worth of copy:**
-`.help()`'s behavior inside `MenuBarExtra(.window)`-hosted content is
-untested here, and this project has repeatedly hit quirks specific to that
-popover style (the menu bar icon needed a manual `NSImage` rasterization
-workaround because a plain SwiftUI `Image` silently ignored
-`.foregroundStyle`'s color; see `NMSApp.statusIcon`). `.help()` should work
-the same as in any window, but "should" isn't confirmed for this specific
-non-standard host. Worth a five-minute spike — one tooltip on one view,
-confirmed to render — before investing in wording the rest.
+This section previously flagged that `.help()`'s behaviour inside
+`MenuBarExtra(.window)` was unverified, and that the project had already
+hit popover-specific quirks (the menu bar icon needed manual `NSImage`
+rasterization because a plain SwiftUI `Image` silently ignored
+`.foregroundStyle`). That caution was justified:
+
+- **`.help()` renders nothing at all in this popover.** Spiked directly
+  with two tooltips — one on a plain `row()` in the Info tile, one on
+  every Network Health layer row with per-row dynamic text — confirmed
+  present in the running binary, hovered, and no tooltip appeared in
+  either case. Reverted rather than left in as dead code.
+- **AppKit's `NSView.toolTip` *does* work here.** A transparent
+  `NSView` carrying `toolTip`, overlaid via `NSViewRepresentable`
+  (~20 lines), renders correctly on hover in the same popover, on the
+  same row where `.help()` had failed.
+- **The AppKit overlay does not break text selection.** Worth testing
+  explicitly, because `row()` sets `.textSelection(.enabled)` on every
+  value so an IP can be copied during troubleshooting, and an
+  intercepting overlay would have silently killed that. Verified by
+  dragging across the Router row's value with the spike active:
+  selection still works, so no `hitTest` override proved necessary.
+
+That makes this the third `MenuBarExtra(.window)`-specific SwiftUI gap
+in this project, after the icon's ignored `foregroundStyle` and
+`ImageRenderer` skipping `ScrollView` content entirely. The pattern is
+consistent enough to be worth stating as a rule: **assume nothing about
+SwiftUI behaviour in this popover until it's been seen working there.**
+
+The practical consequence is that the feature is still *possible* but no
+longer *free*. It now needs a small custom component rather than a
+built-in modifier — which is cheap, but it removes the "one line, no new
+code" argument that was most of the original appeal.
 
 **Content source:** mostly distillation, not fresh authoring. The README
 and code comments already explain most of this well — e.g. the exact
@@ -234,14 +255,105 @@ Event log entries are lower priority for this treatment — they're already
 short, plain-English prose messages (`"Public IP changed to X"`), not bare
 labels, so they're closer to self-explanatory already.
 
-### Open questions before implementing
+**The list above is stale, and misses the strongest case.** It was
+written before DHCP History, Speed Test, BSSID, the router MAC
+fingerprint, and the per-device SNMP reachability dots existed. Ranked
+against the *current* UI, the best candidates are:
 
-- Confirm `.help()` actually renders correctly in this popover before
-  committing to writing copy for everything.
+- **The DHCP History secondary line** — now the densest jargon in the
+  entire app, and the clearest justification for the whole feature:
+  `bcast 10.0.0.255 · gw 10.0.0.1 · dns 10.0.0.1 · local · lease 24h ·
+  T1 12h · T2 21h · 0xae382dbe`. `T1`/`T2` are raw RFC 2131 timer names
+  (renewal and rebinding), and the trailing transaction ID is explained
+  nowhere in the UI at all. Even the stated target audience — a network
+  engineer — may not recall which of T1/T2 is which without looking it
+  up.
+- **The gray SNMP reachability dot** — green/red are obvious, but gray
+  means "not checked this session yet," not "down." That distinction is
+  invisible and actively misleading during an outage, which is exactly
+  when it's read.
+- The Network Health layer labels and status colours (as originally
+  listed — still valid).
+- **BSSID and the router's MAC in parentheses** — why a MAC is shown at
+  all, and what changing one would mean (an AP roam, or a router swap).
+- Speed Test's `~50MB per run` — already partly self-explaining, but the
+  *why* (it must be large enough to outrun TCP slow-start) isn't.
+
+### The unresolved objection: discoverability
+
+A tooltip is invisible until hovered, with nothing advertising that it
+exists. For a diagnostic tool consulted *during* an outage, help you
+must already know to look for is weak help.
+
+This app's one existing explanatory element went the other way: the
+`correlatedWithChange` footnote is inline and always visible — "*
+possibly related to a recent network change" — costing a line of
+vertical space in exchange for being unmissable. Adding hover-only help
+elsewhere would quietly contradict that precedent rather than extend it.
+
+The alternative worth weighing: a single "?" toggle that reveals inline
+explanations, which costs one button and no persistent vertical space,
+and is discoverable by definition. More work than tooltips, and it
+reopens the vertical-space fight when expanded — but it actually solves
+the problem tooltips only appear to solve.
+
+### Built: the DHCP detail line and the SNMP status dots
+
+Implemented for exactly the two elements ranked highest above —
+`ToolTip.swift`'s `appKitToolTip(_:enabled:)`, applied to the DHCP
+History secondary line and each SNMP reachability dot. Copy for the
+latter is status-dependent, since the `.unknown`/gray case ("no ping
+result yet, which is not the same as down") is the whole reason that
+one made the list.
+
+**It broke the screenshot capture, and only the capture.** Adding an
+`NSViewRepresentable` overlay to those two elements made `ImageRenderer`
+substitute a yellow broken-image placeholder for each — wiping out the
+DHCP detail text and every status dot in the PNG, while the live popover
+stayed visually perfect. Both observations together are what identify it
+as a render-path bug rather than a UI one: hovering worked, a manual
+screen capture looked right, and only the detached render was wrong.
+
+This is the same failure `.buttonStyle(.plain)` already works around for
+native buttons (see `ScreenshotViewModel.capture`), and the fourth
+distinct case of "SwiftUI in this app behaves differently in a detached
+or `MenuBarExtra`-hosted context." Fixed by threading the existing
+`isCapturingScreenshot` flag into the modifier, so the overlay is simply
+absent during capture — losing hover text in a still image costs
+nothing, since nobody hovers a PNG.
+
+Worth stating plainly for whoever adds the next tooltip: **adding one to
+anything that appears in a screenshot requires passing
+`enabled: !isCapturingScreenshot`.** Forgetting it doesn't fail loudly;
+it silently replaces that element with a yellow block in every future
+capture, and the live UI gives no hint anything is wrong.
+
+### Open questions, for extending this further
+
+- ~~Confirm `.help()` actually renders correctly in this popover~~ —
+  **answered: it does not.** `NSView.toolTip` via `NSViewRepresentable`
+  does. See the mechanism section above.
+- The discoverability objection below is **unresolved, not dismissed** —
+  it was reasonable to ship two tooltips on the strength of the mechanism
+  working, but hover-only help is still invisible help. If the answer to
+  "does anyone ever find these?" turns out to be no, the "?" toggle is
+  the fallback, and nothing built here blocks it.
+- Who is the audience, precisely? The README says "small networks and
+  home labs"; the user guide written for this app assumes "a skilled
+  network engineer, but not a software developer." Those want opposite
+  copy — the first needs "DNS turns names into addresses," the second
+  would find that patronizing and would rather know "random subdomain
+  probe, to defeat caching." Nothing else in this document has had to
+  pin this down; tooltip copy can't avoid it.
+- `.help()` also sets accessibility help on macOS, and `ContentView`
+  already carries 8 `.accessibilityHint` calls on exactly the controls
+  most likely to get tooltips. An AppKit overlay does *not* set
+  accessibility help, so hint and tooltip would become two independent
+  strings that can drift. Decide whether they share a source.
 - Do all candidate elements at once, or start with just the least
-  self-explanatory ones (layer labels, status colors) and expand later?
-- Tone/length convention for the tooltip text itself — one terse sentence,
-  and don't just restate the visible label back at the user.
+  self-explanatory ones (the DHCP line, the gray dot) and expand later?
+- Tone/length convention for the text itself — one terse sentence, and
+  don't just restate the visible label back at the user.
 
 ## Network Quality (speed / responsiveness) testing, on demand
 

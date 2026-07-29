@@ -726,6 +726,21 @@ expected during development, not a bug.
   `windowBackgroundColor` background, both working around
   `ImageRenderer` limitations documented in full (with how each was
   found) in DESIGN-NOTES.md's "Popover screenshot button".
+- **Hover tooltips**: on the DHCP History detail line (which of `T1`/`T2`
+  is renewal vs. rebinding, and what the trailing transaction ID means)
+  and on each SNMP status dot — where the gray case is the one that
+  needed explaining, since "not checked yet" and "down" look identical
+  at a glance and get confused exactly when someone is scanning the list
+  during an outage. Uses `ToolTip.swift`'s `appKitToolTip(_:enabled:)`,
+  **not** SwiftUI's `.help(_:)`, which was spiked and renders nothing at
+  all inside `MenuBarExtra(.window)`.
+
+  **Adding a tooltip to anything that appears in a screenshot requires
+  passing `enabled: !isCapturingScreenshot`.** `ImageRenderer` can't
+  render an `NSViewRepresentable` and replaces the whole view with a
+  broken-image placeholder, so a missing flag silently turns that element
+  into a yellow block in every future capture while the live popover
+  looks perfectly fine. See DESIGN-NOTES.md's "UI tooltips".
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as
