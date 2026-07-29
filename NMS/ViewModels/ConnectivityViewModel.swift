@@ -110,7 +110,7 @@ final class ConnectivityViewModel: ObservableObject {
     private func scheduleNextCheck(after interval: TimeInterval) {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.runChecks()
             }
         }

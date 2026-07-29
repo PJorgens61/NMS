@@ -47,7 +47,7 @@ final class DHCPLeaseViewModel: ObservableObject {
         self.networkMonitor = networkMonitor
         history = snapshotStore.fetchDHCPLeaseHistory()
         timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.check()
             }
         }
@@ -70,7 +70,7 @@ final class DHCPLeaseViewModel: ObservableObject {
         let service = self.service
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let lease = service.currentLease(interface: interfaceName)
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.apply(lease, currentIPAddress: ipAddress)
             }
         }

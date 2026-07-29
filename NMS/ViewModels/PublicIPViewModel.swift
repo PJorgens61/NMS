@@ -41,7 +41,7 @@ final class PublicIPViewModel: ObservableObject {
         self.snapshotStore = snapshotStore
         currentIP = snapshotStore.latestPublicIP()?.ipAddress
         timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.check()
             }
         }

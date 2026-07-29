@@ -61,7 +61,7 @@ final class TracerouteViewModel: ObservableObject {
         self.snapshotStore = snapshotStore
         monitoredHopNumber = UserDefaults.standard.object(forKey: Self.monitoredHopDefaultsKey) as? Int
         timer = Timer.scheduledTimer(withTimeInterval: Self.runInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.run()
             }
         }
@@ -91,11 +91,11 @@ final class TracerouteViewModel: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             do {
                 let result = try service.trace(to: target)
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.apply(result)
                 }
             } catch {
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     self?.lastError = error.localizedDescription
                     self?.finishRun()
                 }
@@ -199,7 +199,7 @@ final class TracerouteViewModel: ObservableObject {
             let hopNumber = hop.hopNumber
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 guard let hostname = service.hostname(for: address) else { return }
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self else { return }
                     // Guards against a stale enrichment result landing
                     // after a *newer* trace already replaced `hops` with a

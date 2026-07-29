@@ -111,7 +111,7 @@ final class SNMPViewModel: ObservableObject {
         // the sweep itself is on demand via the popover's "Scan" button.
         devices = snapshotStore.fetchSNMPDevices().map(Self.device(from:))
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.poll()
             }
         }
@@ -191,7 +191,7 @@ final class SNMPViewModel: ObservableObject {
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let found = service.sweep(targets: targets)
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.apply(found, isFullScan: true)
             }
         }
@@ -211,7 +211,7 @@ final class SNMPViewModel: ObservableObject {
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let found = service.sweep(targets: targets)
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.apply(found, isFullScan: false)
             }
         }

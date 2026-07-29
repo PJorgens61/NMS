@@ -44,7 +44,7 @@ final class LANDiscoveryViewModel: ObservableObject {
         let service = discoveryService
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let result = Result { try service.scan() }
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.apply(result, for: snapshot)
             }
         }
@@ -76,7 +76,7 @@ final class LANDiscoveryViewModel: ObservableObject {
             let address = device.ipAddress
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 guard let hostname = service.hostname(for: address) else { return }
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self else { return }
                     // A later scan may already have replaced `devices`, so
                     // only apply if this address is still present and still
