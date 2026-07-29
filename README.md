@@ -1434,6 +1434,27 @@ on the real network, and a real overdue renewal means waiting 21 hours for T2
 on a 24h lease *and* the server misbehaving. Both are additive (`||`), so
 injection can force a failure but never mask a real one.
 
+**The scenario suite.** `script/scenarios.sh` drives all of the above and
+asserts on the results — 11 checks across connectivity, DHCP and SNMP, in
+about a minute:
+
+```bash
+script/scenarios.sh          # exit 0 if everything passed
+```
+
+It seeds a scratch store from the real one (never opening the real store
+itself), runs at 30×, toggles injections live, and restores normal operation
+on exit — including on failure or Ctrl-C. Seeding rather than starting empty
+is load-bearing: `SNMPViewModel.poll()` guards on a non-empty device list and
+discovery only runs from the Scan button, so a fresh store would leave every
+SNMP scenario silently passing by doing nothing.
+
+It fails fast if the app doesn't actually come up against the scratch store.
+That guard exists because of a real false-pass found while building it —
+running the script from a copied path broke the app lookup, the app never
+launched, and **four assertions still "passed"**, since every `assert_absent`
+succeeds vacuously when there's no data at all.
+
 **Keeping test runs out of real history.** `NMSStorePath` points the
 SwiftData store somewhere disposable:
 
