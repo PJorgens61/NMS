@@ -1,0 +1,86 @@
+name: Tests
+
+on:
+  # Both push and pull_request, unlike CodeQL — a run here is a couple of
+  # minutes rather than ~20, so the duplicate work a squash merge causes
+  # is cheap enough to be worth catching a broken main immediately.
+  #
+  # paths-ignore: markdown and the license can't change test results. The
+  # scheme and project file deliberately aren't ignored — a change to
+  # either can break the test run itself.
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'LICENSE', '.gitignore', 'docs/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'LICENSE', '.gitignore', 'docs/**']
+
+jobs:
+  test:
+    name: Unit tests
+    # macOS runner with Xcode: this is a SwiftUI/SwiftData macOS app.
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # Unlike the CodeQL workflow, which builds by *target* because this
+      # project had no shared scheme, tests require a scheme — `xcodebuild
+      # test` has no `-target` equivalent. `NMS.xcodeproj/xcshareddata/
+      # xcschemes/NMS.xcscheme` is committed for exactly this reason, and
+      # was verified to resolve in a checkout with no `xcuserdata` present
+      # (which is what a CI runner gets).
+      #
+      # -only-testing:NMSTests: the NMSUITests target is still an empty
+      # template, and UI tests launch the real app — slow and flaky in CI
+      # for no coverage. The scheme also marks it skipped.
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project NMS.xcodeproj \
+            -scheme NMS \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -only-testing:NMSTests \
+            -resultBundlePath TestResults.xcresult \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee xcodebuild-test.log
+
+      # A green job that ran zero tests is worse than no job at all, and
+      # this repo has already been bitten by exactly that class of bug:
+      # the scenario suite once reported four assertions "passed" while
+      # the app under test had never launched.
+      #
+      # It's a live risk here rather than a hypothetical. These are Swift
+      # Testing tests, so xcodebuild's own legacy XCTest summary prints
+      # "Executed 0 tests, with 0 failures" *and* the run still exits 0 —
+      # which means an empty or mis-filtered bundle would sail through
+      # looking perfectly healthy. Swift Testing reports separately, so
+      # this asserts against *its* summary and requires a nonzero count.
+      - name: Verify tests actually ran
+        run: |
+          summary=$(grep -oE 'Test run with [0-9]+ tests? in [0-9]+ suites? passed' xcodebuild-test.log | tail -1)
+          if [ -z "$summary" ]; then
+            echo "::error::No Swift Testing summary found — the suite may not have run at all."
+            exit 1
+          fi
+          count=$(echo "$summary" | grep -oE '[0-9]+' | head -1)
+          if [ "$count" -lt 1 ]; then
+            echo "::error::Test run reported $count tests."
+            exit 1
+          fi
+          echo "$summary"
+
+      - name: Upload results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          retention-days: 7

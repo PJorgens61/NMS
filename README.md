@@ -541,12 +541,22 @@ outage going unlogged.
 Issues and pull requests are welcome. No CLA, no formal style guide —
 matching the surrounding code is enough.
 
-Two workflows run on every push and PR, and weekly on a schedule:
+Three workflows run in CI:
 
+- **Tests** (`.github/workflows/tests.yml`) — runs `NMSTests` on every
+  push and PR. Includes a guard that fails the job if the suite reports
+  zero tests, since these are Swift Testing tests and `xcodebuild`'s own
+  legacy XCTest summary prints "Executed 0 tests" while still exiting 0
+  — an empty or mis-filtered bundle would otherwise pass silently.
 - **CodeQL** (`.github/workflows/codeql.yml`) — static analysis for
-  Swift.
+  Swift, on PRs and weekly (a run is ~20 minutes, so not on push).
 - **gitleaks** (`.github/workflows/gitleaks.yml`) — scans full history
-  for committed secrets.
+  for committed secrets, on push, PR, and weekly.
+
+Note `NMS.xcodeproj/xcshareddata/xcschemes/NMS.xcscheme` is committed
+deliberately: `xcodebuild test` requires a scheme (there's no `-target`
+equivalent), and without a *shared* scheme a CI checkout — which has no
+`xcuserdata` — can't resolve one.
 
 ## License
 
