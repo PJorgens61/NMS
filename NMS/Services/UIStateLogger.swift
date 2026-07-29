@@ -198,7 +198,7 @@ enum UIStateLogger {
     /// to share across threads — the compiler just can't see a lock as a
     /// proof of that. Same pattern as `BonjourDiscoveryService`'s
     /// `UnsafeBox`.
-    private final class WriterThread: Thread, @unchecked Sendable {
+    private nonisolated final class WriterThread: Thread, @unchecked Sendable {
         static let heartbeatInterval: TimeInterval = 20
         private let condition = NSCondition()
         private var pending: [() -> Void] = []

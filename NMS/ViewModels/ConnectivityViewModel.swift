@@ -241,7 +241,7 @@ final class ConnectivityViewModel: ObservableObject {
         }
     }
 
-    private static func runDNSCheck(_ service: DNSResolutionService) -> ConnectivityCheck {
+    private nonisolated static func runDNSCheck(_ service: DNSResolutionService) -> ConnectivityCheck {
         let checkedAt = Date()
         let start = Date()
         let target = "apple.com (random subdomain probe)"

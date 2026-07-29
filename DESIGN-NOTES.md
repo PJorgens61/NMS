@@ -2232,14 +2232,15 @@ actually be eligible.
   that month's data until the next check round. Harmless given the
   bound, but worth knowing it's age-since-write, not wall-clock.
 
-## The four remaining concurrency warnings
+## The concurrency warnings — all four now fixed
 
-A clean build emits exactly four warnings, all concurrency-related,
-all deliberately left alone. **None is flagged "this is an error in the
-Swift 6 language mode"** — the thirteen that were carried that marker
-have been fixed (see the commit clearing them; every one was an outer
-`[weak self]` closure whose captured var was read from an inner `Task`,
-resolved by re-capturing weakly in the inner `Task`).
+A clean build used to emit exactly four warnings, all concurrency-related.
+All four are now fixed; a clean build emits zero. **None was ever flagged
+"this is an error in the Swift 6 language mode"** — the thirteen that
+carried that marker were fixed earlier (see the commit clearing them;
+every one was an outer `[weak self]` closure whose captured var was read
+from an inner `Task`, resolved by re-capturing weakly in the inner
+`Task`).
 
 ```
 UIStateLogger.swift:90     call to main actor-isolated instance method 'enqueue'
@@ -2252,67 +2253,22 @@ LANDiscoveryViewModel:48   capture of 'snapshot' with non-Sendable type
                            'NetworkSnapshot?' in a '@Sendable' closure
 ```
 
-### Three of them are one problem: inherited isolation
+### The fourth one, fixed first (separately, earlier this session)
 
-`UIStateLogger:90/123` and `ConnectivityViewModel:200` are the same
-thing wearing different clothes. In each case, code that *deliberately
-runs off the main thread* is nested inside a `@MainActor` type and
-inherits main-actor isolation it never wanted:
+`LANDiscoveryViewModel.scan(for:)` took a `NetworkSnapshot?` — a
+SwiftData `@Model`, a reference type with thread affinity — and captured
+it into a `DispatchQueue.global` closure, carrying it across the thread
+boundary without ever dereferencing it there (which is why it had never
+crashed — SwiftData's affinity constrains property *access*, and nothing
+touched a property off the main actor). Fragile rather than broken: the
+moment any future line inside that closure read a property of `snapshot`,
+it would become a genuine crash, and nothing in the code said "don't" —
+notable given this exact file's comments already recorded a four-minute
+beachball once, from a different threading mistake.
 
-- `WriterThread` is nested in `@MainActor enum UIStateLogger`, so its
-  `init` and `enqueue` are main-actor-isolated — for a class whose
-  entire reason to exist is owning its own pthread so it keeps draining
-  when the shared pool is starved. Calling it from the `nonisolated
-  static func record` is the warning.
-- `runDNSCheck` is a `static` member of `@MainActor final class
-  ConnectivityViewModel`, so it's isolated too — for a function that
-  blocks on `getaddrinfo` and must never run on the main thread.
-
-In both cases the compiler is describing the declaration, not the
-behaviour. The behaviour is correct and load-bearing; the declaration
-just doesn't say so.
-
-**A fix was attempted and reverted.** Marking those members
-`nonisolated` compiles, but cascades: the newly-nonisolated code can no
-longer reach the main-actor state it depends on (`WriterThread`'s
-`pending` and `heartbeatInterval`, `OverallStatus.dnsLabel`,
-`DNSResolutionService.probe()`), which took the warning count from 4 to
-9. Resolving it properly means pushing `nonisolated` outward through
-`OverallStatus` and `DNSResolutionService` — a much larger change than
-three non-breaking warnings justify. Recorded here so the next person
-doesn't rediscover the cascade the same way.
-
-### The fourth is different, and is a real latent bug
-
-`LANDiscoveryViewModel.scan(for:)` takes a `NetworkSnapshot?` — a
-SwiftData `@Model`, so a reference type with thread affinity — and
-captures it into a `DispatchQueue.global` closure:
-
-```swift
-DispatchQueue.global(qos: .utility).async { [weak self] in
-    let result = Result { try service.scan() }
-    Task { @MainActor [weak self] in
-        self?.apply(result, for: snapshot)   // snapshot captured through the background hop
-    }
-}
-```
-
-The object is only *carried* across the thread boundary, never
-dereferenced there — which is exactly why this has never crashed.
-SwiftData's thread affinity constrains property access, and no property
-is touched off the main actor. So today it's harmless.
-
-It's fragile rather than broken: the moment anyone adds a line inside
-that background closure that reads a property of `snapshot`, it becomes
-a genuine crash, and nothing in the code says "don't". This file's own
-comments record it as the one that already caused a four-minute
-beachball once, which is reason enough not to leave a threading trap in
-it.
-
-**The likely fix** is to stop routing the model through the background
-hop at all, rather than to make the capture legal — invert the nesting
-so the main-actor `Task` is the outer scope and the background work
-happens inside it:
+Fixed by inverting the nesting so the main-actor `Task` is the outer
+scope and the background hop happens inside it — `snapshot` never leaves
+the main actor at all:
 
 ```swift
 Task { @MainActor [weak self] in
@@ -2321,16 +2277,72 @@ Task { @MainActor [weak self] in
 }
 ```
 
-The alternative — passing `snapshot.persistentModelID` (which *is*
-Sendable) across and re-fetching on the main actor — also works and is
-the more conventional SwiftData answer, but costs a fetch to solve a
-problem that restructuring avoids entirely.
+See the commit fixing this (`e650c00`) for the full verification: `arp`
+still ran off-thread, devices delivered, the VRRP pair still merged
+correctly.
 
-### Open questions
+### The other three: one root cause, and the earlier diagnosis was wrong about the fix's size
 
-- Is the `LANDiscoveryViewModel` restructure worth doing on its own, or
-  only alongside the next change to that file? It's latent, not active.
-- If Swift 6 language mode is ever actually adopted, all four become
-  errors and the isolation cascade has to be worked through properly.
-  Worth knowing that's the real cost of that migration, not the thirteen
-  already fixed.
+`UIStateLogger:90/123` and `ConnectivityViewModel:200` are the same
+problem wearing different clothes: code that *deliberately runs off the
+main thread* is nested inside (or a member of) a `@MainActor` type and
+inherits isolation it never wanted.
+
+- `WriterThread` is nested in `@MainActor enum UIStateLogger` — for a
+  class whose entire reason to exist is owning its own pthread so it
+  keeps draining when the shared pool is starved.
+- `runDNSCheck` is a `static` member of `@MainActor final class
+  ConnectivityViewModel` — for a function that blocks on `getaddrinfo`
+  and must never run on the main thread.
+
+**A fix was attempted once and reverted**, marking individual *members*
+(not the enclosing type) `nonisolated`. That cascaded — a member marked
+`nonisolated` while its enclosing type stays implicitly isolated can no
+longer see that type's *own* other properties (`WriterThread.enqueue`
+couldn't reach `pending`/`condition`), taking the warning count from 4 to
+9. The conclusion at the time was that a proper fix meant "pushing
+`nonisolated` outward through `OverallStatus` and `DNSResolutionService`
+— a much larger change than three non-breaking warnings justify," and it
+was left alone.
+
+**That conclusion was revisited and found to overstate the cost.**
+Re-reading `OverallStatus` and `DNSResolutionService` directly shows
+neither has any real dependency requiring main-actor isolation —
+`OverallStatus` is a stateless enum of constants and pure functions;
+`DNSResolutionService` is a stateless struct wrapping a blocking
+`getaddrinfo` call behind a semaphore. Both only *appeared*
+main-actor-isolated because of a target-wide build setting neither
+mentions: `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (confirmed in
+`project.pbxproj`), which silently isolates every type in the module by
+default unless explicitly opted out — including plain structs and enums
+with zero UI ties.
+
+The actual fix ended up small, once the real diagnosis was made:
+
+- `WriterThread`: mark the *class itself* `nonisolated`, not its
+  individual members — since it's fully self-contained (never touches
+  any of `UIStateLogger`'s other static state), this has nothing left to
+  cascade into.
+- `runDNSCheck`: mark the function itself `nonisolated` — safe, since
+  its only two dependencies (`OverallStatus.dnsLabel`,
+  `DNSResolutionService.probe()`) don't actually need main-actor access.
+- `OverallStatus` and `DNSResolutionService`: mark both types
+  `nonisolated` entirely. Safe in every direction — `nonisolated` never
+  *prevents* a call from the main actor, it only removes the requirement
+  to be on it — and neither type holds any state that isolation was ever
+  protecting.
+
+Verified directly: a clean build now emits zero project warnings (the
+one remaining line, `appintentsmetadataprocessor: ... No AppIntents
+.framework dependency found`, is an unrelated Xcode tooling notice, not
+a compiler warning). Confirmed at runtime too, not just at compile time
+— the main-thread heartbeat still fires normally after the `WriterThread`
+change, a live DNS check still ran and produced a real result, and the
+full scenario suite still passes 11/11.
+
+### What this changes about adopting Swift 6 language mode later
+
+Previously: adopting it would turn all four of these into hard errors,
+requiring the isolation cascade to be worked through then instead of now.
+That's no longer the real cost — there's nothing left in this category to
+work through.

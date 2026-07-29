@@ -5,7 +5,7 @@ import SwiftUI
 /// interface being down, or the router/internet/DNS/HTTP layers failing)
 /// mean the network is actually broken; others (one monitored LAN device
 /// being unreachable) are worth noting but don't mean that.
-enum OverallStatus {
+nonisolated enum OverallStatus {
     case normal
     case marginal
     case critical

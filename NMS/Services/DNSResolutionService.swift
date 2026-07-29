@@ -41,7 +41,7 @@ import Foundation
 /// finishing in time as failure regardless of what `getaddrinfo`
 /// eventually would have returned, the same way `ConnectivityService`
 /// already bounds `ping` to 2s rather than trusting its own retry logic.
-struct DNSResolutionService {
+nonisolated struct DNSResolutionService {
     enum ResolutionError: Error {
         case failed(Int32)
         case timedOut
