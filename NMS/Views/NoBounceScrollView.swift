@@ -64,7 +64,7 @@ struct NoBounceScrollView<Content: View>: NSViewRepresentable {
             scrollView.autohidesScrollers = false
         }
 
-        let hostingView = NSHostingView(rootView: content)
+        let hostingView = NSHostingView(rootView: AnyView(content))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = hostingView
         // Leading/trailing/top only — not bottom — so the hosting view's
@@ -81,12 +81,25 @@ struct NoBounceScrollView<Content: View>: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        context.coordinator.hostingView?.rootView = content
+        context.coordinator.hostingView?.rootView = AnyView(content)
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> NoBounceScrollCoordinator { NoBounceScrollCoordinator() }
+}
 
-    final class Coordinator {
-        var hostingView: NSHostingView<Content>?
-    }
+/// Deliberately declared at the top level, not nested inside
+/// `NoBounceScrollView<Content>`. A version of this class nested inside
+/// that generic struct — even after its stored property was type-erased
+/// to remove `Content` from the picture — crashed `swift-frontend` itself
+/// during Release/Archive builds: a real compiler bug in the optimizer's
+/// `EarlyPerfInliner` pass on the class's synthesized `deinit`, confirmed
+/// by the crash log naming the exact same mangled symbol
+/// (`NoBounceScrollView.Coordinator.deinit`) both before and after that
+/// property was type-erased. That ruled out the property type as the
+/// trigger — it's the nesting itself, a class with its own `deinit` living
+/// inside a generic type's lexical scope, that the inliner chokes on. The
+/// crash is invisible in Debug builds, which skip optimization (`-Onone`)
+/// entirely. Moving the class out to the top level sidesteps it.
+final class NoBounceScrollCoordinator {
+    var hostingView: NSHostingView<AnyView>?
 }
