@@ -582,9 +582,14 @@ either way.
 - Point count / time window — untested default guess: ~20–30 points
   (roughly 10–15 minutes at the normal cadence), not exposed as a setting
   for v1.
-- Does the recurring "no retention policy anywhere" theme deserve its own
-  entry in this document, independent of any one feature that happens to
-  depend on it?
+- ~~Does the recurring "no retention policy anywhere" theme deserve its
+  own entry in this document, independent of any one feature that happens
+  to depend on it?~~ **Answered: yes.** See "No retention policy anywhere
+  (measured)" at the end of this document, which quantifies it —
+  `ConnectivityCheckRecord` is ~90% of all rows and grows ~3.5 MB/day.
+  That entry and this one are coupled: sparklines want to read exactly
+  the table that most needs pruning, so the retention window and the
+  sparkline's time range have to be chosen together.
 
 ## UI state debug log (for AI-assisted verification)
 
@@ -1047,7 +1052,9 @@ be a good fit for this app's persistence needs? It's squarely aimed at the
 gap this document keeps running into from different angles — the Network
 Quality and Latency History Sparklines sections above both note that
 `SnapshotStore` has no retention or pruning logic anywhere, for any
-table. RRDtool's entire reason to exist is solving exactly that: a
+table, and "No retention policy anywhere (measured)" at the end of this
+document quantifies it (~90% of rows are `ConnectivityCheckRecord`, ~3.5
+MB/day). RRDtool's entire reason to exist is solving exactly that: a
 fixed-size file that never grows, via round-robin archives that
 automatically consolidate (average/min/max) aging data into progressively
 coarser resolution — full detail for the last day, hourly for the last
@@ -1628,3 +1635,102 @@ the entire point of the feature.
   requires Screen Recording permission (a more alarming prompt than
   anything this app currently asks for) to fix problems that are now
   fixed anyway.
+
+## No retention policy anywhere (measured)
+
+This document has now run into the same gap four separate times — from
+Network Quality, from latency sparklines, from the event log, and from
+RRDtool — each time as a *consumer* of the problem rather than a cause.
+The sparklines section explicitly asked whether it deserved its own
+entry, independent of any one feature. It does. This is that entry.
+
+**`SnapshotStore` has no retention or pruning logic for any table.**
+The only `delete` anywhere in it is `deleteAllSNMPDevices`, which exists
+to support a manual rescan, not to bound growth. Every other table grows
+without limit for the life of the install. The various `fetchLimit`
+values scattered around (events at 200, speed-test runs at 10, snapshots
+at 100) bound *reads*, not the tables themselves — a bounded query stays
+cheap regardless of table size, which is exactly why this has stayed
+invisible.
+
+### What it actually costs, measured rather than estimated
+
+From a real store, 4h29m of continuous running on a normal home network
+(10 ping targets: 6 fixed layers + 4 infrastructure devices):
+
+```
+ZCONNECTIVITYCHECKRECORD   4280     <- 90% of all rows
+ZDISCOVEREDDEVICERECORD     375
+ZAPPEVENTRECORD              49
+ZNETWORKQUALITYRECORD        17
+ZSNMPDEVICERECORD             6
+ZNETWORKSNAPSHOT              4
+everything else             1-2 each
+```
+
+`ConnectivityCheckRecord` dominates completely, and it's the one table
+whose growth is driven by a *timer* rather than by events: one row per
+target per round, ~103 rounds/hour at the normal 30s cadence, so ~953
+rows/hour. At ~154 bytes/row (measured: 712KB store / 4736 rows,
+including index overhead) that extrapolates to roughly:
+
+| Window | Rows | On disk |
+|---|---|---|
+| Day | ~23,000 | ~3.5 MB |
+| Month | ~690,000 | ~106 MB |
+| Year | ~8.4 million | ~1.3 GB |
+
+Two things make that worse than the table suggests. The fast-recheck
+path drops the interval from 30s to 5s whenever anything is unhealthy,
+so a sustained outage writes at ~6x the normal rate — the condition
+under which the app is least useful to have degraded is exactly the one
+that fills the disk fastest. And `maxInfrastructureTargets` caps
+infrastructure pings at 6, so a bigger network doesn't grow rows
+proportionally; the number above is close to the realistic ceiling per
+round, not a small-network best case.
+
+A gigabyte a year for a menu bar utility that nobody ever asked to keep
+history is not catastrophic, but it is silent, unbounded, and entirely
+invisible to the user — there is no UI anywhere that shows the store's
+size, and no way to clear it short of deleting the file by hand.
+
+### What a fix probably looks like
+
+The natural shape is age-based pruning on write, not a background
+sweeper: whenever a table gets a new row, delete rows older than that
+table's own window. Different tables plainly want different windows —
+`ConnectivityCheckRecord` is raw telemetry that's only interesting in
+aggregate after a few days, while `AppEventRecord`, `PublicIPRecord`
+and `DHCPLeaseRecord` are change-logs whose entire value *is* their age
+(a DHCP server change from six months ago is exactly the kind of thing
+someone would want to find).
+
+That asymmetry is the real design content here: the tables that grow
+fastest are the ones whose history matters least, which is a genuinely
+favorable position to be in. Pruning `ConnectivityCheckRecord` to ~7
+days would remove ~99% of the growth while touching nothing anyone
+would miss.
+
+Worth noting the latency-sparkline entry above depends on this being
+resolved sensibly — it wants to read exactly the table that most needs
+pruning, so the retention window and the sparkline's own time range
+have to be decided together, not independently.
+
+### Open questions before implementing
+
+- Per-table windows (more code, right answer) or one global window (one
+  constant, wrong for change-logs)? Leaning per-table, given the
+  asymmetry above.
+- Prune on write (simple, self-limiting, adds a delete to a hot path) or
+  once at launch (keeps the hot path clean, but a long-running instance
+  never prunes — and this app is designed to run for weeks)? Neither is
+  obviously right; launch-only interacts badly with a menu bar app's
+  actual lifecycle.
+- Should the popover surface the store's size at all? Everything else
+  in this app is observable, and this is the one piece of state that
+  silently accumulates. A line in the footer next to the build hash
+  would cost nothing and make the problem self-reporting.
+- Is *any* of this urgent? At ~3.5 MB/day it takes a year to reach a
+  gigabyte. The honest answer is that it's a slow leak worth fixing
+  before it's a support question, not an emergency — which is precisely
+  why it has gone unfixed through four separate encounters.
