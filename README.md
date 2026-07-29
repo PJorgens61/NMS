@@ -1465,6 +1465,32 @@ the SwiftData batch-delete bug was caught.
 contain SSIDs, MAC addresses, the public IP and full event history, and
 `~/Library/Logs/` is collected by `sysdiagnose`.
 
+## Live-height tracking
+
+This app is developed across two Macs with different screen heights (an
+iMac and an M1 MacBook Air), and the popover has outgrown the MacBook
+Air's shorter screen more than once as sections were added. A screenshot
+can't catch this: `capture` always renders with `ContentView
+.isCapturingScreenshot == true`, which swaps every scrollable section for
+a plain unclipped list so captures stay legible — meaning a screenshot's
+height is always the full-history size, never the fixed-height, clipped
+layout that actually has to fit a screen.
+
+`ScreenshotService.measureHeight(_:)` renders a view through the same
+`ImageRenderer` the screenshot feature uses, but returns only its natural
+height — nothing written to disk. Called from the screenshot button's
+action *before* the capturing copy is made, so it measures the view
+exactly as it's live on screen, logged as `ContentView.liveHeight`.
+Piggybacks on clicking the camera button — an action already taken
+regularly — rather than a timer or a launch-time hook, so every future
+click adds one more real data point to this popover's actual height
+history for free. See DESIGN-NOTES.md's "The MacBook Air height
+constraint" section for the investigation this came out of, including a
+row-height constant (17pt/row) recovered from two real desktop
+screenshots bracketing a previous fix, and why a hard regression
+threshold isn't set yet — that needs one confirmed reading taken while
+actually running on the MacBook Air.
+
 ## UI state log (DEBUG builds only)
 
 A development aid, not a feature: `UIStateLogger` writes one line per value

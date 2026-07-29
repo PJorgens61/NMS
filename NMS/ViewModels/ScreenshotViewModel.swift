@@ -45,6 +45,25 @@ final class ScreenshotViewModel: ObservableObject {
     /// link) survived. `windowBackgroundColor` is the same system color
     /// the real popover window uses, so the capture matches what's on
     /// screen rather than approximating it.
+    /// Logs the popover's actual on-screen height — see
+    /// `ScreenshotService.measureHeight` for why this has to be a
+    /// separate render from `capture` below rather than reading its
+    /// result, and why a screenshot's own size can't answer this.
+    ///
+    /// Piggybacks on the screenshot button rather than running on a timer
+    /// or at launch: clicking it is already a deliberate, recurring action
+    /// (confirmed by the real event history — dozens of `screenshotCaptured`
+    /// entries across this project's life), so logging one more number
+    /// alongside it costs nothing new to trigger and builds a real history
+    /// of this popover's height over time for free. `view` must be the
+    /// live, unmutated copy — call this before applying
+    /// `isCapturingScreenshot = true` for the actual capture below, not
+    /// after.
+    func measureAndLogLiveHeight(_ view: some View) {
+        guard let height = ScreenshotService.measureHeight(view) else { return }
+        UIStateLogger.log("ContentView.liveHeight", String(format: "%.0fpt", height))
+    }
+
     func capture(_ view: some View) {
         let renderable = view
             .buttonStyle(.plain)

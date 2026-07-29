@@ -68,4 +68,28 @@ struct ScreenshotService {
         }
         return filename
     }
+
+    /// Renders the view exactly as passed and returns its natural height
+    /// in points — no file written, nothing saved. Exists to build a real
+    /// history of the popover's *actual on-screen* height over time,
+    /// which a screenshot literally cannot answer: `capture` above always
+    /// renders with `ContentView.isCapturingScreenshot == true`, which
+    /// swaps every scrollable section for a plain unclipped list
+    /// specifically so captures stay legible. A screenshot's height is
+    /// therefore always the full-history size, never the fixed-height,
+    /// clipped layout that actually has to fit inside a screen — proven
+    /// directly the first time this was tried: shrinking a scrollable
+    /// section's `.frame(height:)` and comparing two screenshots showed
+    /// the total height going *up*, not down, because both captures
+    /// bypassed that frame entirely.
+    ///
+    /// Caller decides which layout this measures by whether `content` was
+    /// prepared with `isCapturingScreenshot` true or false — pass the
+    /// live, unmutated view for the number that matters here.
+    @MainActor
+    static func measureHeight(_ content: some View) -> CGFloat? {
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        return renderer.nsImage?.size.height
+    }
 }

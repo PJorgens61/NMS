@@ -148,6 +148,12 @@ struct ContentView: View {
                 // step, so it needs to cost as little popover space as
                 // the thing it replaces cost none.
                 Button {
+                    // `self` here, unmutated (isCapturingScreenshot is
+                    // still false) — logs the real, on-screen-equivalent
+                    // height before the capturing copy below swaps every
+                    // scrollable section for a plain unclipped list. See
+                    // `ScreenshotViewModel.measureAndLogLiveHeight`.
+                    screenshot.measureAndLogLiveHeight(self)
                     // A copy, not `self` — see `isCapturingScreenshot`.
                     // `ContentView` is a struct, so this is a plain value
                     // copy that leaves the live popover untouched.
@@ -674,13 +680,27 @@ struct ContentView: View {
             // actually more rows than fit — same reasoning as
             // `tracerouteSection`'s `displayedHops.count > 3` check. Below
             // that, it left visible blank space under 1-2 real entries.
+            //
+            // Trimmed from 90 to 56 (2 rows × 17pt) — the popover grew past
+            // fitting an M1 MacBook Air's shorter screen again after
+            // today's additions (sparklines, Apple Network Quality, the
+            // active-overrides banner), the same recurring constraint that
+            // already forced Events down from 170 to 136pt once before.
+            // 17pt/row isn't a fresh guess here — it's the exact, confirmed
+            // constant from that fix: two real desktop screenshots
+            // bracketing commit 41e169c measured 10 rows in a 170pt box
+            // and 8 rows in a 136pt box, both computing to 17pt/row. This
+            // section was chosen over one of today's newer additions
+            // because it's a scrollable history already — shaving its
+            // window drops nothing, everything stays reachable by
+            // scrolling, unlike trimming a section with no scroll at all.
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
                     dhcpHistoryRows
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: 90)
+            .frame(height: 56)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 dhcpHistoryRows

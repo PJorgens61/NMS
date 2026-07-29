@@ -831,6 +831,89 @@ the transition down to just the remaining override; a capture confirmed
 the footer banner renders correctly; and a clean launch logged `none`
 with the footer absent. Scenario suite still 11/11 throughout.
 
+## The MacBook Air height constraint, recurring, and a real fix for tracking it
+
+The popover outgrew the M1 MacBook Air's screen again — the same
+constraint that forced Events from 170pt to 136pt once before (commit
+`41e169c`), now tripped by today's additions (sparklines, Apple Network
+Quality, the active-overrides banner). Asked directly what would help
+prevent this recurring, the investigation itself found a real gap and a
+real fix, not just a bigger trim.
+
+### The screenshot tool can't verify this, by construction
+
+First instinct was to compare two of the app's own screenshot captures
+before/after a trim. The comparison showed height going *up*, not down —
+`ContentView.isCapturingScreenshot` swaps every scrollable section for a
+plain, unclipped list specifically so captures stay legible (see
+"Popover screenshot button" above), which means a screenshot's height is
+always the full-history size, never the fixed-height, clipped layout
+that actually has to fit a screen. The tool built to make this app
+debuggable turned out to have a blind spot for this exact bug class.
+
+### Real desktop screenshots as ground truth, and a real access gap
+
+The user pointed at their own manually-taken desktop screenshots (`Cmd
++Shift+4`/`+3`, saved to `~/Desktop`) as a reference instead — these
+capture the *actual* live-clipped layout, since they're real screen
+captures, not `ImageRenderer` renders. On the iMac specifically they
+still can't answer "does it fit the MacBook Air" (a big enough screen
+never clips anything), but two of them bracketing the `41e169c` commit
+gave something better: an exact, confirmed row-height constant. One
+screenshot (pre-trim) showed 10 event rows in a 170pt box; the other
+(post-trim) showed 8 rows in a 136pt box. Both compute to exactly
+**17pt/row** — not a fresh estimate, the real number behind a change
+already known to have fixed the problem once.
+
+Reading those two files surfaced a genuine tooling gap of its own: the
+Bash tool cannot read `~/Desktop` at all (macOS's per-folder TCC
+protection on Desktop/Documents/Downloads, applying to whatever process
+the harness's shell runs as) — `cp`/`stat`/`sips` all failed with a
+misleading `No such file or directory` despite `ls` on the parent
+directory working fine. The `Read` tool succeeded on the same exact
+path, evidently running through a different, more privileged access
+path. Worth remembering: **`Read` a `~/Desktop` file directly rather than
+trying to `cp`/process it via Bash first** — the latter will fail
+confusingly even though the file demonstrably exists.
+
+### The fix, corrected once already
+
+First pass trimmed DHCP History's fixed-height `ScrollView` from 90pt to
+64pt — a reasonable-sounding but ungrounded guess. Once the real 17pt/row
+constant was in hand from the desktop screenshots above, corrected to
+**56pt** (90 − 2×17), matching the *Events* precedent exactly rather than
+approximating it. DHCP History was the section chosen to trim (over one
+of today's actual additions) because it's already scrollable — shaving
+its window drops nothing, everything stays reachable by scrolling.
+
+### Built: real height tracking, not just a bigger trim
+
+The actual "how do we prevent this" answer: `ScreenshotService
+.measureHeight(_:)` renders a view through the same `ImageRenderer`
+`capture` already uses, but returns only `.nsImage?.size.height` — no
+file written. Called from the screenshot button's action, *before* the
+existing capturing-copy mutation, so it measures `self` exactly as it's
+rendered live (`isCapturingScreenshot` still `false`) rather than the
+capture's deliberately-uncapped version. Logged as
+`ContentView.liveHeight`. Piggybacks on an already-deliberate, recurring
+action (screenshot clicks) rather than a new timer or a launch-time hook,
+so every future click now silently adds one more real data point to this
+popover's actual height history — for free.
+
+First real reading, taken right after the DHCP trim above: **860pt**.
+Cross-checked against the M1 MacBook Air's known logical screen size
+(1280×800pt) — a menu-bar popover's usable ceiling is roughly 750-770pt
+by rough estimate, which would mean 860pt is *still* over even after
+today's fix, by more than "about 2 rows." That estimate is unconfirmed,
+though — the MacBook Air wasn't available to test against directly this
+session. The next `ContentView.liveHeight` log line captured while
+actually running on the MacBook Air will give the real number, at which
+point a hard-coded ceiling and a proper regression check (fail a test
+if `measureHeight` ever exceeds it) becomes possible. Until then, this
+is observability, not yet enforcement — the honest state of "tracking
+this," short of the calibration data needed to also "prevent" it
+automatically.
+
 ## UI state debug log (for AI-assisted verification)
 
 > **Status: implemented** for the staged five-property set — see the "UI
