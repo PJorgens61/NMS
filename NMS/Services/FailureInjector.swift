@@ -303,6 +303,59 @@ enum FailureInjector {
         #endif
     }
 
+    /// A single, always-checkable answer to "is anything debug-injected
+    /// right now" — every accessor above stays active silently once set
+    /// (a failure, a poll speedup) with nothing forcing whoever set it to
+    /// remember it's on. This is exactly the class of mistake that has
+    /// happened for real in this project: a test's `defaults` key left
+    /// set after the test ended, found later only by grepping the plist
+    /// by hand. `nil` when nothing is active — checked fresh on every
+    /// call, the same "read live, never cached" contract every key above
+    /// already has, so this summary can't itself go stale.
+    ///
+    /// **Deliberately excludes `NMSStorePath`.** Unlike every key above,
+    /// which is re-read every check round, the store path is read exactly
+    /// once, in `NMSApp.init()`, to construct the `ModelContainer` — a
+    /// `defaults write` after launch changes what this method would
+    /// report without changing what the app is actually doing, which
+    /// would make this summary actively misleading rather than merely
+    /// incomplete. `NMSApp` already logs the real, resolved path via
+    /// `App.store` at launch, which is the trustworthy source for that
+    /// one setting.
+    static func activeOverridesSummary() -> String? {
+        #if DEBUG
+        var parts: [String] = []
+        let labels = forcedLabels
+        if !labels.isEmpty {
+            parts.append("failures forced: \(labels.sorted().joined(separator: ", "))")
+        }
+        if isInterfaceDownForced {
+            parts.append("interface down")
+        }
+        if isDHCPLinkLocalForced {
+            parts.append("DHCP link-local")
+        }
+        if isDHCPRenewalOverdueForced {
+            parts.append("DHCP renewal overdue")
+        }
+        let restarts = Set(UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPRestart") ?? [])
+        if !restarts.isEmpty {
+            parts.append("SNMP restart forced: \(restarts.sorted().joined(separator: ", "))")
+        }
+        let softwareChanges = Set(UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPSoftwareChange") ?? [])
+        if !softwareChanges.isEmpty {
+            parts.append("SNMP software-change forced: \(softwareChanges.sorted().joined(separator: ", "))")
+        }
+        let speedup = UserDefaults.standard.double(forKey: "NMSPollSpeedup")
+        if speedup > 1 {
+            parts.append("poll speed ×\(Int(speedup))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        #else
+        return nil
+        #endif
+    }
+
     /// Prefix for event messages about an injected failure, so the event
     /// log and store dumps stay honest — nobody reading history weeks
     /// later (or an AI assistant reading a store dump) should have to

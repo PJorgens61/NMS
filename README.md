@@ -1637,6 +1637,21 @@ It tests the app's *reaction* to failure, not its *detection* of failure. A
 still needs real conditions — a class that has bitten this app before
 (`getaddrinfo` returning success in ~1ms with no interface up).
 
+**Active-overrides banner.** Every key above stays active silently once
+set, with nothing forcing anyone to remember it's on — a real mistake in
+this project's own history, not a hypothetical one. `FailureInjector
+.activeOverridesSummary()` answers "is anything debug-injected right now"
+in one string, surfaced two ways: logged at launch (catches a key left
+set across a relaunch) and logged on change during each connectivity
+round (catches one toggled live, logging both "turned on" and "actually
+cleared"). Also shown directly in the popover footer in bold orange — the
+first DEBUG-only UI element in this app, needing no extra guard since the
+underlying summary is already `nil` unconditionally in a release build.
+Deliberately excludes `NMSStorePath`, which is read once at launch rather
+than every round — checking it live could report something the running
+app isn't actually doing; `App.store`'s own launch-time log line is the
+trustworthy source for that setting instead.
+
 ### Main-thread heartbeat
 
 `UIStateLogger.startMainThreadHeartbeat()` writes one line every 20s from a

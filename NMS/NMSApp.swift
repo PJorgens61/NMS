@@ -48,6 +48,11 @@ struct NMSApp: App {
             "App.build",
             buildInfo.map { "\($0.shortHash)\($0.isDirty ? "+dirty" : "") — \($0.subject)" } ?? "unknown"
         )
+        // Catches the override left set across a relaunch — the one case
+        // `ConnectivityViewModel`'s own on-change log can't cover, since
+        // it only fires from a *transition* and a key already set at
+        // launch produces none. See `FailureInjector.activeOverridesSummary`.
+        UIStateLogger.log("FailureInjector.activeOverrides", FailureInjector.activeOverridesSummary() ?? "none")
         // Started before any view model, so the beat covers the whole
         // launch sequence — the LAN scan, traceroute and connectivity
         // round kicked off below are exactly the kind of work a wedge

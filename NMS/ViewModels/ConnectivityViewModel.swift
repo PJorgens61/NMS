@@ -26,6 +26,9 @@ final class ConnectivityViewModel: ObservableObject {
     /// deferring it would silently reintroduce the up-to-30s gap this
     /// exists to close.
     private var recheckRequested = false
+    /// So `apply(_:)` can log `FailureInjector.activeOverridesSummary()`
+    /// only on change rather than every round — see the log call site.
+    private var lastLoggedOverridesSummary: String?
     /// The previous round's `anyUnhealthy`, so `apply(_:)` can tell a fresh
     /// transition into failure apart from an outage that's already been
     /// detected and is just continuing.
@@ -265,6 +268,21 @@ final class ConnectivityViewModel: ObservableObject {
     }
 
     private func apply(_ results: [ConnectivityCheck]) {
+        // Logged only on change, not every round — checked here because
+        // this is the one place already running every cadence regardless
+        // of whether anything else changed. Exists to catch exactly the
+        // mistake this project's own history includes: a debug override
+        // left set after a test ended, with no relaunch to surface it via
+        // the launch-time log line and nothing forcing whoever set it to
+        // remember it's still on. Logged both when something turns on
+        // *and* when it clears, so "I forgot to clear it" and "did that
+        // actually clear?" are both answerable from the log alone.
+        let overridesSummary = FailureInjector.activeOverridesSummary()
+        if overridesSummary != lastLoggedOverridesSummary {
+            UIStateLogger.log("FailureInjector.activeOverrides", overridesSummary ?? "none")
+            lastLoggedOverridesSummary = overridesSummary
+        }
+
         // Injected before anything else sees the results, so persistence,
         // event transitions, cadence and status all react exactly as they
         // would to a real outage — the point being to exercise that whole

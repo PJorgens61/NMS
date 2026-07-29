@@ -789,6 +789,48 @@ in real history.
   the table that most needs pruning, so the retention window and the
   sparkline's time range have to be chosen together.
 
+## Active-overrides banner (closing a real gap in the debug tooling itself)
+
+Asked directly: after building the event log, screenshots, and failure
+injection, what else would help debugging? The answer came from this
+project's own history rather than a hypothetical — the exact mistake of
+leaving a `defaults` key set after a test, discovered later only by
+grepping the plist by hand, had already happened more than once in this
+session.
+
+`FailureInjector.activeOverridesSummary()` is a single method answering
+"is anything debug-injected right now" across every override key —
+forced failures, interface-down, both DHCP signals, both SNMP signals,
+and the poll speedup. Deliberately excludes `NMSStorePath`: unlike every
+other key, which is re-read every check round, the store path is read
+once at launch to build the `ModelContainer`, so checking it live could
+report something the running app isn't actually doing — `App.store`'s
+own launch-time log line is the trustworthy source for that one setting.
+
+Surfaced two ways, covering the two moments a leftover key is invisible:
+
+- **At launch** (`NMSApp.init()`), since a key set before quitting and
+  never cleared produces no *transition* for the other path below to
+  catch.
+- **On change** (`ConnectivityViewModel.apply`, logged only when the
+  summary differs from last round) — catches a key toggled live while
+  the app keeps running, the more common real mistake, and logs both
+  directions ("did it turn on" and "did it actually clear").
+
+Also shown directly in the popover footer — bold orange, last line, no
+dedicated refresh timer needed since `body` already re-evaluates on every
+published change from the connectivity round. This is the first
+DEBUG-only UI element in this app; it needs no `#if DEBUG` guard at the
+call site, since `activeOverridesSummary()` is already unconditionally
+`nil` in a release build.
+
+Verified directly: launching with `NMSInjectFailures` already set (the
+"forgot to clear before quitting" scenario) showed the summary in the
+log immediately, no relaunch needed to notice; clearing it live logged
+the transition down to just the remaining override; a capture confirmed
+the footer banner renders correctly; and a clean launch logged `none`
+with the footer absent. Scenario suite still 11/11 throughout.
+
 ## UI state debug log (for AI-assisted verification)
 
 > **Status: implemented** for the staged five-property set — see the "UI

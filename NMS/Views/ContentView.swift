@@ -179,6 +179,29 @@ struct ContentView: View {
                         "Build \(buildInfo.shortHash)\(buildInfo.isDirty ? ", with uncommitted changes" : "")"
                     )
             }
+
+            // Deliberately loud (unlike the build line above) and placed
+            // last, so it's the final thing read top-to-bottom. Exists to
+            // catch a mistake with real history in this project: a test's
+            // `defaults` key left set after the test ended, otherwise only
+            // discoverable by grepping the plist by hand. No `#if DEBUG`
+            // needed here — `activeOverridesSummary()` is already `nil`
+            // unconditionally in a release build, so this is inert there
+            // without a second guard to keep in sync.
+            //
+            // No dedicated refresh timer: this is computed directly in
+            // `body`, so it goes stale for at most as long as the popover
+            // sits open with nothing else re-rendering it — in practice
+            // at most one connectivity round (30s, 5s if anything's
+            // already unhealthy), since that's `@Published` and already
+            // drives a re-render on its own.
+            if let overrides = FailureInjector.activeOverridesSummary() {
+                Text("⚠ DEBUG: \(overrides)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .accessibilityLabel("Debug overrides active: \(overrides)")
+            }
         }
         .padding(12)
         // Widened from the original 335pt for the DHCP History section,
