@@ -47,15 +47,6 @@ struct ContentView: View {
     /// sparklines rather than empty boxes.
     @State private var latencyHistory: [String: [LatencySample]] = [:]
 
-    /// Two equal-width, flexible columns — half the popover's width each
-    /// at this width, but "flexible" (not a fixed pixel size) so this
-    /// keeps working if the popover width changes later. `LazyVGrid`
-    /// simply flows tiles left-to-right, top-to-bottom, so a third tile
-    /// (an odd count) leaves the second cell of its row empty rather than
-    /// erroring — the expected, ready-made slot for the next tile added
-    /// here.
-    private static let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Network Health, Info, and Path to Internet are short
@@ -64,36 +55,54 @@ struct ContentView: View {
             // wide gaps between a label and its value with nothing else
             // to fill the space. Tiled side by side instead, each sized to
             // its own half, not the whole popover.
-            LazyVGrid(columns: Self.tileColumns, alignment: .leading, spacing: 12) {
-                tile(title: "Network Health") {
-                    connectionHealthSection
-                }
-                tile(title: "Info") {
-                    infoSection
-                }
-                tile(title: "Path to Internet", trailing: {
-                    Button("Trace Now") {
-                        traceroute.run()
+            //
+            // Two independent columns (`HStack` of two `VStack`s), not a
+            // `LazyVGrid` — that was tried first and produced visibly
+            // misaligned tiles: a `LazyVGrid` synchronizes each *row's*
+            // height to its tallest cell, so Path to Internet (short) and
+            // Speed Test (its row-mate, and by far the tallest tile once
+            // it has real history) were forced to the same row height,
+            // leaving a real, confirmed-by-a-live-screenshot gap of dead
+            // space below Path to Internet's shorter box.
+            //
+            // Independent columns fix that by construction, not by
+            // coincidence: row-grid total height is
+            // `max(NetworkHealth, Info) + max(Path, Speed)`, while
+            // column-stack total is `max(NetworkHealth+Path,
+            // Info+Speed)`. The sum-of-maxes is always ≥ the max-of-sums
+            // for non-negative sizes, so this is a guaranteed improvement
+            // (or at worst a no-op), never a regression — it can't make
+            // the popover taller than the grid did.
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: 12) {
+                    tile(title: "Network Health") {
+                        connectionHealthSection
                     }
-                    .disabled(traceroute.isRunning)
-                    .accessibilityLabel("Trace Now")
-                    .accessibilityHint("Runs a traceroute to find the path to the internet")
-                }) {
-                    tracerouteSection
-                }
-                // Fills the empty second cell Path to Internet leaves
-                // behind in a 3-tile, 2-column grid — the exact "ready-
-                // made slot for the next tile" the grid comment above
-                // anticipated.
-                tile(title: "Speed Test", trailing: {
-                    Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
-                        networkQuality.run()
+                    tile(title: "Path to Internet", trailing: {
+                        Button("Trace Now") {
+                            traceroute.run()
+                        }
+                        .disabled(traceroute.isRunning)
+                        .accessibilityLabel("Trace Now")
+                        .accessibilityHint("Runs a traceroute to find the path to the internet")
+                    }) {
+                        tracerouteSection
                     }
-                    .disabled(networkQuality.isRunning)
-                    .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
-                    .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, roughly 50MB total.")
-                }) {
-                    speedTestTileContent
+                }
+                VStack(spacing: 12) {
+                    tile(title: "Info") {
+                        infoSection
+                    }
+                    tile(title: "Speed Test", trailing: {
+                        Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
+                            networkQuality.run()
+                        }
+                        .disabled(networkQuality.isRunning)
+                        .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
+                        .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, roughly 50MB total.")
+                    }) {
+                        speedTestTileContent
+                    }
                 }
             }
 

@@ -136,12 +136,29 @@ Internet with wide, pointless gaps between labels and values — short
 content stretched across a now-much-wider popover. `ContentView.tile(
 title:trailing:content:)` wraps each in a bordered box (`RoundedRectangle`
 `.strokeBorder`, replacing the plain `Divider()` those three used to sit
-between), arranged via a 2-column `LazyVGrid`
-(`ContentView.tileColumns`). Three tiles in a 2-column grid initially left
-the second cell of the second row empty; Speed Test (added afterward)
-filled it directly rather than becoming its own full-width section,
-confirming the empty cell really was a ready-made slot and not just
-incidental. Its rows needed their own pass to fit that half-width,
+between). Three tiles initially left an empty fourth slot; Speed Test
+(added afterward) filled it directly rather than becoming its own
+full-width section, confirming the empty slot really was a ready-made
+spot and not just incidental.
+
+Arranged as two independent columns (`HStack` of two `VStack`s —
+Network Health/Path to Internet on the left, Info/Speed Test on the
+right), not a `LazyVGrid` as originally built. The grid version was
+tried first and produced visibly misaligned tiles, confirmed directly
+against a real desktop screenshot: a `LazyVGrid` synchronizes each
+*row's* height to its tallest cell, so Path to Internet (short) sharing
+a row with Speed Test (by far the tallest tile once it has real
+history) left a real, confirmed gap of dead space under the shorter
+box. Independent columns fix this by construction rather than
+coincidence — row-grid total height is `max(NetworkHealth, Info) +
+max(Path, Speed)`, column-stack total is `max(NetworkHealth+Path,
+Info+Speed)`, and the sum-of-maxes is mathematically always ≥ the
+max-of-sums for non-negative sizes, so the change can only help or be a
+no-op. Verified via `ContentView.liveHeight` (see "Live-height
+tracking" above): 860pt → 846pt, and a fresh live screenshot confirmed
+both tile pairs now share clean edges.
+
+Speed Test's own rows needed their own pass to fit the half-width,
 though: a first attempt wrapped each run to two lines (mirroring DHCP
 History's fix for the same squeeze), but turned out to be overcautious —
 "↓ 765 Mbps  ↑ 173 Mbps" plus a time-only (no date) timestamp fits one

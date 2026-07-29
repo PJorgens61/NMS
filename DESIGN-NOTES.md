@@ -914,6 +914,38 @@ is observability, not yet enforcement — the honest state of "tracking
 this," short of the calibration data needed to also "prevent" it
 automatically.
 
+### The tile grid itself was the next thing flagged — and reclaimed real height
+
+Reported directly: the four top tiles (Network Health/Info/Path to
+Internet/Speed Test) looked misaligned, and fixing that might save
+space. A live desktop screenshot confirmed it concretely — Path to
+Internet's box ended well above its row-mate Speed Test's, with a
+visible dead gap between them — and pointed at the actual cause: the
+`LazyVGrid` synchronizes each *row's* height to its tallest cell, so a
+short tile forced to share a row with a tall one leaves unused space
+that the grid still reserves.
+
+Replaced with two independent columns (`HStack` of two `VStack`s,
+Network Health+Path to Internet on the left, Info+Speed Test on the
+right) rather than a grid. This isn't a coincidental improvement:
+row-grid total height is `max(NetworkHealth, Info) + max(Path, Speed)`,
+while column-stack total is `max(NetworkHealth+Path, Info+Speed)` — and
+the sum-of-maxes is mathematically always ≥ the max-of-sums for
+non-negative sizes, so this change can only help or be a no-op, never
+regress. `Self.tileColumns` (the `LazyVGrid`'s `GridItem` array) was
+removed entirely — nothing else referenced it.
+
+Verified both ways: `ContentView.liveHeight` dropped from 860pt to
+**846pt** (a real, if more modest than initially estimated, 14pt
+saving — the row imbalance a single earlier screenshot suggested was
+larger than it actually was), and a fresh live desktop screenshot
+confirmed both tile pairs now align cleanly on their shared edges. A
+small gap still remains under the shorter (left) column overall, since
+Speed Test's column is genuinely taller than Path to Internet's — an
+expected, much less jarring residual than the previous cross-row
+misalignment, not something this change was trying to eliminate
+entirely. Scenario suite still 11/11.
+
 ## UI state debug log (for AI-assisted verification)
 
 > **Status: implemented** for the staged five-property set — see the "UI
