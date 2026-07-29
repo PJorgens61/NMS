@@ -326,23 +326,25 @@ struct NMSApp: App {
         // button (see `ContentView`) — not yet a replacement for the
         // popover above, just a side-by-side alternative to evaluate.
         //
-        // Deliberately no outer scroll container. An outer `ScrollView`
-        // (plain, then `NoBounceScrollView` — see that type's doc comment
-        // for the chain of attempts) let the window shrink below its
-        // total content height, but every fix for the resulting
-        // nested-scroll chaining/bounce worked inconsistently across
-        // input devices — trackpad was fine, a Magic Mouse on the iMac
-        // made the outer scroll erratic and largely unreliable, confirmed
-        // directly, not theoretical. With no outer scroll region, there's
-        // nothing left to chain into: each `NoBounceScrollView` box inside
-        // `ContentView` still scrolls independently, on any input device,
-        // and that's the only scrolling this window does. The trade-off,
-        // also confirmed directly: the window can't shrink below its full
-        // content height anymore. As more tiles get added later, resize
-        // the window taller instead — a real, resizable window can do
-        // that; the popover it's compared against never could.
+        // An outer scroll container turned out not to be optional: without
+        // one, the window is floor-clamped to its full content height, and
+        // on the M1 MacBook Air's screen that's taller than the screen
+        // itself — no way to reach the lower half at all, confirmed
+        // directly. But the earlier outer `NoBounceScrollView` attempt
+        // relied on scroll-wheel *chaining* out of an exhausted tile to
+        // reach it, and that chaining is inconsistent across input
+        // devices (fine on a trackpad, unreliable with a Magic Mouse).
+        // `persistentScrollbar: true` is the fix: a `.legacy`, always-
+        // visible scroller whose thumb can be grabbed and dragged
+        // directly, a `mouseDown`-based interaction with nothing to do
+        // with `scrollWheel(with:)` — reliable on any device, and not
+        // dependent on chaining working. Wheel-scrolling over the gaps
+        // between tiles (and chaining out of a tile) still works too; the
+        // scrollbar is just the guaranteed path now, not the only one.
         Window("NMS", id: "nms-window") {
-            contentView(isInWindow: true)
+            NoBounceScrollView(persistentScrollbar: true) {
+                contentView(isInWindow: true)
+            }
         }
         .defaultSize(width: 600, height: 700)
     }

@@ -10,8 +10,9 @@ import AppKit
 /// Three designs came before this one, each solving one problem while
 /// reintroducing another:
 /// 1. No outer `ScrollView` at all — fixed the tile boxes bouncing, but
-///    floor-clamped the window to its full content height, unable to
-///    shrink.
+///    floor-clamped the window to its full content height. Confirmed
+///    broken on the M1 MacBook Air specifically: the window was taller
+///    than the screen, with no way to reach the lower half at all.
 /// 2. A plain `NSScrollView` wrapper that severed `nextResponder` during
 ///    `scrollWheel(with:)` — restored shrinking and killed the bounce, but
 ///    also killed the pass-through: scrolling past a tile's own limit did
@@ -24,17 +25,30 @@ import AppKit
 ///    bottom of the whole document) still visibly bounced, because
 ///    forwarded scroll from them reached the outer view's own *genuine*
 ///    edge, where `.basedOnSize` still allows the native elastic bounce.
+///    Disabling elasticity on the outer container too (this type, without
+///    `persistentScrollbar`) fixed that — but scroll-wheel *chaining* from
+///    an exhausted tile into the outer container turned out to behave
+///    inconsistently across input devices: fine on a trackpad, unreliable
+///    with a Magic Mouse.
 ///
-/// The fix that actually works: disable elasticity everywhere, tile boxes
-/// and the outer container alike. `verticalScrollElasticity = .none`
-/// doesn't touch the responder chain — chaining still works, proven by
-/// Events (in the middle of the document) already scrolling seamlessly
-/// into the outer view under design 3 — it only removes the rubber-band
-/// visual, which was the actual complaint everywhere it showed up.
+/// `persistentScrollbar` exists because of that last point, combined with
+/// design 1's MacBook Air finding: outer scrolling can't be optional (a
+/// window taller than the screen needs *some* way to reach the rest), but
+/// scroll-wheel chaining can't be the only way to do it, since it isn't
+/// reliable on every device. A `.legacy` scroller is always visible and
+/// occupies real width rather than overlaying content, so its thumb can be
+/// grabbed directly — a `mouseDown`/`mouseDragged` interaction on the
+/// `NSScroller`, entirely separate from `scrollWheel(with:)`, and so
+/// unaffected by the chaining inconsistency. That's the reliable path for
+/// reaching content below the fold; wheel-scrolling over the gaps between
+/// tiles (and chaining out of an exhausted tile) still works too, just
+/// isn't the only way anymore.
 struct NoBounceScrollView<Content: View>: NSViewRepresentable {
     private let content: Content
+    private let persistentScrollbar: Bool
 
-    init(@ViewBuilder content: () -> Content) {
+    init(persistentScrollbar: Bool = false, @ViewBuilder content: () -> Content) {
+        self.persistentScrollbar = persistentScrollbar
         self.content = content()
     }
 
@@ -45,6 +59,10 @@ struct NoBounceScrollView<Content: View>: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.verticalScrollElasticity = .none
         scrollView.horizontalScrollElasticity = .none
+        if persistentScrollbar {
+            scrollView.scrollerStyle = .legacy
+            scrollView.autohidesScrollers = false
+        }
 
         let hostingView = NSHostingView(rootView: content)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
