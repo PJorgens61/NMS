@@ -1,10 +1,27 @@
 # NMS
 
-A macOS menu bar network monitor for small networks and home labs —
-automatically discovers LAN devices, your ISP's edge router, and your
-public IP, monitors Internet connectivity at every layer from interface
-to HTTP, persists the history, and correlates outages with the changes
-that preceded them.
+A macOS native menu bar app that automatically discovers your local
+network and Internet connectivity path. Monitors the status of critical
+network elements, reports failures and locates problems. Use it to
+monitor your small networks or homelab. Identifies each network it
+connects to and remembers what it learns. Discovers SNMP devices and
+monitors for software changes and restarts.
+
+Built with SwiftUI (a `MenuBarExtra` popover) and SwiftData for local
+persistence, with no third-party dependencies. It reads network state
+through macOS's own SystemConfiguration framework, calls directly into
+system libraries for the checks that run most often (`getaddrinfo` for
+DNS, `URLSession` for HTTP and throughput), and shells out to the
+command-line tools already bundled with macOS for everything else
+(`ping`, `traceroute`, `snmpget`, `ipconfig`, `networkQuality`) rather
+than reimplementing any of those protocols itself. That's not laziness,
+it's lineage: Darwin is a BSD-derived kernel, `ping` and `traceroute`
+are the direct descendants of the tools Berkeley shipped with 4.2BSD
+networking in 1983, and the sockets API underneath all of it — invented
+at Berkeley, not Apple — is still, unmodified in spirit, what every
+`socket()` call on macOS, Linux, and Windows rests on four decades
+later. Everything it shows is read directly from this Mac: no account,
+no cloud service, nothing collected ever leaves the machine.
 
 > **Status: early.** This is a personal project, published so other people
 > can try it — not a finished product. It works against the hardware and
