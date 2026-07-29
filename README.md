@@ -22,6 +22,12 @@ that preceded them.
 > now, ad-hoc-plus-workaround is the actual distribution path, not a
 > temporary gap this predates.
 
+A user-facing walkthrough of the popover — install, permissions, what each
+section means, and common troubleshooting — lives at
+[`docs/user-guide.html`](docs/user-guide.html). GitHub shows it as raw
+source rather than rendering it; download the file and open it in a
+browser (or view it via an HTML-preview proxy) to see it as intended.
+
 All four original build-plan steps have a first working version: interface
 monitoring, persistence, LAN discovery, connectivity testing, and
 correlation. Plus two later additions: network recognition/labeling and
