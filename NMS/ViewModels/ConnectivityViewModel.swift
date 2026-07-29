@@ -282,9 +282,19 @@ final class ConnectivityViewModel: ObservableObject {
         // `isLikelyLocalPingFailure`.
         let localInterference = isLikelyLocalPingFailure(checks)
         if localInterference {
+            // The load figure is corroboration, never the trigger — a
+            // busy Mac is not evidence the network is fine. It's here so
+            // the log distinguishes the two causes that produce the same
+            // symptom: elevated load means starved subprocesses, normal
+            // load means ICMP is being blocked somewhere.
+            let load = checks.first?.systemLoad
+            let loadText = load.map { String(format: "%.2f", $0) } ?? "unknown"
+            let reading = (load ?? 0) >= SystemLoadService.saturatedThreshold
+                ? "CPU saturated (load \(loadText)) — likely starved ping subprocesses"
+                : "CPU not saturated (load \(loadText)) — ICMP may be blocked rather than starved"
             UIStateLogger.log(
                 "ConnectivityViewModel",
-                "every ping failed while DNS/HTTP succeeded — treating as local interference, not an outage"
+                "path-critical pings all failed while DNS/HTTP succeeded; \(reading). Not logging an outage."
             )
         } else {
             logTransitions(previous: previous, current: checks)
@@ -345,6 +355,21 @@ final class ConnectivityViewModel: ObservableObject {
     /// something else — CPU starving the forked `ping` processes past
     /// their 1-2s timeouts, most likely, or ICMP being blocked outright.
     ///
+    /// **Only the path-critical pings must fail**, not every ping. Those
+    /// four sit on the path that DNS and HTTP just proved is working: if
+    /// an HTTP fetch reached a remote host, traffic traversed the local
+    /// router and the ISP edge, so those same hops reporting ICMP
+    /// unreachable is a contradiction rather than a finding. Requiring
+    /// *every* ping including infrastructure was the first version, and
+    /// it missed the realistic case — a printer that genuinely is
+    /// switched off keeps its own check failing for real reasons, which
+    /// under the stricter rule blocked detection and let the fabricated
+    /// router/internet events through anyway.
+    ///
+    /// Infrastructure devices deliberately aren't part of the test in
+    /// either direction: a working network says nothing about whether an
+    /// AP or printer is powered on.
+    ///
     /// Requires at least two ping targets, so a minimal configuration
     /// with a single target can't trip this on one unlucky timeout.
     ///
@@ -355,15 +380,14 @@ final class ConnectivityViewModel: ObservableObject {
     /// can show red rows with no corresponding events, so the reason is
     /// written to the state log rather than left silent.
     private func isLikelyLocalPingFailure(_ checks: [ConnectivityCheck]) -> Bool {
-        var pingLabels = infrastructureLabels
-        pingLabels.formUnion([
+        let pathCritical: Set<String> = [
             OverallStatus.routerLabel,
             OverallStatus.publicIPLabel,
             OverallStatus.peRouterLabel,
             OverallStatus.internetLabel
-        ])
+        ]
 
-        let pings = checks.filter { pingLabels.contains($0.label) }
+        let pings = checks.filter { pathCritical.contains($0.label) }
         guard pings.count >= 2, pings.allSatisfy({ !$0.success }) else { return false }
 
         return checks.contains {

@@ -15,4 +15,10 @@ struct ConnectivityCheck: Equatable, Codable, Identifiable {
     /// `CorrelationService`). Always `false` for successful checks, and
     /// `false` until `SnapshotStore.saveConnectivityChecks` computes it.
     var correlatedWithChange: Bool = false
+    /// Normalized CPU load when the round ran (see `SystemLoadService`),
+    /// so history can answer "was the machine busy when this failed?" —
+    /// the question that turned two apparent outages into a diagnosis of
+    /// local subprocess starvation. `nil` if unreadable, which is
+    /// deliberately not 0: that would claim the machine was idle.
+    var systemLoad: Double?
 }

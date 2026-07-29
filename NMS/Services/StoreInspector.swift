@@ -74,7 +74,11 @@ enum StoreInspector {
         }
         text += section(context, "ConnectivityCheckRecord", \ConnectivityCheckRecord.checkedAt, rowsPerTable) {
             let latency = $0.latencyMs.map { String(format: "%.0f ms", $0) } ?? "—"
-            return "\($0.label) \($0.success ? "ok" : "FAIL") \(latency)\($0.correlatedWithChange ? " *" : "")"
+            // Load included because it's the field that answers "was the
+            // Mac pinned when this failed?" — the whole reason it's
+            // persisted.
+            let load = $0.systemLoad.map { String(format: " load %.2f", $0) } ?? ""
+            return "\($0.label) \($0.success ? "ok" : "FAIL") \(latency)\($0.correlatedWithChange ? " *" : "")\(load)"
         }
         text += section(context, "DiscoveredDeviceRecord", \DiscoveredDeviceRecord.discoveredAt, rowsPerTable) {
             "\($0.ipAddress) \($0.macAddress ?? "—") \($0.hostname ?? "—")"

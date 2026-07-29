@@ -57,8 +57,14 @@ final class SnapshotStore {
         let recentSnapshots = fetchHistory(limit: 50)
         let correlation = CorrelationService()
 
+        // Sampled once for the whole round, not per check: every result
+        // here came from the same moment, so per-check sampling would
+        // record noise as if it were per-target signal.
+        let systemLoad = SystemLoadService.normalizedLoad()
+
         let enriched = checks.map { check -> ConnectivityCheck in
             var check = check
+            check.systemLoad = systemLoad
             if !check.success {
                 check.correlatedWithChange = correlation.isCorrelated(checkedAt: check.checkedAt, nearAny: recentSnapshots)
             }

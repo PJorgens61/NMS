@@ -541,6 +541,47 @@ expected during development, not a bug.
   it. Worth being explicit about given how easy those three are to
   conflate.
 
+  **Local interference is not reported as an outage.** Twice in one day
+  every ICMP probe timed out during a clean Xcode build while DNS and HTTP
+  stayed green, recovering a second later — each writing a complete,
+  fictional outage into the event log. `ConnectivityViewModel
+  .isLikelyLocalPingFailure` now catches that signature: if the
+  path-critical pings (Router, Public IP, ISP Edge Router, Internet) all
+  fail while DNS or HTTP succeeds, the network is demonstrably up, because
+  DNS resolves a *random* subdomain to defeat caching and HTTP fetches a
+  real remote host. Traffic reaching a remote host means it traversed the
+  very hops reporting ICMP unreachable — a contradiction, not a finding.
+
+  Such a round no longer writes transition events or accelerates the
+  cadence. The measurements are still persisted: they really happened, and
+  the sparklines should show them. What's suppressed is the *claim* that
+  they represent a network outage.
+
+  Only the path-critical pings need to fail, not every ping —
+  infrastructure devices are excluded in both directions, since a working
+  network says nothing about whether an AP or printer is powered on. The
+  stricter first version required all of them, and missed the realistic
+  case where a genuinely-off printer kept its own check failing and thereby
+  blocked detection.
+
+  **Each round records CPU load** (`SystemLoadService`, via `getloadavg` —
+  a libc call, deliberately not a subprocess, since shelling out to
+  diagnose *subprocess starvation* would stall under the very condition
+  it's detecting). Normalized by core count so 1.0 means "as many runnable
+  processes as cores" and the figure compares across machines. Persisted on
+  every `ConnectivityCheckRecord`, which is worth ~8 bytes on the store's
+  largest table because it answers the question that turned two apparent
+  outages into a diagnosis: *was the Mac pinned when every ping timed out?*
+
+  Load corroborates, never triggers — a busy Mac is not evidence the
+  network is fine, and suppressing real outages because someone was
+  compiling would be worse than the bug being fixed. It distinguishes the
+  two causes of an identical symptom: elevated load means starved ping
+  subprocesses, normal load means ICMP is likely blocked somewhere. Caveat
+  worth knowing: load average is a one-minute rolling figure, so an
+  isolated one-second spike barely registers — fine for the observed
+  incidents, which spanned multi-minute builds.
+
   **Latency sparklines**: each of the six rows backed by a real timed
   probe (Router, Public IP, ISP Edge Router, Internet, DNS, HTTP) carries
   an inline sparkline of its last 30 checks. Network and Interface don't
