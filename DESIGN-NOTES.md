@@ -584,6 +584,53 @@ Cloudflare throughput path only, nothing from `networkQuality`.
   fast connection made this moot in practice: every verified run finished
   in well under a second per direction.
 
+### `networkQuality` added after all — as a second source, not a replacement
+
+The RPM signal dropped above turned out to matter. Rather than re-open the
+throughput decision, `AppleNetworkQualityService` was added alongside
+`NetworkQualityService`, and `NetworkQualityResult` grew the `source` field
+this section's original "Proposed design" already anticipated
+(`.cloudflareEndpoint` / `.appleNetworkQuality`) plus optional
+`downloadResponsivenessRPM`/`uploadResponsivenessRPM`/`baseRTTMs` fields —
+`nil` for a Cloudflare-sourced run, which has no equivalent measurement,
+not missing data. `NetworkQualityRecord` picked up the same fields,
+optional with a default, the same safe-migration shape proven earlier by
+`ConnectivityCheckRecord.systemLoad` — verified directly: the real store's
+17 existing rows survived the schema change untouched, each correctly
+backfilled as `cloudflareEndpoint` with `nil` RPM/RTT.
+
+**Units, checked against the man page rather than assumed**:
+`dl_throughput`/`ul_throughput` are bits per second — an 8x overstatement
+(treating them as bytes) was caught before it shipped, by reading the man
+page rather than trusting a plausible-looking Mbps-sized raw number.
+
+**Always sequential (`-s`), never the default parallel mode** — confirmed
+directly against the real tool that `dl_responsiveness`/`ul_responsiveness`
+are only emitted in sequential mode; parallel mode returns a single
+combined `responsiveness` figure instead, which isn't parsed. This costs
+real time (~25-40s observed, against the Cloudflare path's well-under-a-
+second on this connection) but the RPM split by direction is the entire
+reason this exists.
+
+**One unified history, not a second tile.** Both sources feed the same
+`recentRuns` list and share `isRunning`, so they can't run concurrently
+(they'd contend for the same link, understating both — the same reasoning
+`run()`'s own sequential download-then-upload already applies). The
+trigger lives as a secondary, plain-styled button next to the "~50MB per
+run" caption rather than a second first-class header action, since the
+tile already has one (`Run Speed Test`) and a second prominent button
+competing for the same slot would suggest a choice that has to be made
+every time. Every pre-existing Cloudflare row still renders as a single
+line, unchanged; an Apple-sourced row gets a second line ("Apple · RPM
+818↓/1065↑ · base 11ms"), the same "two-line for genuinely dense data"
+convention DHCP History established.
+
+Verified end to end against the real store: the subprocess trace showed
+`networkQuality -c -s -M 45 -I en0` running 38.4s and exiting cleanly, the
+persisted row matched (933 Mbps down, 938 up, RPM 818↓/1065↑, base
+11ms), and a real capture confirmed both triggers and the two-line row
+render correctly. Scenario suite still 11/11 afterward.
+
 ## Latency history sparklines
 
 Unlike DHCP and Network Quality, this one starts from good news: **the

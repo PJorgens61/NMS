@@ -767,23 +767,42 @@ expected during development, not a bug.
   them contend for the same pipe and understate both numbers, defeating
   the point of a speed test.
 
-  Deliberately narrower than Apple's bundled `networkQuality` CLI (which
-  also measures RPM/bufferbloat under load): this app measures throughput
-  only, trading that signal away for no subprocess/macOS-version
-  dependency. `NetworkQualityViewModel` has no timer and no automatic
-  trigger of any kind, unlike every other view model in this app —
-  `run()` only ever fires from the popover's "Run Speed Test" button,
-  since a run costs a real, sizable transfer (~50MB round trip). A small
-  "~50MB per run" label sits at the top of the Speed Test tile as an
-  always-visible data-cost indicator instead of a confirmation dialog,
-  the same low-friction pattern "Scan" and "Trace Now" already use.
-  `NetworkQualityRecord` is
-  persisted unconditionally per run (not "if changed" like `PublicIPRecord`/
-  `DHCPLeaseRecord`) — every run is an intentional data point to compare
-  against past ones, not a change to detect. Explored in full, including
-  the two implementation candidates and the payload-size measurements
-  above, in DESIGN-NOTES.md's "Network Quality" section before this was
-  written.
+  `NetworkQualityViewModel` has no timer and no automatic trigger of any
+  kind, unlike every other view model in this app — `run()` only ever
+  fires from the popover's "Run Speed Test" button, since a run costs a
+  real, sizable transfer (~50MB round trip). A small "~50MB per run"
+  label sits at the top of the Speed Test tile as an always-visible
+  data-cost indicator instead of a confirmation dialog, the same
+  low-friction pattern "Scan" and "Trace Now" already use.
+  `NetworkQualityRecord` is persisted unconditionally per run (not "if
+  changed" like `PublicIPRecord`/`DHCPLeaseRecord`) — every run is an
+  intentional data point to compare against past ones, not a change to
+  detect.
+
+  **A second source, added alongside**: `AppleNetworkQualityService`
+  shells out to `/usr/bin/networkQuality -c -s -M 45 -I <interface>` —
+  the same test behind System Settings → Network Quality Test — for the
+  one signal the Cloudflare path deliberately doesn't produce:
+  **responsiveness under load** (RPM, round-trips-per-minute while the
+  link is saturated — a bufferbloat measurement). Always sequential
+  (`-s`), never Apple's own default parallel mode: `dl_responsiveness`/
+  `ul_responsiveness` are only emitted in sequential mode, confirmed
+  directly against the real tool — parallel mode returns a single
+  combined figure instead. That trade costs real time (~25-40s observed
+  here, against well-under-a-second for the Cloudflare path on this
+  connection), which is exactly why it's a second, secondary "Run Network
+  Quality" button next to the data-cost label rather than a second
+  first-class action — the tile already has one of those ("Run Speed
+  Test"). Both sources share `isRunning` and one history list, so they
+  can't run concurrently and contend for the same link; a Cloudflare row
+  stays a single line, an Apple-sourced row gets a second line for RPM
+  and idle base latency ("Apple · RPM 818↓/1065↑ · base 11ms"), the same
+  two-line-for-dense-data convention DHCP History established.
+
+  Explored in full, including the two implementation candidates, the
+  payload-size measurements, and the bits-vs-bytes unit check that caught
+  an 8x error before it shipped, in DESIGN-NOTES.md's "Network Quality"
+  section before this was written.
 - **Data retention**: `SnapshotStore.pruneIfNeeded` deletes rows older
   than 7 days from the three raw-observation tables —
   `ConnectivityCheckRecord`, `DiscoveredDeviceRecord`,

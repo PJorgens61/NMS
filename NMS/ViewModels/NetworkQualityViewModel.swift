@@ -15,7 +15,10 @@ final class NetworkQualityViewModel: ObservableObject {
     @Published private(set) var recentRuns: [NetworkQualityRecord] = []
 
     private let service = NetworkQualityService()
+    private let appleService = AppleNetworkQualityService()
     private let snapshotStore: SnapshotStore
+
+    var isAppleTestAvailable: Bool { AppleNetworkQualityService.isAvailable }
 
     /// A floor on how long the "Testing…" button state stays visible —
     /// purely cosmetic, and applied *after* both measurements already
@@ -46,13 +49,71 @@ final class NetworkQualityViewModel: ObservableObject {
             do {
                 let downloadMbps = try await service.measureDownload()
                 let uploadMbps = try await service.measureUpload()
-                let result = NetworkQualityResult(downloadMbps: downloadMbps, uploadMbps: uploadMbps, testedAt: Date())
+                let result = NetworkQualityResult(
+                    downloadMbps: downloadMbps,
+                    uploadMbps: uploadMbps,
+                    downloadResponsivenessRPM: nil,
+                    uploadResponsivenessRPM: nil,
+                    baseRTTMs: nil,
+                    source: .cloudflareEndpoint,
+                    testedAt: Date()
+                )
                 await Self.waitOutMinimumDuration(since: start)
                 apply(result)
             } catch {
                 await Self.waitOutMinimumDuration(since: start)
                 lastError = error.localizedDescription
                 isRunning = false
+            }
+        }
+    }
+
+    /// Apple's `networkQuality`, for the RPM/responsiveness-under-load
+    /// signal the Cloudflare path above can't produce — see
+    /// `AppleNetworkQualityService`. Shares `isRunning` with `run()`
+    /// rather than a second flag: running both at once would have them
+    /// contend for the same link and understate both, the identical
+    /// reasoning `run()` already applies to its own download/upload
+    /// ordering.
+    ///
+    /// `interfaceName` comes from the caller (`ContentView`, reading
+    /// `NetworkMonitorViewModel.currentInterface`) rather than a stored
+    /// dependency here — this view model otherwise has zero coupling to
+    /// interface state, and a single `String?` parameter isn't worth
+    /// adding one just to avoid passing it in.
+    func runAppleTest(interfaceName: String?) {
+        guard !isRunning else { return }
+        isRunning = true
+        lastError = nil
+        let appleService = self.appleService
+        let start = Date()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let outcome = appleService.measure(interfaceName: interfaceName)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await Self.waitOutMinimumDuration(since: start)
+                switch outcome {
+                case let .success(measurement):
+                    let result = NetworkQualityResult(
+                        downloadMbps: measurement.downloadMbps,
+                        uploadMbps: measurement.uploadMbps,
+                        downloadResponsivenessRPM: measurement.downloadResponsivenessRPM,
+                        uploadResponsivenessRPM: measurement.uploadResponsivenessRPM,
+                        baseRTTMs: measurement.baseRTTMs,
+                        source: .appleNetworkQuality,
+                        testedAt: Date()
+                    )
+                    self.apply(result)
+                case .failure(.unavailable):
+                    self.lastError = "networkQuality not found — unavailable on this macOS version."
+                    self.isRunning = false
+                case let .failure(.processFailed(code)):
+                    self.lastError = "networkQuality exited with status \(code)."
+                    self.isRunning = false
+                case .failure(.unparseable):
+                    self.lastError = "networkQuality produced unreadable output."
+                    self.isRunning = false
+                }
             }
         }
     }

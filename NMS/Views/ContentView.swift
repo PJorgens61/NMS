@@ -698,9 +698,34 @@ struct ContentView: View {
     /// error, then the recent-runs list.
     @ViewBuilder
     private var speedTestTileContent: some View {
-        Text("~50MB per run")
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
+        HStack {
+            Text("~50MB per run")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Spacer()
+            // Secondary, plain-styled — this tile already has one
+            // first-class action (the header's "Run Speed Test"); a
+            // second prominent button competing for the same slot would
+            // suggest a choice that doesn't need to be made every time.
+            // Shares `isRunning`/`recentRuns` with the Cloudflare path
+            // rather than getting its own tile: both are answers to
+            // "how's my connection right now," just at different costs
+            // (~1s vs ~30s) and depths (throughput vs. throughput +
+            // responsiveness under load) — one history, one place to
+            // compare them, matching how this was originally scoped in
+            // DESIGN-NOTES.md before the RPM half was deferred.
+            if networkQuality.isAppleTestAvailable {
+                Button(networkQuality.isRunning ? "Testing…" : "Run Network Quality") {
+                    networkQuality.runAppleTest(interfaceName: viewModel.currentInterface?.interfaceName)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .disabled(networkQuality.isRunning)
+                .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Network Quality")
+                .accessibilityHint("Runs Apple's own network quality test: throughput plus responsiveness under load. Uses your data plan and takes about 30 seconds.")
+            }
+        }
         speedTestList
         if let error = networkQuality.lastError {
             Text(error)
@@ -736,21 +761,46 @@ struct ContentView: View {
         }
     }
 
-    /// One line per run: unlike DHCP History's secondary line, "↓ 765
-    /// Mbps  ↑ 173 Mbps" plus a time-only (no date) timestamp is short
-    /// enough to fit this tile's half-width comfortably — confirmed
-    /// directly against a real screenshot rather than assumed from the
-    /// two-line version tried first.
+    /// One line per run for the throughput/timestamp row: unlike DHCP
+    /// History's secondary line, "↓ 765 Mbps  ↑ 173 Mbps" plus a
+    /// time-only (no date) timestamp is short enough to fit this tile's
+    /// half-width comfortably — confirmed directly against a real
+    /// screenshot rather than assumed from the two-line version tried
+    /// first. An Apple-sourced run adds a second line for RPM/base
+    /// latency, the data a Cloudflare-endpoint run simply doesn't have —
+    /// every Cloudflare row keeps looking exactly as it always has.
     private var speedTestRows: some View {
         ForEach(networkQuality.recentRuns) { run in
-            HStack {
-                Text("↓ \(Self.mbpsText(run.downloadMbps))  ↑ \(Self.mbpsText(run.uploadMbps))")
-                Spacer()
-                Text(run.testedAt, format: .dateTime.hour().minute())
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("↓ \(Self.mbpsText(run.downloadMbps))  ↑ \(Self.mbpsText(run.uploadMbps))")
+                    Spacer()
+                    Text(run.testedAt, format: .dateTime.hour().minute())
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+                if run.source == NetworkQualityResult.Source.appleNetworkQuality.rawValue {
+                    Text(Self.appleQualityDetail(run))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .font(.system(size: 12))
         }
+    }
+
+    /// RPM under load, split by direction — the signal this whole second
+    /// source exists for — plus idle base latency, the one other figure
+    /// `networkQuality` measures that Cloudflare's plain file transfer
+    /// has no equivalent of.
+    private static func appleQualityDetail(_ run: NetworkQualityRecord) -> String {
+        var parts = ["Apple"]
+        if let dl = run.downloadResponsivenessRPM, let ul = run.uploadResponsivenessRPM {
+            parts.append("RPM \(dl)↓/\(ul)↑")
+        }
+        if let rtt = run.baseRTTMs {
+            parts.append(String(format: "base %.0fms", rtt))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private static func mbpsText(_ value: Double) -> String {
