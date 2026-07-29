@@ -240,6 +240,12 @@ final class ConnectivityViewModel: ObservableObject {
     }
 
     private func apply(_ results: [ConnectivityCheck]) {
+        // Injected before anything else sees the results, so persistence,
+        // event transitions, cadence and status all react exactly as they
+        // would to a real outage — the point being to exercise that whole
+        // downstream chain, not just the display. No-op unless the debug
+        // defaults key is set; see `FailureInjector`.
+        let results = FailureInjector.apply(to: results)
         let previous = checks
         checks = snapshotStore.saveConnectivityChecks(results)
         lastCheckedAt = Date()
@@ -316,7 +322,14 @@ final class ConnectivityViewModel: ObservableObject {
                 // Internet, DNS, HTTP) says what broke; the actual target
                 // is already visible in Network Health, and dropping it
                 // keeps this short enough to fit on one line.
-                snapshotStore.logEvent(kinds.failure, message: "\(check.label) became unreachable")
+                // Prefixed when forced, so a test outage is never
+                // mistaken for a real one weeks later — see
+                // `FailureInjector.messagePrefix`. Empty in every normal
+                // case, and always empty in release builds.
+                snapshotStore.logEvent(
+                    kinds.failure,
+                    message: "\(FailureInjector.messagePrefix(for: check.label))\(check.label) became unreachable"
+                )
                 loggedAny = true
                 if check.label == OverallStatus.internetLabel {
                     onInternetUnreachable?()

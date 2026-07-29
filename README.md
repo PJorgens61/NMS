@@ -1389,6 +1389,44 @@ isn't, and unlike a screenshot it captures a sequence over time.
 6 | 2026-07-27T23:20:42.417Z | ConnectivityViewModel.checks | [ConnectivityCheck(label: "Router", success: true, …)]
 ```
 
+### Failure injection (DEBUG builds only)
+
+`FailureInjector` forces connectivity checks to fail, so the app's outage
+behaviour can be exercised without unplugging anything. Every outage path in
+this app was previously tested by physically pulling a cable.
+
+```bash
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectFailures -array Router DNS
+defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSInjectFailures
+```
+
+Labels match `ConnectivityCheck.label` exactly: `Router`, `Internet`, `DNS`,
+`HTTP`, `Public IP`, `ISP Edge Router`, or any SNMP device's display name.
+Restart the app after changing the key — `cfprefsd` doesn't reliably surface
+an external edit to a running process.
+
+**Use the full plist path, not `defaults write Thistle.NMS`.** The bare
+domain silently writes somewhere the app never reads: a stale sandbox
+container at `~/Library/Containers/Thistle.NMS/` survives from an earlier
+sandboxed build, and the CLI resolves the bare domain there, while the
+(now unsandboxed) app reads `~/Library/Preferences/Thistle.NMS.plist`. Both
+`defaults read` spellings then cheerfully confirm the key is set, which makes
+this a genuinely confusing failure — the key *is* written, just not where
+it's read.
+
+Injection happens in `ConnectivityViewModel.apply`, before persistence, so
+the whole downstream chain reacts exactly as it would to a real outage —
+verified end to end: events fire (`[injected] Router became unreachable`),
+the cadence drops from 30s to 5.1s, and the immediate-first-recheck path
+fires. Failure events carry the `[injected]` prefix so a test is never
+mistaken for a real outage in the event log or a store dump weeks later;
+recovery events don't, because by then the check genuinely succeeded.
+
+It tests the app's *reaction* to failure, not its *detection* of failure. A
+`ping` that hangs rather than fails, or a resolver returning a bogus success,
+still needs real conditions — a class that has bitten this app before
+(`getaddrinfo` returning success in ~1ms with no interface up).
+
 ### Main-thread heartbeat
 
 `UIStateLogger.startMainThreadHeartbeat()` writes one line every 20s from a
