@@ -108,13 +108,6 @@ struct ContentView: View {
 
             Divider()
 
-            Text("DHCP History")
-                .font(.headline)
-
-            dhcpHistoryList
-
-            Divider()
-
             Text("Events")
                 .font(.headline)
 
@@ -141,6 +134,16 @@ struct ContentView: View {
             // underlying scans aren't both still running for their own
             // sake: see `LANDiscoveryViewModel`/`BonjourDiscoveryViewModel`
             // for what each still feeds now that neither has a UI list.
+
+            Divider()
+
+            // Moved below Events/SNMP Devices (was directly under the
+            // tile grid) — pushed to the lowest content section, on
+            // request, ahead of just the Refresh/Quit footer.
+            Text("DHCP History")
+                .font(.headline)
+
+            dhcpHistoryList
 
             Divider()
 

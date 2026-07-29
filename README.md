@@ -122,8 +122,9 @@ short sections" below) since the first three are short label/value lists
 that looked sparse stretched across the full popover width, and Speed
 Test's own content (a data-cost note plus a handful of Mbps/timestamp
 rows) fit the same half-width shape well; then, full-width below the
-grid, **DHCP History**, **Events**, and **SNMP Devices** (this section
-was originally titled "Infrastructure"), then Refresh/Quit. There's no
+grid, **Events**, **SNMP Devices** (this section was originally titled
+"Infrastructure"), and **DHCP History** — moved below the other two on
+request, as the lowest content section, right above Refresh/Quit. There's no
 separate Connectivity section anymore — its raw IP-layer check was
 folded into Network Health, and the rest of what it showed was already
 covered there too. The scrollable list for Path to Internet is
