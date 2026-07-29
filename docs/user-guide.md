@@ -78,13 +78,14 @@ escalates to red on its own.
 
 ![The full popover](images/popover.png)
 
-*A real capture — a Wi-Fi reconnect a few minutes earlier, with the
-recovery events, DHCP renewal, and speed-test history still visible.
-The two identical "AP1" rows in SNMP Devices are a real, known quirk:
-NMS merges a device answering at two addresses (a common VRRP setup)
-into one row once it has confirmed both addresses share the same
-hardware — right after a network change, that confirmation can lag
-until the next scan, so the same device briefly shows twice.*
+*A real capture — a brief blip took the router and one AP down and
+back up a few minutes earlier, bracketed by matching "became
+unreachable" / "reachable again" pairs in Events. The two identical
+"AP1" rows in SNMP Devices are a separate, known quirk: NMS merges a
+device answering at two addresses (a common VRRP setup) into one row
+once it has confirmed both addresses share the same hardware — right
+after a network change, that confirmation can lag until the next scan,
+so the same device briefly shows twice.*
 
 The popover is a 2×2 tile grid up top — **Network Health** and **Path to
 Internet** on the left, **Info** and **Speed Test** on the right — the
