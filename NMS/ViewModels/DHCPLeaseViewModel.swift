@@ -161,7 +161,11 @@ final class DHCPLeaseViewModel: ObservableObject {
     }
 
     private func checkLinkLocalFallback(currentIPAddress: String?) {
-        let isLinkLocal = currentIPAddress.map(IPClassifier.isLinkLocal) ?? false
+        // `||` rather than a replacement, so injection can only ever
+        // *add* a failure — a real APIPA fallback is still reported while
+        // the key is set, instead of being masked by it.
+        let isLinkLocal = FailureInjector.isDHCPLinkLocalForced
+            || (currentIPAddress.map(IPClassifier.isLinkLocal) ?? false)
         isFallenBackToLinkLocal = isLinkLocal
         defer { wasLinkLocal = isLinkLocal }
         guard isLinkLocal != wasLinkLocal else { return }
@@ -181,7 +185,9 @@ final class DHCPLeaseViewModel: ObservableObject {
     private func checkRenewalOverdue() {
         guard let record = snapshotStore.latestDHCPLease() else { return }
         let expectedT2At = record.firstObservedAt.addingTimeInterval(TimeInterval(record.t2Seconds))
-        let isOverdue = Date() > expectedT2At
+        // Same additive shape as the link-local hook above: injection can
+        // force an overdue renewal but never suppress a genuine one.
+        let isOverdue = FailureInjector.isDHCPRenewalOverdueForced || Date() > expectedT2At
         defer { wasOverdue = isOverdue }
         guard isOverdue != wasOverdue else { return }
         if isOverdue {

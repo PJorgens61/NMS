@@ -1402,8 +1402,41 @@ defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSInjectFailures
 
 Labels match `ConnectivityCheck.label` exactly: `Router`, `Internet`, `DNS`,
 `HTTP`, `Public IP`, `ISP Edge Router`, or any SNMP device's display name.
-Restart the app after changing the key — `cfprefsd` doesn't reliably surface
-an external edit to a running process.
+A running app picks the key up within one check round — no relaunch needed.
+
+Other signals, each a boolean:
+
+```bash
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectInterfaceDown -bool YES
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDHCPLinkLocal -bool YES
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDHCPRenewalOverdue -bool YES
+```
+
+The two DHCP ones cover signals that had **never been exercised at all**
+before this existed: producing a genuine APIPA fallback means breaking DHCP
+on the real network, and a real overdue renewal means waiting 21 hours for T2
+on a 24h lease *and* the server misbehaving. Both are additive (`||`), so
+injection can force a failure but never mask a real one.
+
+**How long each takes to bite differs, which is worth knowing before you sit
+watching a log:**
+
+| Key | Takes effect |
+|---|---|
+| `NMSInjectFailures` | 5–30s — the next check round |
+| `NMSInjectDHCP*` | up to 5 minutes — `DHCPLeaseViewModel`'s poll timer |
+| `NMSInjectInterfaceDown` | only on the Refresh button or a real topology change; nothing polls `networkMonitor.refresh()` |
+
+`NMSInjectInterfaceDown` also has a real limit: it can make
+`currentInterface` nil — exercising `runChecks`' no-interface short-circuit,
+the "No active network connection" row, and the critical menu bar state — but
+it **cannot** produce `interfaceDown`/`interfaceUp` events. Those are logged
+only from the `SCDynamicStore` change callback, which injection doesn't fake.
+
+**Clear the key in place rather than relaunching, if you want to see the
+recovery.** `logTransitions` compares against the previous round's in-memory
+results, which start empty at launch — so relaunching with the key cleared
+logs nothing, while clearing it live produces the real down/up pair.
 
 **Use the full plist path, not `defaults write Thistle.NMS`.** The bare
 domain silently writes somewhere the app never reads: a stale sandbox

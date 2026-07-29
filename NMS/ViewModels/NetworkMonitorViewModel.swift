@@ -33,8 +33,15 @@ final class NetworkMonitorViewModel: ObservableObject {
     }
 
     func refresh() {
-        currentInterface = service.currentPrimaryInterface()
+        currentInterface = readInterface()
         lastUpdated = Date()
+    }
+
+    /// The single place the interface is read, so debug injection applies
+    /// to both this and the change-observer path — see `FailureInjector`.
+    /// No-op unless the debug defaults key is set.
+    private func readInterface() -> NetworkInterfaceInfo? {
+        FailureInjector.applyInterfaceDown(to: service.currentPrimaryInterface())
     }
 
     /// Called only from the `observeChanges` callback — this is the actual
@@ -42,7 +49,7 @@ final class NetworkMonitorViewModel: ObservableObject {
     /// snapshot, as opposed to `refresh()` which just re-reads current state
     /// (e.g. for the manual Refresh button).
     private func handleObservedChange() {
-        let updated = service.currentPrimaryInterface()
+        let updated = readInterface()
         let didChange = updated != currentInterface
         let previous = currentInterface
         currentInterface = updated

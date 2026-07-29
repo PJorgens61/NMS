@@ -47,10 +47,18 @@ import Foundation
 /// persists (`NMS.snmpCommunities`) was absent from the file the CLI had
 /// been writing to.
 ///
-/// Read fresh on every check round, so changes take effect within one
-/// cadence — though `cfprefsd` may not surface an external edit to an
-/// already-running process, so restarting the app is the reliable way to
-/// pick one up.
+/// Read fresh on every check round, and a running app **does** pick up
+/// an external `defaults` edit within one cadence — no relaunch needed.
+/// (An earlier note here claimed otherwise; that was an artifact of
+/// writing to the wrong plist, not `cfprefsd` caching. Verified by
+/// clearing the key against a live app and watching the next round come
+/// back healthy.)
+///
+/// Live toggling matters more than it sounds, because *recovery* events
+/// are only observable that way. `ConnectivityViewModel.logTransitions`
+/// compares against the previous round's in-memory results, which start
+/// empty at launch — so relaunching with the key cleared logs nothing at
+/// all, while clearing it in place produces the real down/up pair.
 ///
 /// **What this cannot do**, and it matters: it tests the app's *reaction*
 /// to a failure, not its *detection* of one. A `ping` that hangs instead
@@ -82,6 +90,84 @@ enum FailureInjector {
         return forcedLabels.contains(label)
         #else
         return false
+        #endif
+    }
+
+    /// Forces `NetworkMonitorViewModel` to report no active interface —
+    /// the "cable unplugged, Wi-Fi off" case.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectInterfaceDown -bool YES
+    /// ```
+    ///
+    /// Worth having even though real unplugging can produce it, because
+    /// this path has a branch nothing else reaches: `runChecks` detects
+    /// the nil interface and short-circuits Internet/DNS/HTTP rather than
+    /// attempting them, specifically because `getaddrinfo` was measured
+    /// returning a bogus ~1ms success with no interface up.
+    ///
+    /// **Two limits, both found by testing rather than reasoning.** It
+    /// only bites when something calls `NetworkMonitorViewModel.refresh()`
+    /// — the popover's Refresh button, or a real topology change — since
+    /// nothing polls it on a timer. And it cannot produce
+    /// `interfaceDown`/`interfaceUp` events at all: those are logged from
+    /// `handleObservedChange`, driven by the `SCDynamicStore` callback,
+    /// which this doesn't fake. What it does exercise is everything
+    /// downstream of a nil interface.
+    static var isInterfaceDownForced: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "NMSInjectInterfaceDown")
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the DHCP link-local (APIPA) fallback signal — "DHCP failed
+    /// and the OS self-assigned a 169.254.x.x address."
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDHCPLinkLocal -bool YES
+    /// ```
+    ///
+    /// This is one of two DHCP failure signals that had **never been
+    /// exercised at all** before injection existed — producing a genuine
+    /// APIPA fallback means breaking DHCP on the real network, and the
+    /// `dhcpFellBackToLinkLocal`/`dhcpAddressRestored` pair had therefore
+    /// only ever been reasoned about, never observed.
+    static var isDHCPLinkLocalForced: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "NMSInjectDHCPLinkLocal")
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the DHCP renewal-overdue signal — the lease's transaction
+    /// ID hasn't changed past its own T2 (rebinding) deadline.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDHCPRenewalOverdue -bool YES
+    /// ```
+    ///
+    /// The other never-exercised DHCP signal, and the harder of the two
+    /// to reach honestly: with a 24h lease and a T2 at 87.5%, waiting for
+    /// a real overdue renewal takes 21 hours and requires the DHCP server
+    /// to actually misbehave.
+    static var isDHCPRenewalOverdueForced: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "NMSInjectDHCPRenewalOverdue")
+        #else
+        return false
+        #endif
+    }
+
+    /// Applied where the interface is read, so both `refresh()` and the
+    /// change-observer path get it from one place.
+    static func applyInterfaceDown(to info: NetworkInterfaceInfo?) -> NetworkInterfaceInfo? {
+        #if DEBUG
+        return isInterfaceDownForced ? nil : info
+        #else
+        return info
         #endif
     }
 
