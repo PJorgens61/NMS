@@ -70,7 +70,122 @@ final class SnapshotStore {
         }
         try? context.save()
 
+        // The write path that causes ~90% of this store's growth also
+        // drives its own cleanup — see `pruneIfNeeded`.
+        pruneIfNeeded()
+
         return enriched
+    }
+
+    /// How long raw, per-check telemetry is kept. Everything pruned by
+    /// `pruneIfNeeded` is high-volume machine output whose value decays
+    /// almost immediately; nothing that represents a *change* is touched.
+    ///
+    /// Seven days is deliberately generous relative to the only planned
+    /// consumer — the latency sparklines sketched in DESIGN-NOTES.md want
+    /// roughly 20–30 points, about 10–15 minutes at the normal cadence,
+    /// so this keeps ~700x what that feature would read. It's sized for
+    /// human forensics ("what was happening overnight?") rather than for
+    /// any code that exists today, and steady state lands around 160k
+    /// rows / ~24 MB, which is bounded and small enough not to matter.
+    private static let telemetryRetention: TimeInterval = 7 * 24 * 60 * 60
+
+    /// Minimum gap between prune passes. The trigger is a write on a hot
+    /// path (a check round every 5–30s), so the throttle is what keeps
+    /// this from issuing deletes continuously; the actual work happens at
+    /// most hourly.
+    private static let pruneInterval: TimeInterval = 60 * 60
+
+    /// `nil` initially, so the first check round after launch prunes
+    /// immediately rather than waiting out the interval — a Mac that was
+    /// asleep for a week should clean up promptly, not an hour in.
+    private var lastPrunedAt: Date?
+
+    /// Deletes telemetry older than `telemetryRetention`, at most once
+    /// per `pruneInterval`.
+    ///
+    /// **Only three tables are pruned, and the asymmetry is the whole
+    /// design.** `ConnectivityCheckRecord` alone is ~90% of all rows
+    /// (measured: 4280 of 4736 after 4.5 hours, growing ~953 rows/hour,
+    /// ~3.5 MB/day) because it's the one table driven by a timer rather
+    /// than by events — one row per target per round, forever.
+    /// `DiscoveredDeviceRecord` and `BonjourDeviceRecord` grow the same
+    /// way per LAN/Bonjour scan. All three are raw observations.
+    ///
+    /// Everything else is deliberately left alone: `AppEventRecord`,
+    /// `PublicIPRecord`, `DHCPLeaseRecord` and `NetworkSnapshot` are
+    /// change-logs whose entire value *is* their age (a DHCP server
+    /// change six months ago is exactly what someone would go looking
+    /// for), `NetworkQualityRecord` rows are each a deliberate user
+    /// action, and `SNMPDeviceRecord`/`KnownNetwork` are upserts bounded
+    /// by how much hardware exists. Between them they were 456 rows to
+    /// the telemetry tables' 4280 — pruning telemetry alone removes
+    /// essentially all the growth while touching nothing anyone would
+    /// miss.
+    ///
+    /// Worth stating plainly: **nothing in this app currently reads any
+    /// of the three pruned tables.** They're written and never fetched
+    /// (verified across the whole source), so this bounds data that is,
+    /// as of today, pure write amplification — retained only because the
+    /// planned sparklines feature would read the first of them.
+    ///
+    /// Pruning on write rather than from a timer or at launch is a
+    /// deliberate choice for a menu bar app: launch-only never runs on an
+    /// instance that stays up for weeks (this app is designed to), and a
+    /// dedicated timer would be a second scheduling mechanism to own.
+    /// Tying cleanup to the write that causes the growth makes it
+    /// self-limiting — an app doing nothing writes nothing and needs no
+    /// cleanup.
+    func pruneIfNeeded(now: Date = Date()) {
+        if let lastPrunedAt, now.timeIntervalSince(lastPrunedAt) < Self.pruneInterval {
+            return
+        }
+        lastPrunedAt = now
+
+        let cutoff = now.addingTimeInterval(-Self.telemetryRetention)
+
+        // Batch delete for the one table with no relationships. This is
+        // the table that actually gets large (~160k rows at steady
+        // state), so it's worth the efficient path — nothing is loaded
+        // into memory.
+        do {
+            try context.delete(model: ConnectivityCheckRecord.self, where: #Predicate { $0.checkedAt < cutoff })
+        } catch {
+            UIStateLogger.log("SnapshotStore.prune", "ConnectivityCheckRecord batch delete failed: \(error)")
+        }
+
+        // Fetch-then-delete for the two that hold a `snapshot`
+        // relationship. `delete(model:where:)` was confirmed to silently
+        // do nothing for these — a real test with a 2-hour window pruned
+        // 3544 connectivity checks correctly while leaving all 325
+        // eligible `DiscoveredDeviceRecord` rows untouched, oldest still
+        // five hours old. Deleting fetched objects individually respects
+        // the relationship graph and actually works. Affordable because
+        // these tables are small (hundreds of rows, written per scan
+        // rather than per check round); the same approach on
+        // `ConnectivityCheckRecord` would mean loading six figures of
+        // rows into memory.
+        deleteFetched(FetchDescriptor<DiscoveredDeviceRecord>(predicate: #Predicate { $0.discoveredAt < cutoff }))
+        deleteFetched(FetchDescriptor<BonjourDeviceRecord>(predicate: #Predicate { $0.discoveredAt < cutoff }))
+
+        try? context.save()
+    }
+
+    /// Deletes every object matching `descriptor`, one at a time.
+    ///
+    /// Errors are logged rather than swallowed: the original version of
+    /// `pruneIfNeeded` used `try?` throughout, which is exactly why the
+    /// batch-delete failure above went unnoticed until the counts were
+    /// checked by hand. A prune that silently does nothing looks
+    /// identical to a prune that had nothing to do.
+    private func deleteFetched<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) {
+        do {
+            for object in try context.fetch(descriptor) {
+                context.delete(object)
+            }
+        } catch {
+            UIStateLogger.log("SnapshotStore.prune", "\(T.self) fetch-then-delete failed: \(error)")
+        }
     }
 
     /// Looks up the `KnownNetwork` for `fingerprint`, bumping its last-seen

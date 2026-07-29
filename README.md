@@ -700,6 +700,26 @@ expected during development, not a bug.
   the two implementation candidates and the payload-size measurements
   above, in DESIGN-NOTES.md's "Network Quality" section before this was
   written.
+- **Data retention**: `SnapshotStore.pruneIfNeeded` deletes rows older
+  than 7 days from the three raw-observation tables —
+  `ConnectivityCheckRecord`, `DiscoveredDeviceRecord`,
+  `BonjourDeviceRecord` — and nothing else. That's where essentially all
+  growth comes from: `ConnectivityCheckRecord` alone measured ~90% of all
+  rows (one row per ping target per check round, ~3.5 MB/day), because
+  it's the only table driven by a timer rather than by events. The
+  change-logs are deliberately never pruned — `AppEventRecord`,
+  `PublicIPRecord`, `DHCPLeaseRecord`, `NetworkSnapshot` and
+  `NetworkQualityRecord` are small and their whole value is their age.
+
+  Pruning runs from the write that causes the growth (a check round),
+  throttled to at most hourly, rather than at launch or on a timer: a
+  launch-only prune never fires on an app designed to run for weeks, and
+  this way an idle app that writes nothing also cleans nothing. Note
+  SwiftData's batch `delete(model:where:)` silently does nothing on
+  models holding a relationship, so the two tables with a `snapshot`
+  relationship are fetched and deleted individually — see
+  DESIGN-NOTES.md's "No retention policy anywhere (measured)" for how
+  that was found.
 - **Screenshot button**: the camera icon next to Refresh renders the
   popover's own content directly to a PNG via `ImageRenderer` (not a real
   screen capture — no Screen Recording permission needed, and no risk of

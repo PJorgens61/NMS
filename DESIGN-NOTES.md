@@ -676,15 +676,18 @@ buffer nobody's looking at.
 ### A recurring theme, not a new problem
 
 This is the third design in this document to run into the same underlying
-gap: `SnapshotStore` has no retention or pruning logic anywhere, for any
+gap: `SnapshotStore` had no retention or pruning logic anywhere, for any
 table. Network Quality's history depends on it, this feature's fetch
 performance depends on it staying reasonably bounded, and neither one
 *causes* the growth — they're read-only consumers of a pre-existing
-condition. Worth fixing on its own terms at some point rather than
-per-feature, but not something this particular feature is blocked on: a
-`fetchLimit`-bounded query stays cheap regardless of total table size, it
-just means the table itself keeps growing on disk in the background
-either way.
+condition.
+
+**Since resolved** — see "No retention policy anywhere (measured)" at
+the end of this document. `SnapshotStore.pruneIfNeeded` now bounds the
+three raw-telemetry tables at 7 days, `ConnectivityCheckRecord` among
+them. That's the table this feature wants to read, so its retention
+window and this feature's time range are now coupled in practice, not
+just in principle.
 
 ### Open questions before implementing
 
@@ -1162,11 +1165,21 @@ explicitly not decided:
 Prompted directly: would [rrdtool](https://github.com/oetiker/rrdtool-1.x)
 be a good fit for this app's persistence needs? It's squarely aimed at the
 gap this document keeps running into from different angles — the Network
-Quality and Latency History Sparklines sections above both note that
-`SnapshotStore` has no retention or pruning logic anywhere, for any
+Quality and Latency History Sparklines sections above both noted that
+`SnapshotStore` had no retention or pruning logic anywhere, for any
 table, and "No retention policy anywhere (measured)" at the end of this
 document quantifies it (~90% of rows are `ConnectivityCheckRecord`, ~3.5
-MB/day). RRDtool's entire reason to exist is solving exactly that: a
+MB/day).
+
+**This weakens the case considerably now that the gap is closed.**
+`SnapshotStore.pruneIfNeeded` bounds the telemetry tables at 7 days in
+~40 lines, with no new dependency and no second storage format to keep
+in sync with SwiftData. RRDtool's advantage was never just boundedness —
+it's the *consolidation* (full detail recent, coarser with age) that
+plain age-based deletion throws away. That remains genuinely better for
+long-range history, so this stays worth reading if that's ever wanted;
+it's just no longer the only way to stop the file growing forever.
+RRDtool's entire reason to exist is solving exactly that: a
 fixed-size file that never grows, via round-robin archives that
 automatically consolidate (average/min/max) aging data into progressively
 coarser resolution — full detail for the last day, hourly for the last
@@ -1828,21 +1841,79 @@ resolved sensibly — it wants to read exactly the table that most needs
 pruning, so the retention window and the sparkline's own time range
 have to be decided together, not independently.
 
-### Open questions before implementing
+### Built: `SnapshotStore.pruneIfNeeded`
 
-- Per-table windows (more code, right answer) or one global window (one
-  constant, wrong for change-logs)? Leaning per-table, given the
-  asymmetry above.
-- Prune on write (simple, self-limiting, adds a delete to a hot path) or
-  once at launch (keeps the hot path clean, but a long-running instance
-  never prunes — and this app is designed to run for weeks)? Neither is
-  obviously right; launch-only interacts badly with a menu bar app's
-  actual lifecycle.
+Implemented after five encounters. Deletes rows older than
+`telemetryRetention` (7 days) from exactly the three raw-observation
+tables — `ConnectivityCheckRecord`, `DiscoveredDeviceRecord`,
+`BonjourDeviceRecord` — and nothing else.
+
+**A finding that shaped the design: all three pruned tables are
+write-only.** Verified across the whole source — each is inserted and
+registered in the schema, and never fetched anywhere. So ~90% of the
+store is data no code reads. That makes the window choice nearly
+costless: 7 days is ~700x what the only planned consumer (latency
+sparklines, ~20–30 points ≈ 10–15 minutes) would ever want, and is
+sized for human forensics — "what was happening overnight?" — rather
+than for anything that exists today. Steady state lands near 160k rows
+/ ~24 MB, bounded and small.
+
+Resolving the two open questions above: **per-table**, in the sense
+that the change-logs simply aren't pruned at all rather than getting
+their own longer window — the asymmetry was stark enough (4280
+telemetry rows to 456 everything-else) that pruning only telemetry
+removes essentially all growth. And **on write, throttled hourly**,
+triggered from `saveConnectivityChecks`: launch-only never fires on an
+app designed to run for weeks, and a dedicated timer would be a second
+scheduling mechanism to own. Tying cleanup to the write that causes the
+growth is self-limiting — an idle app writes nothing and needs no
+cleanup.
+
+### The bug this would have shipped with, caught only by testing
+
+The first implementation used SwiftData's batch
+`delete(model:where:)` for all three tables and `try?` throughout. It
+built, ran, and crashed nothing. Verified by temporarily shortening the
+window to two hours and counting rows before and after:
+
+```
+ConnectivityCheckRecord   4794 -> 1250   correct
+DiscoveredDeviceRecord     425 ->  425   325 eligible rows untouched,
+                                         oldest still 5 hours old
+```
+
+**`delete(model:where:)` silently does nothing on models that hold a
+relationship.** `ConnectivityCheckRecord` has none and pruned fine;
+`DiscoveredDeviceRecord` and `BonjourDeviceRecord` both carry
+`snapshot`, and neither was touched. The `try?` swallowed whatever was
+thrown, so nothing surfaced anywhere.
+
+Fixed by fetching and deleting those two individually (affordable —
+hundreds of rows, written per scan, not per check round) while keeping
+the batch path for the one table that actually gets large, and by
+logging errors instead of discarding them. Retested: 325 eligible rows
+went to 0, and every change-log table stayed exactly at baseline
+(events 51, speed runs 17, DHCP leases 2, snapshots 4, public IP 1,
+SNMP devices 6, known networks 1).
+
+The general lesson is worth more than the specific API quirk: **a prune
+that silently does nothing is indistinguishable from a prune that had
+nothing to do.** Deletion features can't be verified by building and
+running them; they need before/after counts against data that should
+actually be eligible.
+
+### Still open
+
 - Should the popover surface the store's size at all? Everything else
-  in this app is observable, and this is the one piece of state that
-  silently accumulates. A line in the footer next to the build hash
-  would cost nothing and make the problem self-reporting.
-- Is *any* of this urgent? At ~3.5 MB/day it takes a year to reach a
-  gigabyte. The honest answer is that it's a slow leak worth fixing
-  before it's a support question, not an emergency — which is precisely
-  why it has gone unfixed through four separate encounters.
+  in this app is observable, and this remains the one piece of state
+  that accumulates silently. A line in the footer next to the build
+  hash would cost nothing and make the problem self-reporting. Less
+  pressing now that growth is bounded, but not resolved.
+- The 7-day window is unvalidated against real use — it was chosen
+  against a consumer that doesn't exist yet. If sparklines get built,
+  revisit whether their range and this window still agree.
+- Nothing prunes on a schedule when the app is idle. An instance left
+  running with no network activity writes nothing, so there's nothing to
+  clean — but an instance that ran hot for a month and then idled keeps
+  that month's data until the next check round. Harmless given the
+  bound, but worth knowing it's age-since-write, not wall-clock.
