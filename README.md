@@ -23,10 +23,10 @@ that preceded them.
 > temporary gap this predates.
 
 A user-facing walkthrough of the popover — install, permissions, what each
-section means, and common troubleshooting — lives at
-[`docs/user-guide.html`](docs/user-guide.html). GitHub shows it as raw
-source rather than rendering it; download the file and open it in a
-browser (or view it via an HTML-preview proxy) to see it as intended.
+section means, and common troubleshooting — is published via GitHub Pages
+at **[pjorgens61.github.io/NMS/user-guide.html](https://pjorgens61.github.io/NMS/user-guide.html)**
+(source: [`docs/user-guide.html`](docs/user-guide.html), served straight
+from this repo's `main` branch — no separate deploy step, just push).
 
 All four original build-plan steps have a first working version: interface
 monitoring, persistence, LAN discovery, connectivity testing, and
