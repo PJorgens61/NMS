@@ -38,14 +38,46 @@ final class LANDiscoveryViewModel: ObservableObject {
     /// (SNMP, traceroute, connectivity) already dispatches; this was the
     /// one that didn't. Fixing `arp` to `-n` removes the known cause, and
     /// dispatching removes the whole class of it.
+    /// **`snapshot` never leaves the main actor**, and the nesting order
+    /// is what guarantees it. The obvious shape — dispatch to a
+    /// background queue, then hop back via an inner `Task` — makes the
+    /// *background* closure capture `snapshot`, because the inner task
+    /// references it. That's a SwiftData `@Model`: a reference type with
+    /// thread affinity, captured into a closure running off the main
+    /// actor.
+    ///
+    /// It never crashed, because the object was only carried across the
+    /// boundary and never dereferenced there — SwiftData's affinity
+    /// constrains property *access*. But that made it fragile rather
+    /// than fine: any future line inside that closure reading a property
+    /// of `snapshot` would have turned it into a real crash, with
+    /// nothing in the code saying not to. In this file especially, whose
+    /// history already includes a four-minute beachball from doing
+    /// subprocess work on the wrong thread.
+    ///
+    /// Inverting it — main-actor `Task` outside, background hop inside —
+    /// means the only things crossing are `LANDiscoveryService` and
+    /// `DiscoveredDevice`, both plain structs.
     func scan(for snapshot: NetworkSnapshot? = nil) {
         guard !isScanning else { return }
         isScanning = true
         let service = discoveryService
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let result = Result { try service.scan() }
-            Task { @MainActor [weak self] in
-                self?.apply(result, for: snapshot)
+        Task { @MainActor [weak self] in
+            let result = await Self.performScan(using: service)
+            self?.apply(result, for: snapshot)
+        }
+    }
+
+    /// The blocking `arp` shell-out, bridged to `async` so its caller can
+    /// stay on the main actor. `nonisolated` because it must not inherit
+    /// the class's main-actor isolation — the entire point is to get off
+    /// that thread.
+    private nonisolated static func performScan(
+        using service: LANDiscoveryService
+    ) async -> Result<[DiscoveredDevice], Error> {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: Result { try service.scan() })
             }
         }
     }
