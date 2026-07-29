@@ -31,10 +31,9 @@ no cloud service, nothing collected ever leaves the machine.
 > accumulated history to get the app to start again.
 
 A user-facing walkthrough of the popover — install, permissions, what each
-section means, and common troubleshooting — is published via GitHub Pages
-at **[pjorgens61.github.io/NMS/user-guide.html](https://pjorgens61.github.io/NMS/user-guide.html)**
-(source: [`docs/user-guide.html`](docs/user-guide.html), served straight
-from this repo's `main` branch — no separate deploy step, just push).
+section means, and common troubleshooting — lives at
+[`docs/user-guide.md`](https://github.com/PJorgens61/NMS/blob/main/docs/user-guide.md),
+rendered directly by GitHub — no separate build or deploy step, just push.
 
 ## Running it
 
