@@ -83,6 +83,23 @@ failed check breaks the line rather than interpolating across it, and
 gets a red mark along the bottom — an outage should never render as a
 fast response.
 
+**If you're watching DNS query logs on this network, here's why you'll
+see nonsense lookups against `apple.com` every 30 seconds (5s during an
+outage): that's this app, not malware.** A plain repeated resolution of
+a fixed hostname would get served from macOS's own resolver cache after
+the first lookup — successful answers are cached for their record's TTL,
+so a later check could report "healthy" using a stale, cached answer with
+no actual network round trip at all. The DNS row instead resolves a
+freshly randomized subdomain every time (`nms-check-<random>.apple.com`)
+and treats the resulting `NXDOMAIN` as the successful result, not a
+failure — a label that's never been queried before can't be served from
+a cache entry that doesn't exist yet, so this forces a genuine round trip
+on every check. This is deliberately *not* a reserved-invalid TLD like
+`.invalid`/`.test`/`.example`, even though those are guaranteed to never
+resolve: macOS's resolver short-circuits those locally in a couple of
+milliseconds with no real network traffic, which would report "reachable"
+identically whether the network was actually up or down.
+
 When several rows fail together, only the lowest shows full-intensity
 red; everything above it shows a dimmed red, since it's presumed a
 consequence rather than an independent problem. A `*` next to a failure
