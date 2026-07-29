@@ -341,6 +341,56 @@ struct NMSApp: App {
     /// under a dedicated `NMS/` subdirectory, matching the pattern already
     /// used for `UIStateLogger`'s log file, makes this collision
     /// structurally impossible rather than just unlikely.
+    /// The real store, unless a debug override points somewhere else.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSStorePath /tmp/nms-test/scratch.store
+    /// defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSStorePath
+    /// ```
+    ///
+    /// Exists so scripted scenarios stop polluting real history.
+    /// Injected failures write genuine `AppEventRecord` and
+    /// `ConnectivityCheckRecord` rows, so every test run permanently
+    /// added `[injected]` entries to the same event log and DHCP history
+    /// the app exists to keep honest — twice already they had to be
+    /// deleted by hand. Pointing a run at a throwaway path makes that
+    /// structurally impossible instead of a cleanup step someone has to
+    /// remember.
+    ///
+    /// Also gives scenarios a *known* starting state, which matters for
+    /// more than tidiness: SNMP restart detection compares against a
+    /// previously stored uptime, so against a fresh store the first poll
+    /// is `.firstSeen` and logs nothing. A script wanting that event must
+    /// let two polls run — obvious when starting from empty, invisible
+    /// when starting from whatever happened to be there.
+    ///
+    /// `#if DEBUG` like the rest of the debug tooling. Parent directories
+    /// are created if missing, and the path is logged at launch, because
+    /// silently running against a different store than expected would be
+    /// a genuinely confusing way to lose an afternoon.
+    private static func storeURL() -> URL {
+        let defaultURL = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NMS", isDirectory: true)
+            .appendingPathComponent("default.store")
+
+        #if DEBUG
+        var resolved = defaultURL
+        if let override = UserDefaults.standard.string(forKey: "NMSStorePath"), !override.isEmpty {
+            resolved = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        #else
+        let resolved = defaultURL
+        #endif
+
+        try? FileManager.default.createDirectory(
+            at: resolved.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        UIStateLogger.log("App.store", resolved.path)
+        return resolved
+    }
+
     private static func makeModelContainer() -> ModelContainer {
         let schema = Schema([
             NetworkSnapshot.self,
@@ -355,11 +405,7 @@ struct NMSApp: App {
             BonjourDeviceRecord.self,
             SNMPDeviceRecord.self
         ])
-        let storeDirectory = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NMS", isDirectory: true)
-        try? FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
-        let storeURL = storeDirectory.appendingPathComponent("default.store")
+        let storeURL = Self.storeURL()
         do {
             return try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
         } catch {

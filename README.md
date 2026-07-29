@@ -1434,6 +1434,31 @@ on the real network, and a real overdue renewal means waiting 21 hours for T2
 on a 24h lease *and* the server misbehaving. Both are additive (`||`), so
 injection can force a failure but never mask a real one.
 
+**Keeping test runs out of real history.** `NMSStorePath` points the
+SwiftData store somewhere disposable:
+
+```bash
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSStorePath /tmp/nms-test/scratch.store
+defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSStorePath
+```
+
+Injected failures write genuine `AppEventRecord` and
+`ConnectivityCheckRecord` rows, so without this every scenario run
+permanently added `[injected]` entries to the same event log and DHCP
+history the app exists to keep honest — they had to be deleted by hand
+twice before this existed. Verified: a run against a scratch path produced
+the injected events and 177 connectivity rows there while the real store
+stayed byte-identical at 85 / 5084 / 2 / 6 rows.
+
+It also gives a scenario a *known* starting state, which matters beyond
+tidiness — SNMP restart detection compares against a stored uptime, so
+against a fresh store the first poll is `.firstSeen` and logs nothing. A
+script wanting that event has to let two polls run.
+
+The active store path is logged at launch (`App.store`), because silently
+running against a different store than you think is a confusing way to lose
+an afternoon.
+
 **Speeding everything up.** `NMSPollSpeedup` divides every poll interval, so
 a scripted scenario doesn't spend most of its runtime asleep:
 
