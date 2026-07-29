@@ -170,7 +170,17 @@ final class DHCPLeaseViewModel: ObservableObject {
         defer { wasLinkLocal = isLinkLocal }
         guard isLinkLocal != wasLinkLocal else { return }
         if isLinkLocal {
-            snapshotStore.logEvent(.dhcpFellBackToLinkLocal, message: "Interface fell back to a self-assigned address")
+            // Prefixed when forced, matching the connectivity and SNMP
+            // events. Omitting it here was a real gap: injected DHCP
+            // events landed in the store indistinguishable from genuine
+            // ones, and had to be identified by cross-referencing the
+            // time they were run against a terminal scrollback before
+            // they could be cleaned up.
+            let prefix = FailureInjector.isDHCPLinkLocalForced ? "[injected] " : ""
+            snapshotStore.logEvent(
+                .dhcpFellBackToLinkLocal,
+                message: "\(prefix)Interface fell back to a self-assigned address"
+            )
         } else {
             snapshotStore.logEvent(.dhcpAddressRestored, message: "DHCP address restored")
         }
@@ -191,7 +201,8 @@ final class DHCPLeaseViewModel: ObservableObject {
         defer { wasOverdue = isOverdue }
         guard isOverdue != wasOverdue else { return }
         if isOverdue {
-            snapshotStore.logEvent(.dhcpRenewalOverdue, message: "DHCP renewal overdue")
+            let prefix = FailureInjector.isDHCPRenewalOverdueForced ? "[injected] " : ""
+            snapshotStore.logEvent(.dhcpRenewalOverdue, message: "\(prefix)DHCP renewal overdue")
         } else {
             snapshotStore.logEvent(.dhcpRenewalRecovered, message: "DHCP lease renewed")
         }
