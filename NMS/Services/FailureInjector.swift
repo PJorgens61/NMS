@@ -171,6 +171,76 @@ enum FailureInjector {
         #endif
     }
 
+    /// Rewrites polled SNMP results so the app's own change detection
+    /// concludes a device restarted, or that its software changed.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectSNMPRestart -array Switch
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectSNMPSoftwareChange -array AP1
+    /// ```
+    ///
+    /// Names match `SNMPDevice.displayName` — the `sysName` a device
+    /// reports, or its IP if it reports none.
+    ///
+    /// Deliberately rewrites the *inputs* rather than forcing the
+    /// outcome. `SnapshotStore.recordSNMPDevice` decides a restart from
+    /// `uptimeTicks < previousTicks` and a software change from a
+    /// differing `sysDescr`, so faking the comparison's result would test
+    /// nothing — feeding it a low uptime makes the real comparison run,
+    /// including the case the two signals share: an uptime reset *with* a
+    /// descriptor change is reported as `snmpDeviceSoftwareChanged`
+    /// ("restarted after software change"), not the alarming
+    /// `snmpDeviceRestarted`, because a reboot following an upgrade is
+    /// explained rather than mysterious. Setting both keys for one device
+    /// exercises exactly that branch.
+    ///
+    /// Fires once per injection rather than repeatedly, and does so
+    /// without needing the key cleared: the forced uptime is persisted as
+    /// the new baseline, so the next poll compares 1 against 1 and finds
+    /// nothing changed.
+    static func applySNMPChanges(to devices: [SNMPDevice]) -> [SNMPDevice] {
+        #if DEBUG
+        let restarts = Set(UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPRestart") ?? [])
+        let softwareChanges = Set(UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPSoftwareChange") ?? [])
+        guard !restarts.isEmpty || !softwareChanges.isEmpty else { return devices }
+        return devices.map { device in
+            let forceRestart = restarts.contains(device.displayName)
+            let forceSoftwareChange = softwareChanges.contains(device.displayName)
+            guard forceRestart || forceSoftwareChange else { return device }
+            var forced = SNMPDevice(
+                ipAddress: device.ipAddress,
+                sysDescr: forceSoftwareChange ? "\(device.sysDescr) [injected]" : device.sysDescr,
+                sysName: device.sysName,
+                // 1 tick = one hundredth of a second of uptime, i.e. "just
+                // came back", which is what a real restart looks like to
+                // the very next poll.
+                uptimeTicks: forceRestart ? 1 : device.uptimeTicks,
+                community: device.community,
+                polledAt: device.polledAt
+            )
+            // Preserved explicitly — these come from the ARP-based MAC
+            // merge, not from SNMP, and dropping them would silently
+            // un-merge a VRRP pair as a side effect of injection.
+            forced.aliasAddresses = device.aliasAddresses
+            return forced
+        }
+        #else
+        return devices
+        #endif
+    }
+
+    /// True if either SNMP key names this device, for prefixing its event
+    /// message the same way connectivity failures are prefixed.
+    static func isSNMPForced(_ displayName: String) -> Bool {
+        #if DEBUG
+        let restarts = UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPRestart") ?? []
+        let softwareChanges = UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPSoftwareChange") ?? []
+        return restarts.contains(displayName) || softwareChanges.contains(displayName)
+        #else
+        return false
+        #endif
+    }
+
     /// Rewrites matching checks as failures, leaving everything else
     /// untouched. Builds a replacement rather than mutating, since
     /// `success` and `latencyMs` are deliberately `let` on

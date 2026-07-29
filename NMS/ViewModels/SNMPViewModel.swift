@@ -223,6 +223,11 @@ final class SNMPViewModel: ObservableObject {
     /// having vanished, and reachability is already tracked properly by the
     /// ping checks in `ConnectivityViewModel`.
     private func apply(_ found: [SNMPDevice], isFullScan: Bool) {
+        // Injected before the change detection below sees them, so
+        // `recordSNMPDevice`'s real uptime/descriptor comparison runs
+        // rather than being bypassed. No-op unless a debug defaults key
+        // is set; see `FailureInjector`.
+        let found = FailureInjector.applySNMPChanges(to: found)
         isScanning = false
         lastScanAt = Date()
         defer { rebuildDeviceList() }
@@ -248,13 +253,21 @@ final class SNMPViewModel: ObservableObject {
                 // things that aren't changes.
                 break
             case .restarted:
-                snapshotStore.logEvent(.snmpDeviceRestarted, message: "\(device.displayName) restarted unexpectedly")
+                // Prefixed when forced, so a test never reads as a real
+                // device reboot months later — same convention as the
+                // connectivity events. Empty in every normal case.
+                let prefix = FailureInjector.isSNMPForced(device.displayName) ? "[injected] " : ""
+                snapshotStore.logEvent(
+                    .snmpDeviceRestarted,
+                    message: "\(prefix)\(device.displayName) restarted unexpectedly"
+                )
                 loggedAny = true
             case let .softwareChanged(previousDescr, restarted):
+                let prefix = FailureInjector.isSNMPForced(device.displayName) ? "[injected] " : ""
                 let verb = restarted ? "restarted after software change" : "software changed"
                 snapshotStore.logEvent(
                     .snmpDeviceSoftwareChanged,
-                    message: "\(device.displayName) \(verb): \(previousDescr) → \(device.sysDescr)"
+                    message: "\(prefix)\(device.displayName) \(verb): \(previousDescr) → \(device.sysDescr)"
                 )
                 loggedAny = true
             }

@@ -1404,13 +1404,29 @@ Labels match `ConnectivityCheck.label` exactly: `Router`, `Internet`, `DNS`,
 `HTTP`, `Public IP`, `ISP Edge Router`, or any SNMP device's display name.
 A running app picks the key up within one check round — no relaunch needed.
 
-Other signals, each a boolean:
+Other signals — booleans, plus two more device-name arrays:
 
 ```bash
 defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectInterfaceDown -bool YES
 defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDHCPLinkLocal -bool YES
 defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDHCPRenewalOverdue -bool YES
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectSNMPRestart -array Switch
+defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectSNMPSoftwareChange -array AP1
 ```
+
+The SNMP pair rewrites *inputs* rather than forcing outcomes — a low
+`uptimeTicks`, a modified `sysDescr` — so `recordSNMPDevice`'s real
+comparison logic runs. Setting **both keys for one device** exercises the
+branch neither covers alone: an uptime reset accompanied by a descriptor
+change reports as the neutral `snmpDeviceSoftwareChanged` ("restarted after
+software change"), *not* the alarming `snmpDeviceRestarted`, since a reboot
+following an upgrade is explained rather than mysterious. Verified across all
+three branches in one poll.
+
+These fire once per injection without needing the key cleared: the forced
+values persist as the new baseline, so the next poll compares 1 against 1 and
+finds nothing changed. Clearing the keys produces genuine (unprefixed)
+revert events, because the descriptor really does change back.
 
 The two DHCP ones cover signals that had **never been exercised at all**
 before this existed: producing a genuine APIPA fallback means breaking DHCP
@@ -1424,6 +1440,7 @@ watching a log:**
 | Key | Takes effect |
 |---|---|
 | `NMSInjectFailures` | 5–30s — the next check round |
+| `NMSInjectSNMP*` | up to 60s — `SNMPViewModel`'s poll timer |
 | `NMSInjectDHCP*` | up to 5 minutes — `DHCPLeaseViewModel`'s poll timer |
 | `NMSInjectInterfaceDown` | only on the Refresh button or a real topology change; nothing polls `networkMonitor.refresh()` |
 
