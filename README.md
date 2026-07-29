@@ -487,6 +487,41 @@ not the Keychain — a deliberate call, since they're shared, read-only,
 and usually the well-known default (`public`). If you use them as real
 access control, they aren't protected at rest here.
 
+## Tests
+
+Two suites, covering deliberately different ground:
+
+```bash
+xcodebuild test -project NMS.xcodeproj -scheme NMS -destination "platform=macOS" -only-testing:NMSTests
+script/scenarios.sh
+```
+
+**`NMSTests`** (38 tests, Swift Testing, runs in about a second) covers
+the logic that is *pure* — no network, no SwiftData container, no
+`@MainActor` view model construction, so it runs anywhere including CI:
+`SubnetCalculator`'s sweep-size guard and subnet math, `IPClassifier`'s
+RFC 1918 / CGNAT / link-local boundaries, `OverallStatus`'s severity
+tiers, `StoreSizeService`'s WAL-sidecar summing, and the two pieces of
+logic most consequential to get wrong —
+`ConnectivityViewModel.isLikelyLocalPingFailure` (a false positive
+silently swallows a real outage) and `SNMPViewModel.mergingSharedMACs`
+(the VRRP shared-MAC merge).
+
+Both of those were `private` and are now `nonisolated static`, which is
+a genuine improvement rather than a testing concession: neither reads
+any instance state, so inheriting `@MainActor` from the enclosing class
+bought nothing, and the signature now says so.
+
+**`script/scenarios.sh`** covers what unit tests can't — the live
+behaviour of a running app against a real network, driven through the
+failure-injection keys.
+
+The unit suite is verified to actually catch regressions, not just pass:
+deliberately breaking `isLikelyLocalPingFailure` (dropping its DNS/HTTP
+survival requirement, so it suppresses unconditionally) fails exactly
+one test — `doesNotSuppressRealOutage`, the one guarding against a real
+outage going unlogged.
+
 ## Known limitations
 
 - No history/timeline view — every persisted table beyond the event log

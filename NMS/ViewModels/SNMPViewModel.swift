@@ -398,7 +398,11 @@ final class SNMPViewModel: ObservableObject {
     /// deterministic tie-break, not a claim about which is "real" — nothing
     /// available here can tell a virtual address from an individual one) and
     /// the rest are carried as `aliasAddresses` so the UI can show them.
-    private static func mergingSharedMACs(
+    /// Internal rather than `private`, and `nonisolated`, so the merge
+    /// rules can be unit tested directly — it reads no instance state,
+    /// so it inherits `@MainActor` from the enclosing class for no
+    /// reason, and the tests need nothing but inputs.
+    nonisolated static func mergingSharedMACs(
         _ devices: [SNMPDevice],
         macByAddress: [String: String]
     ) -> [SNMPDevice] {

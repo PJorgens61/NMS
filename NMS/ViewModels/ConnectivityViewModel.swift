@@ -298,7 +298,7 @@ final class ConnectivityViewModel: ObservableObject {
         // that looks like local interference doesn't get to write
         // outage events or accelerate the cadence. See
         // `isLikelyLocalPingFailure`.
-        let localInterference = isLikelyLocalPingFailure(checks)
+        let localInterference = Self.isLikelyLocalPingFailure(checks)
         if localInterference {
             // The load figure is corroboration, never the trigger — a
             // busy Mac is not evidence the network is fine. It's here so
@@ -397,7 +397,13 @@ final class ConnectivityViewModel: ObservableObject {
     /// answer — the network *is* working — but it means Network Health
     /// can show red rows with no corresponding events, so the reason is
     /// written to the state log rather than left silent.
-    private func isLikelyLocalPingFailure(_ checks: [ConnectivityCheck]) -> Bool {
+    /// `static` and `nonisolated` because it genuinely reads no instance
+    /// state — everything it decides comes from the `checks` passed in.
+    /// That's worth advertising in the signature rather than leaving a
+    /// reader to verify it, and it lets the suppression rule be unit
+    /// tested without standing up a whole `@MainActor` view model and
+    /// its five dependencies.
+    nonisolated static func isLikelyLocalPingFailure(_ checks: [ConnectivityCheck]) -> Bool {
         let pathCritical: Set<String> = [
             OverallStatus.routerLabel,
             OverallStatus.publicIPLabel,
