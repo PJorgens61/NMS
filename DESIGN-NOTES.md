@@ -1550,70 +1550,81 @@ relevant one (a real, separately-hit problem this project had: a user
 screenshot's filename containing a non-ASCII space character defeated
 literal-string file access, only working via a glob pattern).
 
-**Confirmed working**: Network Health, Info, Path to Internet, Speed
-Test's header/cost-note, and DHCP History (small enough to render
-without its own `ScrollView`) all capture correctly, including live
-data.
+### How it works
 
-**Confirmed broken, and why**: every `Button` initially rendered as a
-generic broken-image placeholder instead of its label — fixed by
-applying `.buttonStyle(.plain)` to the rendered copy only, since
-`ImageRenderer` doesn't reliably draw macOS's native bordered-button
-chrome off-screen but has no trouble with a style that has no native
-bezel to draw.
+Three pieces, each existing because of a specific `ImageRenderer`
+limitation found by looking at real output rather than assumed:
 
-**Confirmed broken, not yet fixed**: Events, SNMP Devices, and Speed
-Test's run list all render entirely blank — not clipped, absent — with
-real, non-empty data behind every one of them (42 events, 6 SNMP
-devices, 17 speed test runs, at time of testing). `ImageRenderer`
-genuinely does not render `ScrollView` content when rendering off-screen
-on this macOS version. A fix was attempted and reverted: an
-`@Environment` flag telling those sections to swap `ScrollView` for a
-plain unclipped list during capture (which would have been a genuine
-improvement even beyond fixing the bug — a screenshot meant to be read
-later is more useful showing full history than whatever currently fits
-an ~8-row scroll window). Built, tested, and confirmed *not* to work:
-logged the environment value from inside `eventList` during a real
-capture and it read `false` every time — the modifier never propagates
-into `ImageRenderer`'s render pass, at least not the way it was applied
-here (`view.buttonStyle(.plain).environment(\.isCapturingScreenshot,
-true)`, handed straight to `ImageRenderer(content:)`).
+1. **`ContentView.isCapturingScreenshot`** — a plain stored `var`, not
+   `@Environment` and not `@State`. The camera button copies the view
+   (`var capturing = self; capturing.isCapturingScreenshot = true`) and
+   hands the copy to `ImageRenderer`; `ContentView` is a struct, so
+   that's an ordinary value copy that leaves the live popover untouched.
+   Every scrollable section (`eventList`, `infrastructureList`,
+   `speedTestList`, `dhcpHistoryList`, `tracerouteSection`) checks the
+   flag and renders a plain `VStack` of every row instead of its normal
+   fixed-height `ScrollView`.
+2. **`.buttonStyle(.plain)`** on the rendered copy.
+3. **`.background(Color(nsColor: .windowBackgroundColor))`** on the
+   rendered copy.
 
-### The real fix, deferred
+The result is *better* than a manual screenshot, not merely equivalent:
+the live popover clips Events to ~8 rows and Speed Test to a ~90pt
+scroll window, while a capture shows the full fetched history (48
+events, 10 runs, every SNMP device, verified against row counts in the
+store).
 
-Capture the actual live window's pixels instead of asking SwiftUI to
-re-render a detached copy — `CGWindowListCreateImage`, scoped to just
-NMS's own window by its `CGWindowID` (via `NSApplication.shared.windows`
-→ the specific window backing the popover), not the whole screen. Since
-this reads real, already-correctly-rendered pixels rather than
-re-rendering anything, none of `ImageRenderer`'s limitations apply —
-buttons and `ScrollView` content would both just work, because they're
-already genuinely on screen.
+### The three bugs, and how each was found
 
-**The real cost**: this almost certainly requires Screen Recording
-permission (System Settings → Privacy & Security), even scoped to the
-app's own window — that TCC gate is believed to apply per-API, not
-per-window-ownership, though this hasn't been verified directly against
-this specific scoped-capture path. That's a one-time setup prompt, but a
-more alarming-sounding one than anything else this app currently asks
-for (Local Network, Location for Wi-Fi SSID) — worth weighing against
-how much the missing scrollable content actually matters in practice
-before implementing.
+**Buttons rendered as broken-image placeholders.** Every button
+(Refresh, Trace Now, Run Speed Test, Scan, Quit) came out as a generic
+yellow placeholder instead of its label. `ImageRenderer` doesn't
+reliably draw macOS's native bordered-button chrome off-screen; a style
+with no native bezel has nothing to fail at. Found by reading the first
+capture instead of trusting that file-creation meant success.
 
-### Open questions before implementing
+**`ScrollView` content rendered as nothing at all** — not clipped,
+absent, with real non-empty data behind it. Diagnosed conclusively by a
+side-by-side against a manual screen capture taken ~30 seconds apart:
+every section backed by a plain `VStack` rendered (Network Health, Info,
+Path to Internet with 2 hops, DHCP History with 2 leases), and every
+section backed by a `ScrollView` came out blank (Events, SNMP Devices,
+Speed Test's 17-run list) — 5 for 5. Path to Internet and DHCP History
+were the useful controls there: they use the same
+`count > n ? ScrollView : VStack` pattern as the others and happened to
+be *below* their thresholds, so they isolated the `ScrollView` as the
+variable rather than the section.
 
-- Does scoping `CGWindowListCreateImage` to one window ID actually avoid
-  the Screen Recording permission prompt for a self-owned window, or is
-  the belief above wrong? Worth five minutes of direct testing before
-  assuming either way.
-- If permission is required: prompt proactively (e.g., on first button
-  click) or let the OS's own denial path handle it (the button would
-  just silently fail until granted, mirroring how `WiFiSSIDViewModel`
-  already treats a denied Location permission as "no SSID," not an
-  error)?
-- Is capturing just the *window* (native pixels) worth building at all,
-  given the current `ImageRenderer` version already covers most of the
-  popover correctly — or is a permission prompt too high a cost for
-  closing a gap that's mostly Events/SNMP Devices/Speed Test history,
-  which a person (or Claude) can still ask about directly through
-  conversation even without a screenshot?
+**A first fix for that didn't work, and was reverted before this one.**
+An `@Environment` key carrying the same "we're capturing" flag never
+reached the view during the render pass — logged from inside
+`eventList` during a real capture and it read `false` every time.
+That's why the working version uses a plain struct property: no
+propagation machinery to fail. Worth knowing before anyone reaches for
+`@Environment` here again.
+
+**The capture had a transparent background**, which made every
+default-colored (dark) row invisible — only explicitly-colored text
+(green/red events, the blue hostname link) survived. The live popover's
+background belongs to the `MenuBarExtra` window, not to `ContentView`,
+so a detached render has none. Notable for *how* it was found: it was
+invisible to the user, because Preview and Quick Look composite
+transparency onto white and the file looked correct opened normally. It
+only surfaced when Claude read the same file and composited onto black
+instead — which matters precisely because being readable by Claude is
+the entire point of the feature.
+
+### Still open
+
+- Nothing blocking. The one structural limit left is that a capture
+  reflects the *fetched* history, not the full store — Speed Test shows
+  10 of 17 runs because `fetchNetworkQualityHistory` caps at 10, and
+  Events would cap at 50. That's a view-model fetch limit, not a
+  rendering problem, and arguably correct.
+- `CGWindowListCreateImage` scoped to the app's own window remains the
+  alternative if `ImageRenderer` ever proves inadequate for something
+  else — it reads real on-screen pixels, so none of the above
+  limitations would apply. Not pursued, since it almost certainly
+  requires Screen Recording permission (a more alarming prompt than
+  anything this app currently asks for) to fix problems that are now
+  fixed anyway.

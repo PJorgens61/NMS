@@ -704,15 +704,24 @@ expected during development, not a bug.
   popover's own content directly to a PNG via `ImageRenderer` (not a real
   screen capture — no Screen Recording permission needed, and no risk of
   capturing anything outside the app's own window), saved to
-  `~/Library/Logs/NMS/screenshots/` and logged as a `.screenshotCaptured`
-  event naming the exact file. Known limitation, confirmed directly:
-  `ImageRenderer` doesn't render `ScrollView` content off-screen at all,
-  so Events, SNMP Devices, and Speed Test's run history render blank in
-  the capture even with real data behind them — buttons and every other
-  section capture correctly. See DESIGN-NOTES.md's "Popover screenshot
-  button" for what was tried to fix the `ScrollView` gap (and why it
-  didn't work) and the real fix, deferred pending its own tradeoffs
-  (almost certainly needs Screen Recording permission).
+  `~/Library/Logs/NMS/screenshots/NMS-<timestamp>.png` and logged as a
+  `.screenshotCaptured` event naming the exact file, so it can be found
+  by reading the event log rather than guessing which file on disk is
+  the relevant one. Exists to remove a step this project's own
+  development paid several times a session: manually screenshotting the
+  popover and handing the file over.
+
+  A capture is deliberately **more complete than the live popover**, not
+  a mirror of it: `ContentView.isCapturingScreenshot` (a plain stored
+  property, set on a throwaway struct copy — see DESIGN-NOTES.md for why
+  `@Environment` doesn't work here) makes every scrollable section
+  render as a plain unclipped list, so the image shows the full fetched
+  history — 48 events and 10 speed-test runs where the live view clips
+  to ~8 and ~6 — instead of whatever currently fits a scroll window. The
+  rendered copy also gets `.buttonStyle(.plain)` and an explicit
+  `windowBackgroundColor` background, both working around
+  `ImageRenderer` limitations documented in full (with how each was
+  found) in DESIGN-NOTES.md's "Popover screenshot button".
 - **Wi-Fi network name (SSID)**: `WiFiSSIDService` reads the SSID via
   CoreWLAN, gated behind Core Location authorization
   (`LocationAuthorizationService`) — macOS treats Wi-Fi network names as

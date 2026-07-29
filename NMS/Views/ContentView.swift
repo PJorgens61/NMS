@@ -18,6 +18,28 @@ struct ContentView: View {
     /// `NMSApp`), not something that changes while the popover is open.
     let buildInfo: BuildInfoService.Info?
 
+    /// True only on the throwaway copy handed to `ImageRenderer` (see the
+    /// camera button's action), never on the live popover. Makes the
+    /// scrollable sections render as plain, unclipped lists of every row.
+    ///
+    /// Deliberately a plain stored property, not `@Environment` or
+    /// `@State`. An `@Environment` version of exactly this was built
+    /// first and confirmed not to work — the value never reached the
+    /// view during `ImageRenderer`'s pass (logged from inside `eventList`
+    /// during a real capture: `false` every time). A plain `var` on a
+    /// struct has no propagation machinery to fail; `var copy = self;
+    /// copy.isCapturingScreenshot = true` is just a value copy, read
+    /// directly during `body`.
+    ///
+    /// Two independent reasons this matters, not one: `ImageRenderer`
+    /// doesn't render `ScrollView` content *at all* off-screen (not
+    /// clipped — absent, confirmed by a side-by-side against a real
+    /// screen capture where every plain-`VStack` section rendered and
+    /// every `ScrollView` section came out blank, 5 for 5); and a
+    /// screenshot meant to be read later is more useful showing full
+    /// history than whatever happened to fit an 8-row scroll window.
+    var isCapturingScreenshot = false
+
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false
 
@@ -122,7 +144,12 @@ struct ContentView: View {
                 // step, so it needs to cost as little popover space as
                 // the thing it replaces cost none.
                 Button {
-                    screenshot.capture(self)
+                    // A copy, not `self` — see `isCapturingScreenshot`.
+                    // `ContentView` is a struct, so this is a plain value
+                    // copy that leaves the live popover untouched.
+                    var capturing = self
+                    capturing.isCapturingScreenshot = true
+                    screenshot.capture(capturing)
                 } label: {
                     Image(systemName: "camera")
                 }
@@ -479,6 +506,10 @@ struct ContentView: View {
             Text(snmp.isScanning ? "Sweeping subnet…" : (snmp.lastScanAt == nil ? "Not scanned yet" : "No SNMP devices found"))
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
+        } else if isCapturingScreenshot {
+            VStack(alignment: .leading, spacing: 2) {
+                infrastructureRows
+            }
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -564,7 +595,7 @@ struct ContentView: View {
             Text("No DHCP lease observed yet")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-        } else if dhcpLease.history.count > 2 {
+        } else if dhcpLease.history.count > 2 && !isCapturingScreenshot {
             // A fixed-height ScrollView only earns its keep once there are
             // actually more rows than fit — same reasoning as
             // `tracerouteSection`'s `displayedHops.count > 3` check. Below
@@ -633,7 +664,7 @@ struct ContentView: View {
             Text(networkQuality.isRunning ? "Testing…" : "No speed test run yet")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-        } else if networkQuality.recentRuns.count > 3 {
+        } else if networkQuality.recentRuns.count > 3 && !isCapturingScreenshot {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     speedTestRows
@@ -762,6 +793,10 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
                 .frame(height: 136, alignment: .top)
+        } else if isCapturingScreenshot {
+            VStack(alignment: .leading, spacing: 2) {
+                eventRows
+            }
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -841,7 +876,7 @@ struct ContentView: View {
             // and a `.frame(height: 60)` sized for the worst case (3+ rows,
             // before confirmation) left visible blank space below them. A
             // plain VStack sizes to exactly what's there instead.
-            if displayedHops.count > 3 {
+            if displayedHops.count > 3 && !isCapturingScreenshot {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         hopRows

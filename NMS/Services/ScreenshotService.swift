@@ -12,22 +12,24 @@ import AppKit
 /// renders the view's own layout instead, so what's saved is exactly the
 /// popover's content and nothing else, with no permission prompt at all.
 ///
-/// **Known limitation, confirmed directly rather than assumed:**
-/// `ImageRenderer` does not render `ScrollView` content at all when
-/// rendering off-screen — not clipped, entirely absent, even with real,
-/// non-empty data behind it (Events/SNMP Devices/Speed Test's history,
-/// specifically). An attempted fix — an `@Environment` flag telling
-/// those sections to swap their `ScrollView` for a plain unclipped list
-/// during capture — was built and tested, and the environment value
-/// never actually propagated into `ImageRenderer`'s render pass (checked
-/// directly via logging: read as `false` on every capture). Reverted
-/// rather than left in as dead code. A capture currently shows Network
-/// Health, Info, Path to Internet, Speed Test's header, and DHCP History
-/// (small enough to render without a `ScrollView`) correctly; Events,
-/// SNMP Devices, and Speed Test's run list render blank. See
-/// DESIGN-NOTES.md for the options considered to actually fix this
-/// (real window capture, needing Screen Recording permission) versus
-/// shipping with the limitation.
+/// **Three `ImageRenderer` quirks the caller has to work around**, all
+/// found by reading real output rather than assumed, and all handled in
+/// `ScreenshotViewModel.capture` (which is why this type takes an
+/// already-prepared view and does nothing clever itself):
+///
+/// 1. `ScrollView` content doesn't render *at all* off-screen — not
+///    clipped, absent. Hence `ContentView.isCapturingScreenshot`, which
+///    swaps every scrollable section for a plain unclipped list.
+/// 2. Native bordered buttons render as broken-image placeholders.
+///    Hence `.buttonStyle(.plain)`.
+/// 3. There's no implicit background — the popover's real one belongs to
+///    the `MenuBarExtra` window, not to `ContentView` — so an
+///    unmodified render is fully transparent. Hence an explicit
+///    `.background(...)`.
+///
+/// See DESIGN-NOTES.md's "Popover screenshot button" for how each was
+/// diagnosed, including one attempted fix (`@Environment`) that was
+/// built, disproved by logging, and reverted.
 struct ScreenshotService {
     private static let directory = FileManager.default
         .urls(for: .libraryDirectory, in: .userDomainMask)[0]
