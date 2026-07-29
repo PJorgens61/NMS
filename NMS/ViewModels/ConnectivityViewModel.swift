@@ -274,7 +274,21 @@ final class ConnectivityViewModel: ObservableObject {
         let previous = checks
         checks = snapshotStore.saveConnectivityChecks(results)
         lastCheckedAt = Date()
-        logTransitions(previous: previous, current: checks)
+
+        // Measurements are still persisted above — they genuinely
+        // happened, and the sparklines should show them — but a round
+        // that looks like local interference doesn't get to write
+        // outage events or accelerate the cadence. See
+        // `isLikelyLocalPingFailure`.
+        let localInterference = isLikelyLocalPingFailure(checks)
+        if localInterference {
+            UIStateLogger.log(
+                "ConnectivityViewModel",
+                "every ping failed while DNS/HTTP succeeded — treating as local interference, not an outage"
+            )
+        } else {
+            logTransitions(previous: previous, current: checks)
+        }
 
         // Router/internet/DNS/HTTP (the ones Network Health actually shows)
         // plus infrastructure (SNMP-confirmed) devices — a managed switch or
@@ -284,7 +298,7 @@ final class ConnectivityViewModel: ObservableObject {
         // (see the comment there): those were dropped deliberately, since a
         // single sleeping/offline random host could pin this to the fast
         // interval indefinitely for something that isn't a real outage.
-        let anyUnhealthy = checks.contains {
+        let anyUnhealthy = !localInterference && checks.contains {
             (OverallStatus.criticalLabels.contains($0.label) || infrastructureLabels.contains($0.label)) && !$0.success
         }
         // On the very first sign of trouble, don't even wait out the fast
@@ -310,6 +324,51 @@ final class ConnectivityViewModel: ObservableObject {
         // round isn't really over until the next one is scheduled, and this
         // can immediately start a fresh round in its place.
         finishChecking()
+    }
+
+    /// Every ping-based check failed, while a check that *doesn't* use
+    /// `ping` succeeded — the signature of something local interfering
+    /// with the subprocesses rather than the network being down.
+    ///
+    /// Observed twice in one day, both times during a clean Xcode build:
+    /// Router, Public IP, ISP Edge Router, Internet and every
+    /// infrastructure device all reported unreachable in the same round,
+    /// while DNS and HTTP stayed green — and everything recovered one
+    /// second later. Each produced a complete, entirely fictional outage
+    /// in the event log.
+    ///
+    /// The inference is sound rather than heuristic: DNS resolves a
+    /// *random* subdomain precisely to defeat caching, and HTTP fetches a
+    /// real remote host. Neither can succeed without a working network.
+    /// So if either passes while every ICMP probe fails at once, the
+    /// network is demonstrably up and the ping results are measuring
+    /// something else — CPU starving the forked `ping` processes past
+    /// their 1-2s timeouts, most likely, or ICMP being blocked outright.
+    ///
+    /// Requires at least two ping targets, so a minimal configuration
+    /// with a single target can't trip this on one unlucky timeout.
+    ///
+    /// **The accepted trade-off:** if ICMP is genuinely blocked
+    /// network-wide while DNS and HTTP keep working, this suppresses
+    /// those outage events indefinitely. That's arguably the right
+    /// answer — the network *is* working — but it means Network Health
+    /// can show red rows with no corresponding events, so the reason is
+    /// written to the state log rather than left silent.
+    private func isLikelyLocalPingFailure(_ checks: [ConnectivityCheck]) -> Bool {
+        var pingLabels = infrastructureLabels
+        pingLabels.formUnion([
+            OverallStatus.routerLabel,
+            OverallStatus.publicIPLabel,
+            OverallStatus.peRouterLabel,
+            OverallStatus.internetLabel
+        ])
+
+        let pings = checks.filter { pingLabels.contains($0.label) }
+        guard pings.count >= 2, pings.allSatisfy({ !$0.success }) else { return false }
+
+        return checks.contains {
+            ($0.label == OverallStatus.dnsLabel || $0.label == OverallStatus.httpLabel) && $0.success
+        }
     }
 
     /// The single place a round ends, so a deferred recheck can't be missed
