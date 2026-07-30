@@ -49,6 +49,34 @@ Check items off or delete them as they land; add new ones as they come up.
   `makeKeyAndOrderFront`), rather than relying on app activation alone.
   Reproduce first — an intermittent one is easy to "fix" without evidence.
 
+- [ ] **Estimate and document NMS's system requirements.** Needed now
+  that other people are installing it — "will this bog down my Mac?" is a
+  fair question and there's currently no answer beyond a shrug.
+
+  Measure rather than guess; most of the instrumentation already exists:
+  - **CPU** — idle vs. during a check round vs. during an SNMP sweep
+    (the sweep is the peak: up to 32 concurrent `snmpget`s). Note the
+    round cadence doubles as load: every 30s normally, every 5s while
+    anything is unhealthy. `ConnectivityCheck.systemLoad` already records
+    system load per check, so there's history to read.
+  - **RAM** — resident size at launch and after a long run, watching for
+    growth. The retention story is uneven: `ConnectivityCheckRecord`,
+    `WiFiSampleRecord` and one other table are pruned, but Events, DHCP
+    and SNMP history accumulate indefinitely (see "No retention policy
+    anywhere (measured)" in DESIGN-NOTES.md).
+  - **Disk** — store growth per day. `StoreSizeService` already reports
+    live size in the footer, so this is a matter of sampling it over
+    time rather than new code.
+  - **Network** — near-zero by design, but worth stating: a handful of
+    pings, one DNS probe and one HTTP fetch per round, plus SNMP polls;
+    Speed Test is the only heavy user and only ever runs when asked.
+  - **macOS version and hardware floor** — deployment target is macOS
+    14.0. Both Intel and Apple Silicon are supported (Release archives
+    are universal).
+
+  End result should be a short "System requirements" section in
+  `README.md`, with the measured numbers rather than adjectives.
+
 - [ ] **"Generate Report" button on Network Review.** Reuse
   `ScreenshotService`'s `ImageRenderer` against the Review content rather
   than the live popover — it captures exactly what a technician is
