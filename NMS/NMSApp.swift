@@ -73,6 +73,11 @@ struct NMSApp: App {
         UIStateLogger.startMainThreadHeartbeat()
         let store = SnapshotStore(context: container.mainContext)
         snapshotStore = store
+        // Before any view model reads the device list: a store carrying
+        // duplicate SNMP rows from the bug fixed in
+        // `adoptUntaggedRecords` would otherwise crash the app on the next
+        // poll. No-ops on a clean store. See `dedupeSNMPDevices`.
+        store.dedupeSNMPDevices()
         let networkMonitor = NetworkMonitorViewModel(snapshotStore: store)
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)

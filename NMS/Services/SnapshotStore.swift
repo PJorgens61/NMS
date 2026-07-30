@@ -56,12 +56,92 @@ final class SnapshotStore {
         )) {
             for lease in leases { lease.networkFingerprint = fingerprint }
         }
+        // Unlike events and leases above — append-only logs where a
+        // retagged row is just another entry — `SNMPDeviceRecord` holds
+        // **one row per (ipAddress, network)**, an invariant enforced only
+        // in code (see `recordSNMPDevice`; it can't be a SwiftData
+        // constraint, which has no composite form). Blindly retagging here
+        // broke it: an SNMP poll that lands before the LAN scan resolves
+        // the router MAC writes a `nil`-tagged row for a device that
+        // already has a tagged one, and adopting it produced a duplicate
+        // pair.
+        //
+        // That was a real crash, not a theoretical one. `recordSNMPDevice`
+        // fetches with `fetchLimit = 1`, so it updates one twin and leaves
+        // the other frozen; `mergingSharedMACs` then puts both copies in
+        // its `unknownMAC` bucket whenever ARP hasn't resolved that address
+        // yet, and the duplicate reaches `SNMPViewModel.apply`'s
+        // `Dictionary(uniqueKeysWithValues:)`, which traps on duplicate
+        // keys. Confirmed in the store: every device had exactly two rows.
         if let devices = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>(
             predicate: #Predicate { $0.networkFingerprint == nil }
         )) {
-            for device in devices { device.networkFingerprint = fingerprint }
+            for device in devices {
+                let ipAddress = device.ipAddress
+                var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+                    predicate: #Predicate { $0.ipAddress == ipAddress && $0.networkFingerprint == fingerprint }
+                )
+                descriptor.fetchLimit = 1
+                guard let existing = (try? context.fetch(descriptor))?.first else {
+                    device.networkFingerprint = fingerprint
+                    continue
+                }
+                // A tagged row already owns this address. The untagged row
+                // carries the *newer* poll (it was just written), so its
+                // state is folded into the survivor rather than dropped —
+                // then the duplicate goes, keeping the invariant intact.
+                if device.lastSeenAt > existing.lastSeenAt {
+                    existing.sysDescr = device.sysDescr
+                    existing.sysName = device.sysName
+                    existing.uptimeTicks = device.uptimeTicks
+                    existing.community = device.community
+                    existing.lastSeenAt = device.lastSeenAt
+                }
+                existing.firstSeenAt = min(existing.firstSeenAt, device.firstSeenAt)
+                context.delete(device)
+            }
         }
         try? context.save()
+    }
+
+    /// Deletes duplicate `SNMPDeviceRecord` rows — more than one for the
+    /// same (`ipAddress`, `networkFingerprint`) — keeping whichever was
+    /// polled most recently and preserving the earliest `firstSeenAt`
+    /// across the set.
+    ///
+    /// Self-healing rather than a one-shot migration, because stores that
+    /// already contain the duplicates exist in the wild: this bug shipped,
+    /// and other people are running the app (see the feature-flag notes).
+    /// Cheap enough to run at every launch — it's one fetch over a table
+    /// holding a handful of rows per network, and it no-ops entirely once
+    /// the store is clean.
+    ///
+    /// Kept separate from `adoptUntaggedRecords`' own guard above: that
+    /// stops *new* duplicates being created, this clears ones already on
+    /// disk. Both are needed; neither subsumes the other.
+    func dedupeSNMPDevices() {
+        guard let all = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>()) else { return }
+        var survivorByKey: [String: SNMPDeviceRecord] = [:]
+        var doomed: [SNMPDeviceRecord] = []
+
+        for record in all {
+            let key = "\(record.ipAddress)|\(record.networkFingerprint ?? "")"
+            guard let survivor = survivorByKey[key] else {
+                survivorByKey[key] = record
+                continue
+            }
+            let (keep, drop) = record.lastSeenAt > survivor.lastSeenAt
+                ? (record, survivor)
+                : (survivor, record)
+            keep.firstSeenAt = min(keep.firstSeenAt, drop.firstSeenAt)
+            survivorByKey[key] = keep
+            doomed.append(drop)
+        }
+
+        guard !doomed.isEmpty else { return }
+        for record in doomed { context.delete(record) }
+        try? context.save()
+        UIStateLogger.log("SnapshotStore.dedupeSNMPDevices", "removed \(doomed.count) duplicate row(s)")
     }
 
     @discardableResult

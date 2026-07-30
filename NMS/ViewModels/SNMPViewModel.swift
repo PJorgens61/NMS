@@ -250,7 +250,19 @@ final class SNMPViewModel: ObservableObject {
         if isFullScan {
             devices = found
         } else {
-            var byAddress = Dictionary(uniqueKeysWithValues: devices.map { ($0.ipAddress, $0) })
+            // `uniquingKeysWith:`, not `uniqueKeysWithValues:` — the latter
+            // *traps* on a duplicate address, and it did: duplicate
+            // `SNMPDeviceRecord` rows (see
+            // `SnapshotStore.adoptUntaggedRecords`) reached here through
+            // `mergingSharedMACs`' `unknownMAC` bucket and crashed the app
+            // outright. That root cause is fixed, but a list this far
+            // downstream has no business asserting an invariant three
+            // layers up: keeping the fresher of the two is a correct answer
+            // for *any* duplicate, whatever produced it, and a stale row
+            // surviving is not worth a SIGILL.
+            var byAddress = Dictionary(devices.map { ($0.ipAddress, $0) }) { older, newer in
+                older.polledAt >= newer.polledAt ? older : newer
+            }
             for device in found {
                 byAddress[device.ipAddress] = device
             }

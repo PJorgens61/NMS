@@ -33,6 +33,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Network Review: a read-only look at a past network](#network-review-a-read-only-look-at-a-past-network)
 - [Printer fault detection (out of paper, cover open): a real dead end, on this hardware](#printer-fault-detection-out-of-paper-cover-open-a-real-dead-end-on-this-hardware)
 - [Blocking work, and the two thread pools it can starve](#blocking-work-and-the-two-thread-pools-it-can-starve)
+- [The duplicate-SNMP-row crash, and an invariant with no enforcement](#the-duplicate-snmp-row-crash-and-an-invariant-with-no-enforcement)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -3861,3 +3862,90 @@ Verified: clean build with zero warnings, 38/38 unit tests, and against
 the running app — pings still fan out concurrently (8 starts within 2ms),
 `ConnectivityCheck` order still preserved despite a task group yielding by
 completion, main-thread heartbeat steady at its 20s interval.
+
+## The duplicate-SNMP-row crash, and an invariant with no enforcement
+
+A real crash, reported from a normal run: `EXC_BAD_INSTRUCTION` on the
+main thread, inside `Dictionary.init(uniqueKeysWithValues:)` called from
+`SNMPViewModel.apply(_:isFullScan:)`. That initializer **traps** on a
+duplicate key, and `devices` had two entries with the same `ipAddress`.
+
+### The chain, end to end
+
+1. `SNMPDeviceRecord` holds **one row per (`ipAddress`, network)**. That
+   invariant cannot be a SwiftData constraint — `@Attribute(.unique)` has
+   no composite form, and it was deliberately removed when devices became
+   per-network scoped (two networks may each legitimately have a
+   `192.168.1.1`). It is enforced only by `recordSNMPDevice` doing a
+   fetch-then-insert.
+2. At launch `currentNetworkFingerprint` is `nil` until the LAN scan
+   resolves the router's MAC. An SNMP poll landing inside that window
+   fetches with `fingerprint == nil`, matches nothing (the real rows are
+   tagged), and inserts a **new `nil`-tagged row** for a device that
+   already has one.
+3. `adoptUntaggedRecords` then retags every `nil` row into the current
+   fingerprint — blindly. For `AppEventRecord`/`DHCPLeaseRecord` that's
+   fine, they're append-only logs. For `SNMPDeviceRecord` it silently
+   creates a duplicate pair and breaks the invariant *permanently*, on
+   disk.
+4. `recordSNMPDevice` fetches with `fetchLimit = 1`, so from then on it
+   updates one twin and leaves the other frozen forever.
+5. `mergingSharedMACs` collapses duplicates when ARP knows the address —
+   which is why this was intermittent — but when ARP hasn't resolved it
+   yet, both copies fall through its `unknownMAC` bucket into `devices`.
+6. Next poll, `Dictionary(uniqueKeysWithValues:)` sees two `10.0.0.16`
+   keys and traps.
+
+Confirmed directly in the store rather than inferred — every device had
+exactly two rows, in two clean id blocks:
+
+```
+10.0.0.1 |2   10.0.0.8 |2   10.0.0.16|2
+10.0.0.17|2   10.0.0.18|2   10.0.0.24|2
+```
+
+The state log had been showing the tell for a while, unread:
+`aliasAddresses: ["10.0.0.16", "10.0.0.17", "10.0.0.17"]` — a device
+listing *its own address* as an alias, and another address twice. That is
+step 5 operating on duplicated input, visible in plain text well before
+the crash was traced.
+
+### Fixed in three places, deliberately
+
+- **Root cause** — `adoptUntaggedRecords` now checks for an existing
+  tagged row before adopting an untagged one. If there is one, the newer
+  poll data is folded into the survivor, the earliest `firstSeenAt` is
+  kept, and the duplicate is deleted.
+- **Existing damage** — `dedupeSNMPDevices()` runs at launch and deletes
+  extra rows, keeping the most recently polled. This bug *shipped*, and
+  other people are running the app, so their stores are already corrupt;
+  a fix that only prevents new duplicates would leave those installs
+  crashing. It no-ops on a clean store.
+- **Defence in depth** — `apply` now uses `uniquingKeysWith:`, keeping
+  the fresher entry. A list that far downstream has no business asserting
+  an invariant three layers up, and a stale row surviving is not worth a
+  SIGILL.
+
+Only the first is the fix; the second is cleanup and the third is
+tolerance. Naming which is which matters — it would be easy to land only
+the third, see the crash stop, and believe it was solved while the store
+kept corrupting itself.
+
+### The general lesson
+
+An invariant enforced only by convention, in one method, is not enforced.
+`recordSNMPDevice` maintained it correctly; `adoptUntaggedRecords` — added
+later, for an unrelated reason, in a different session — never knew about
+it. Nothing in the type system, the schema, or the tests connected the
+two. The uniqueness comment lived on `SNMPDeviceRecord.ipAddress`, which
+is exactly where someone writing a bulk-retag helper would never look.
+
+### Verified
+
+Against the real corrupt store, not a synthetic one: 12 rows → 6, no
+duplicates remaining, survivors were the fresher twins with the earliest
+`firstSeenAt` preserved (`14:11:04`), and `aliasAddresses` went from
+`["10.0.0.16", "10.0.0.17", "10.0.0.17"]` back to `["10.0.0.17"]`. Then
+five consecutive SNMP poll cycles — the exact crash site — with no crash.
+Plus two new pure regression tests pinning the pass-through contract
+between `mergingSharedMACs` and `apply` (40/40).

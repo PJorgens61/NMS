@@ -386,6 +386,59 @@ struct SharedMACMergeTests {
         #expect(merged.first?.aliasAddresses == ["10.0.0.17", "10.0.0.19"])
     }
 
+    /// Pins the behaviour behind a real crash. Duplicate
+    /// `SNMPDeviceRecord` rows for one address (see
+    /// `SnapshotStore.adoptUntaggedRecords`, where they came from) arrive
+    /// here as two devices with the *same* `ipAddress`. When ARP knows the
+    /// address they collapse by MAC — but when it doesn't, both fall into
+    /// the `unknownMAC` bucket and **pass straight through as duplicates**.
+    /// That output then reached `SNMPViewModel.apply`'s dictionary build,
+    /// which used `Dictionary(uniqueKeysWithValues:)` and trapped, killing
+    /// the app with a SIGILL.
+    ///
+    /// The assertion is deliberately that duplicates *survive* rather than
+    /// that this function dedupes them: this layer merges by MAC, and
+    /// inventing an address-based dedupe here would paper over a corrupt
+    /// store instead of fixing it. The invariant belongs upstream (the
+    /// store must not hold duplicate rows) and the tolerance downstream
+    /// (`apply` now uses `uniquingKeysWith:`). This test exists so that
+    /// contract stays explicit — if someone later makes this dedupe, the
+    /// downstream tolerance stops being load-bearing and this should be
+    /// reconsidered rather than silently passing.
+    @Test("duplicate addresses with no ARP entry pass through, and must not trap downstream")
+    func duplicateAddressesWithoutMACPassThrough() {
+        let duplicated = [device("10.0.0.16", name: "AP1"), device("10.0.0.16", name: "AP1")]
+        let merged = SNMPViewModel.mergingSharedMACs(duplicated, macByAddress: [:])
+        #expect(merged.count == 2)
+        #expect(merged.allSatisfy { $0.ipAddress == "10.0.0.16" })
+
+        // The downstream shape that used to crash: same keying `apply`
+        // does. `uniqueKeysWithValues:` traps here; this must not.
+        let byAddress = Dictionary(merged.map { ($0.ipAddress, $0) }) { older, newer in
+            older.polledAt >= newer.polledAt ? older : newer
+        }
+        #expect(byAddress.count == 1)
+    }
+
+    /// The same duplicate rows, but with ARP data present — they collapse
+    /// by MAC, which is why this crash was intermittent rather than
+    /// constant. Also pins the self-alias artifact the corrupt store
+    /// produced: `.16` listing its own address as an alias.
+    @Test("duplicate addresses sharing a MAC collapse, aliasing the address to itself")
+    func duplicateAddressesWithMACCollapse() throws {
+        let duplicated = [device("10.0.0.16", name: "AP1"), device("10.0.0.16", name: "AP1")]
+        let merged = SNMPViewModel.mergingSharedMACs(
+            duplicated,
+            macByAddress: ["10.0.0.16": "e8:10:98:ca:a9:22"]
+        )
+        #expect(merged.count == 1)
+        let primary = try #require(merged.first)
+        #expect(primary.ipAddress == "10.0.0.16")
+        // Exactly the tell seen in the real log before the fix:
+        // aliasAddresses containing the primary's own address.
+        #expect(primary.aliasAddresses == ["10.0.0.16"])
+    }
+
     /// A MAC *match* proves one device; a MAC *mismatch* proves nothing —
     /// but distinct MACs must still never be merged.
     @Test("distinct MACs are never merged")
