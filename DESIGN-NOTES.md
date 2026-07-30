@@ -2788,6 +2788,103 @@ means nothing — "normal" at a coffee shop looks nothing like "normal"
 at home. That baseline would need to be computed per-`KnownNetwork`,
 not globally, for the same reason the reachability signal does.
 
+### AI assistants: Claude, ChatGPT, Gemini
+
+For a lot of people right now this category is as load-bearing as
+Slack or a CRM — a real candidate for the "critical" flag above, not a
+novelty addition. Same direct verification as the rest of this table:
+
+| Service | Endpoint | Format |
+|---|---|---|
+| Claude (Anthropic) | `https://status.claude.com/api/v2/summary.json` | JSON — confirmed live; status.anthropic.com now redirects here (recent rebrand). Tracks `claude.ai`, the API, Claude Code, etc. as separate components |
+| ChatGPT (OpenAI) | `https://status.openai.com/api/v2/summary.json` | JSON — confirmed live; tracks ChatGPT, API, Images, Playground, Sora separately |
+| Gemini (Google) | — | No public JSON API found. `aistudio.google.com/status` is plain HTML; Gemini incidents are otherwise scattered across Google Cloud's general dashboard (not Gemini-specific) and the Google Workspace dashboard (consumer app only). Plain reachability check against `gemini.google.com` is the honest fallback, same shape as the M365/Workday/ADP gap below |
+
+Both Claude and ChatGPT ship native macOS apps (`Claude.app` confirmed
+installed on this machine), so the `lsof`-based native-app signal
+above applies to them directly too — no domain-guessing needed to tell
+whether the app itself is running and connected.
+
+### Identity/SSO providers, and Apple/iCloud
+
+Identity providers are arguably the highest-leverage entries to
+monitor in this whole list — if Okta or Auth0 goes down, it doesn't
+degrade one app, it can cut off login to everything that depends on
+it. Stronger "critical" candidates than most individual productivity
+apps. Also verified directly:
+
+| Service | Endpoint | Format |
+|---|---|---|
+| Apple (iCloud, App Store, etc.) | `https://www.apple.com/support/systemstatus/data/system_status_en_US.js` | JSON — confirmed live, and unusually granular: separate entries per iCloud sub-feature (Account, Backup, Bookmarks, Calendar, Contacts, Drive, Keychain, Mail, Notes, ...), not one blob like everything else in this table |
+| Auth0 (Okta) | `https://auth0.statuspage.io/api/v2/summary.json` | JSON |
+| Duo Security (Cisco) | `https://status.duo.com/api/v2/summary.json` | JSON |
+| Ping Identity | `https://status.pingidentity.com/api/v2/summary.json` | JSON |
+
+Two more checked and not resolved, same as the earlier gaps: **OneLogin**
+(no working status API found — the obvious `onelogin.statuspage.io`
+guess just redirects to Statuspage's own homepage, not a real page)
+and **Microsoft Entra ID / Azure AD** (no separate status page at all —
+folded into the Azure/M365 dashboards already listed above; nothing
+new to add, Azure's existing RSS entry already covers it).
+
+Worth a decision before implementing: Apple's per-sub-feature
+granularity is finer than every other entry in this table (which
+report one status per named component). Does NMS care about "iCloud"
+as a single thing, or is exposing that it's specifically iCloud Backup
+that's down (say) actually useful?
+
+### Login/session signals for discovery — what to use, what to avoid
+
+A different question from monitoring itself: could NMS use the fact
+that the Mac is actively logged into a SaaS service to *auto-discover*
+what's worth monitoring, instead of requiring the user to type each
+one in? Two categories of answer here, and they're not close calls in
+either direction.
+
+**Ruled out — touches actual credential/session material:**
+
+- **Reading Keychain-saved passwords** for other apps/sites needs
+  either a disruptive per-item consent prompt or Full Disk Access — an
+  extremely broad, all-or-nothing grant, wrong to ask for from a
+  background monitoring utility. Also a saved password only proves
+  "an account exists," not "currently logged in" — a static fact, not
+  a live one.
+- **Reading browser session cookies** (the actual proof of an active
+  login) is a materially bigger ask than anything else in this app's
+  design — functionally equivalent to being able to impersonate the
+  user's live sessions to those services. Ruled out independent of
+  technical feasibility; this is exactly the kind of access that
+  should require explicit, per-service, informed consent, not passive
+  background monitoring.
+
+**Worth considering — doesn't touch credentials at all:**
+
+- **Browser tab inspection via AppleScript/Apple Events**
+  (`tell application "Safari" to get URL of every tab of every
+  window`, or Chrome's equivalent) can tell whether a tab is open to
+  `slack.com` or `salesforce.com` without ever reading a password or
+  cookie. Partially closes the "browser-based SaaS is invisible to
+  `lsof`" gap noted above, specifically for *discovery* — suggesting
+  what to monitor, not proving an active session. Real costs: needs an
+  Automation permission prompt ("NMS wants to control Safari"), a
+  genuine user-facing consent step; and it's a weaker signal than it
+  sounds — an open tab doesn't prove authentication, and most SaaS
+  sessions outlive the tab being open anyway, so a closed tab doesn't
+  prove logged-out either.
+- **macOS's own Internet Accounts** (System Settings → Internet
+  Accounts) — if the user has already added a Google or
+  Microsoft/Exchange account at the OS level, that's an explicit,
+  already-consented signal about which identity providers matter to
+  them, without touching a password. Not verified here whether there's
+  a clean public API to enumerate that list generically, versus access
+  scoped per-framework (Contacts/Calendar/Mail); needs checking before
+  relying on it.
+
+Net position: neither of the acceptable options proves an active
+session the way Keychain/cookie access would — both are meant for
+*discovery* (auto-suggesting a starter monitoring list), not as a
+live "are you logged in right now" gate on whether a check counts.
+
 ### Open questions before implementing
 
 - Which services actually get a built-in entry vs. requiring the user
@@ -2797,11 +2894,15 @@ not globally, for the same reason the reachability signal does.
   A status-page "operational" plus the local app showing no open
   connections would be a genuinely useful combined signal, not just
   redundant.
-- Does an unresolvable service (Workday/ADP/M365) get a visibly
-  different UI treatment ("reachability only, no status API") so it
-  isn't mistaken for the higher-confidence status-page-backed checks?
+- Does an unresolvable service (Workday/ADP/M365/Gemini/OneLogin) get
+  a visibly different UI treatment ("reachability only, no status
+  API") so it isn't mistaken for the higher-confidence
+  status-page-backed checks?
 - Does SaaS monitoring share yellow with the existing LAN-device
   trigger, or get its own visually distinct signal?
 - Does severity scale with the number/criticality of affected SaaS
   services, or does any single outage trigger the same yellow
   uniformly?
+- Is AppleScript-based tab inspection worth the Automation-permission
+  ask for a discovery aid alone, or should the built-in table above
+  just be considered good enough as a starting default?
