@@ -35,6 +35,32 @@ section means, and common troubleshooting — lives at
 [`docs/user-guide.md`](https://github.com/PJorgens61/NMS/blob/main/docs/user-guide.md),
 rendered directly by GitHub — no separate build or deploy step, just push.
 
+## Contents
+
+- [Running it](#running-it)
+- [The popover](#the-popover)
+  - [Open in Window](#open-in-window)
+  - [Network Health](#network-health)
+  - [Info](#info)
+  - [Path to Internet](#path-to-internet)
+  - [Speed Test](#speed-test)
+  - [Events](#events)
+  - [SNMP Devices](#snmp-devices)
+  - [DHCP History](#dhcp-history)
+  - [Correlation](#correlation)
+  - [What's hidden](#whats-hidden)
+  - [Data retention](#data-retention)
+- [Debug tooling (DEBUG builds only)](#debug-tooling-debug-builds-only)
+- [Project layout](#project-layout)
+- [Building a universal (Intel + Apple Silicon) binary](#building-a-universal-intel--apple-silicon-binary)
+- [Notes on sandboxing](#notes-on-sandboxing)
+- [Signed and notarized releases](#signed-and-notarized-releases)
+- [Network activity and privacy](#network-activity-and-privacy)
+- [Tests](#tests)
+- [Known limitations](#known-limitations)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Running it
 
 1. Open `NMS.xcodeproj` in Xcode.
