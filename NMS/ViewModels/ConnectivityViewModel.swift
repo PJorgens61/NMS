@@ -37,6 +37,9 @@ final class ConnectivityViewModel: ObservableObject {
     /// here follows. Keyed the same way printer ping targets already are:
     /// by CUPS's own printer name.
     private var previousPrinterAlerts: [String: [String]] = [:]
+    /// Whether an `lpstat -l -p` read is already in flight — see
+    /// `refreshPrinterAlerts` for why overlapping reads are dropped.
+    private var isRefreshingPrinterAlerts = false
     /// Set when `runChecks()` is called while a round is already in flight;
     /// the deferred round fires from `finishChecking()`. Needed because
     /// `TracerouteViewModel.onTraceCompleted` can land while the very first
@@ -129,8 +132,31 @@ final class ConnectivityViewModel: ObservableObject {
     /// cadence `wifiSSID.refresh`/`dhcpLease.check` already use for things
     /// unlikely to change mid-session but worth re-reading whenever the
     /// network itself does.
+    ///
+    /// Runs off the main thread — `lpstat` is a subprocess and blocks on
+    /// `waitUntilExit()`, so this follows the same
+    /// `DispatchQueue.global(qos: .utility)` discipline every other
+    /// subprocess-backed view model here already uses (DHCP, LAN
+    /// discovery, SNMP, traceroute, speed test).
     func refreshConfiguredPrinters() {
-        configuredPrinters = printerService.configuredNetworkPrinters()
+        let printerService = self.printerService
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let printers = printerService.configuredNetworkPrinters()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let changed = printers != self.configuredPrinters
+                self.configuredPrinters = printers
+                // Same "re-derive when the dependency resolves" rule as
+                // `wireDerivedStateDependencies`' four edges: now that this
+                // read is async, the round that requested it has already
+                // built its targets without these printers, so without this
+                // a newly-configured printer wouldn't be pinged until the
+                // next periodic round. Only on an actual change, so it
+                // can't loop — nothing in `runChecks()` calls back into
+                // here.
+                if changed { self.runChecks() }
+            }
+        }
     }
 
     /// Recent latency per Network Health layer, keyed by
@@ -299,26 +325,60 @@ final class ConnectivityViewModel: ObservableObject {
 
     /// Re-reads every configured printer's CUPS-reported fault state and
     /// logs a `.printerAlert`/`.printerAlertCleared` event on transition.
-    /// Called every round from `apply(_:)`, unlike `configuredPrinters`
+    /// Kicked off every round from `apply(_:)`, unlike `configuredPrinters`
     /// (which printers exist, refreshed only on topology change) — a jam
     /// or an open cover can happen at any moment, unrelated to the network
     /// entirely, so this needs the same recurring cadence reachability
     /// checks already run on, not the topology-change one discovery uses.
-    /// `lpstat -l -p` is the same cost class as the `-v` call discovery
-    /// already makes, so adding it to every round is cheap.
+    ///
+    /// Runs off the main thread. `lpstat -l -p` is cheap in CPU terms but
+    /// it is still a subprocess blocking on `waitUntilExit()` — measured at
+    /// 33-127ms (avg 91ms) against this network's one printer. Running that
+    /// inline on the main actor stalled the UI once per round, and once
+    /// every 5s during an outage, which is precisely when the popover is
+    /// open and being watched. The first version of this did exactly that;
+    /// every other subprocess-backed view model here already knew better.
     private func refreshPrinterAlerts() {
-        let current = printerService.printerAlerts()
+        // At launch three rounds can fire within ~500ms (the three edges in
+        // `wireDerivedStateDependencies` each call `runChecks()`). That was
+        // harmless while this ran inline; now that completions land
+        // asynchronously they could interleave and double-log a single
+        // transition, so overlapping reads are dropped rather than queued —
+        // the next round re-reads anyway.
+        guard !isRefreshingPrinterAlerts else { return }
+        isRefreshingPrinterAlerts = true
+        let printerService = self.printerService
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let current = printerService.printerAlerts()
+            Task { @MainActor [weak self] in
+                self?.applyPrinterAlerts(current)
+            }
+        }
+    }
+
+    /// The main-actor half of `refreshPrinterAlerts` — publishes the new
+    /// state and logs transitions.
+    private func applyPrinterAlerts(_ current: [PrinterDiscoveryService.PrinterAlert]) {
+        isRefreshingPrinterAlerts = false
         printerStatuses = current
+        // One refresh per round regardless of how many printers changed at
+        // once, matching `logTransitions` below — each call is a full
+        // SwiftData refetch in `EventLogViewModel`, so firing it inside the
+        // loop meant N fetches for N printers.
+        var loggedAny = false
         for printer in current {
             let previous = previousPrinterAlerts[printer.name] ?? []
             if !printer.reasons.isEmpty, previous.isEmpty {
                 snapshotStore.logEvent(.printerAlert, message: "\(printer.name): \(printer.reasons.joined(separator: ", "))")
-                onEventLogged?()
+                loggedAny = true
             } else if printer.reasons.isEmpty, !previous.isEmpty {
                 snapshotStore.logEvent(.printerAlertCleared, message: "\(printer.name): alert cleared")
-                onEventLogged?()
+                loggedAny = true
             }
             previousPrinterAlerts[printer.name] = printer.reasons
+        }
+        if loggedAny {
+            onEventLogged?()
         }
     }
 

@@ -9,7 +9,14 @@ import Foundation
 /// use"), not an inference from scanning the network — and it finds a
 /// printer regardless of whether it speaks SNMP at all, unlike the
 /// sweep-based discovery `SNMPViewModel` already does.
-struct PrinterDiscoveryService {
+/// `nonisolated` for the same reason `DNSResolutionService` and
+/// `WiFiSSIDService` are: both methods here shell out and block on
+/// `waitUntilExit()`, so they must be callable from a background queue.
+/// Without this, the project-wide `SWIFT_DEFAULT_ACTOR_ISOLATION =
+/// MainActor` would confine them to the main actor — which is exactly the
+/// bug this annotation was added to fix (see `ConnectivityViewModel
+/// .refreshPrinterAlerts`).
+nonisolated struct PrinterDiscoveryService {
     private static let executablePath = "/usr/bin/lpstat"
 
     static var isAvailable: Bool {

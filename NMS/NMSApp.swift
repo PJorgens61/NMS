@@ -230,7 +230,14 @@ struct NMSApp: App {
         wifiSSID: WiFiSSIDViewModel,
         traceroute: TracerouteViewModel
     ) {
-        networkMonitor.onChangePersisted = { snapshot in
+        // `[weak networkMonitor]` because this closure is stored *on*
+        // `networkMonitor` and also reads it (for `currentInterface`
+        // below) — the one self-referential edge in this whole wiring
+        // graph, and so the one retain cycle. Every other assignment here
+        // captures a different object than the one it's stored on. Doesn't
+        // leak today, since these all live for the process lifetime, but
+        // it would the moment any of them became per-scene.
+        networkMonitor.onChangePersisted = { [weak networkMonitor] snapshot in
             // Clears recognition and the store's current-network
             // fingerprint immediately, before the LAN scan below can
             // re-recognize whatever network this change lands on —
@@ -246,7 +253,7 @@ struct NMSApp: App {
             publicIP.check()
             // Same for the Wi-Fi SSID — e.g. unplugging Ethernet and
             // falling back to Wi-Fi is exactly this kind of change.
-            wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+            wifiSSID.refresh(isWiFi: networkMonitor?.currentInterface?.isWiFi ?? false)
             // A topology change (new network, interface failover) is
             // exactly the moment a DHCP lease is likely to have changed
             // too, rather than waiting up to 5 minutes for the next poll.
