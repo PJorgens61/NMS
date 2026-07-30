@@ -83,8 +83,9 @@ Xcode 15+.
 - **Events**, **SNMP Devices**, and **DHCP History**, full width, in that
   order.
 - A footer: **Refresh**, a camera icon (screenshot), **Open in Window**,
-  and **Quit**, with a small build-hash / store-size line and, when a
-  debug override is active, an orange warning line beneath it.
+  **Networks…**, and **Quit**, with a small build-hash / store-size line
+  and, when a debug override is active, an orange warning line beneath
+  it.
 
 ### Open in Window
 
@@ -168,7 +169,15 @@ server addresses (router shown with its MAC fingerprint once known, e.g.
 `10.0.0.1 (bc:b9:...)`, so a router swap or VRRP failover at the same IP
 is visible), current public IP, and — on Wi-Fi — the BSSID. A "Known
 network" / "New network (seen N×)" line tracks how often this app has
-recognized the current network's gateway MAC before.
+recognized the current network before — identified by gateway MAC
+*and* subnet, so a main LAN and a guest VLAN on the same router (which
+share a MAC) still count as distinct networks.
+
+Events, SNMP Devices, and DHCP History are all scoped to whichever
+network is current — visiting another network never mixes its data into
+your own history. **Networks…** in the footer opens a list of every
+network this Mac has connected to, with a way to forget one (and every
+event/lease/device it was the source of) entirely.
 
 ### Path to Internet
 
@@ -189,10 +198,14 @@ hop's ISP-edge ping itself transitions.
 Two independent sources, one shared history list:
 
 - **Cloudflare** (`Run Speed Test`): a plain HTTPS GET/POST against
-  Cloudflare's public speed-test endpoint, 25MB each direction,
-  sequential (never concurrent, so the two numbers don't understate each
-  other). Takes about a second on a fast connection.
-- **Apple** (`Run Network Quality`, next to the "~50MB per run" label):
+  Cloudflare's public speed-test endpoint, sequential (never concurrent,
+  so the two numbers don't understate each other). Each direction starts
+  with a small 2MB probe and only escalates to a full 25MB transfer if
+  the probe suggests a fast-enough link that the small one would
+  understate it — accurate on a fast connection, and no longer minutes
+  (or a timeout) on a slow one, like DSL. Takes about a second on a fast
+  connection.
+- **Apple** (`Run Network Quality`, next to the "up to ~50MB per run" label):
   shells out to `/usr/bin/networkQuality -c -s -M 45`, for the one signal
   Cloudflare's plain transfer can't produce — responsiveness under load
   (RPM, round-trips-per-minute while the link is saturated — a

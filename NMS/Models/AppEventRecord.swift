@@ -105,11 +105,21 @@ final class AppEventRecord {
     var kind: String
     var message: String
     var occurredAt: Date
+    /// Which `KnownNetwork.fingerprint` this happened on — see
+    /// `SnapshotStore.currentNetworkFingerprint`. `nil` only when the
+    /// network genuinely hadn't been recognized yet at the moment this was
+    /// logged (e.g. right at launch, before the first LAN scan resolves
+    /// the router's MAC); such a row won't match any specific network's
+    /// filter and so simply won't show under any of them, rather than
+    /// risking it showing under whichever network happens to be current
+    /// later. See DESIGN-NOTES.md's "Per-network device scoping."
+    var networkFingerprint: String?
 
-    init(kind: AppEventKind, message: String, occurredAt: Date = Date()) {
+    init(kind: AppEventKind, message: String, occurredAt: Date = Date(), networkFingerprint: String? = nil) {
         self.kind = kind.rawValue
         self.message = message
         self.occurredAt = occurredAt
+        self.networkFingerprint = networkFingerprint
     }
 }
 

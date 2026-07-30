@@ -8,3 +8,11 @@ xcuserdata/
 # Local Claude Code settings (Bash allowlist) — machine-specific, not
 # something a clone should inherit.
 .claude/
+
+# A snapshot of a real, populated SwiftData store, used as a test fixture
+# by script/save-fixture.sh / script/scenarios.sh-style scripts so tests
+# needing pre-existing history (known networks, SNMP devices, DHCP
+# leases) don't have to build it up from scratch or touch the real store.
+# Never committed: it contains real personal network data (MACs, device
+# hostnames, router info) and this repo is public.
+script/fixtures/

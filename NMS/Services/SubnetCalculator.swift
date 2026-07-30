@@ -77,4 +77,18 @@ nonisolated struct SubnetCalculator {
     static func prefixLength(subnetMask: String) -> Int? {
         packedIPv4(subnetMask)?.nonzeroBitCount
     }
+
+    /// The subnet's network address in CIDR notation (e.g. `10.0.0.0/24`),
+    /// for `KnownNetwork`'s identity — see DESIGN-NOTES.md's "Per-network
+    /// device scoping": router MAC alone collapses distinct VLANs served
+    /// by the same router into one network, so the fingerprint needs the
+    /// subnet too.
+    static func cidr(ipAddress: String, subnetMask: String) -> String? {
+        guard
+            let ip = packedIPv4(ipAddress),
+            let mask = packedIPv4(subnetMask),
+            let prefix = prefixLength(subnetMask: subnetMask)
+        else { return nil }
+        return "\(dottedQuad(ip & mask))/\(prefix)"
+    }
 }

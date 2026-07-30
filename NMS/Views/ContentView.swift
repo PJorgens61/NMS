@@ -129,7 +129,7 @@ struct ContentView: View {
                         }
                         .disabled(networkQuality.isRunning)
                         .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
-                        .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, roughly 50MB total.")
+                        .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
                     }) {
                         speedTestTileContent
                     }
@@ -215,6 +215,11 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Open in Window")
                 .accessibilityHint("Opens the same content in a resizable, scrollable window")
+                Button("Networks…") {
+                    openWindow(id: "known-networks")
+                }
+                .accessibilityLabel("Known Networks")
+                .accessibilityHint("Opens a list of every network this Mac has connected to, with a way to forget one")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
@@ -595,6 +600,15 @@ struct ContentView: View {
         return check.success ? .healthy : .unhealthy
     }
 
+    /// Explains why the ISP Edge Router hop shown is only a guess until
+    /// confirmed. See `tracerouteSection`'s `suggestedEdgeHop` branch for
+    /// why this is a tooltip and not a visible line.
+    private static let suggestedEdgeHopHelp = """
+        Tap ★ next to the real ISP hop below to confirm — the first \
+        non-local hop isn't always right on networks with their own \
+        public IP space (e.g. campus/enterprise).
+        """
+
     /// Only the `.unknown` case really needs explaining — green and red
     /// read themselves — but all three are worded so hovering any dot
     /// answers the same question rather than leaving one silent.
@@ -829,7 +843,7 @@ struct ContentView: View {
     @ViewBuilder
     private var speedTestTileContent: some View {
         HStack {
-            Text("~50MB per run")
+            Text("up to ~50MB per run")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
             Spacer()
@@ -1136,10 +1150,17 @@ struct ContentView: View {
             .accessibilityLabel("Stop monitoring hop \(monitored.hopNumber)")
             .accessibilityHint("Stops treating this hop as the ISP edge router")
         } else if let suggested = traceroute.suggestedEdgeHop {
+            // A separate wrapped-text row here used to explain this, at a
+            // real height cost: every *new* network starts unconfirmed, so
+            // this branch — and the extra line — appeared on every network
+            // visited for the first time, not just occasionally. Testing
+            // on other networks is exactly what surfaced it, since the
+            // home network's hop had long since been confirmed and never
+            // showed the branch at all. A tooltip on the row itself, same
+            // pattern as `dhcpLeaseHelp`/`reachabilityHelp`, keeps the
+            // explanation without the line.
             row("Suggested (unconfirmed)", suggested.hostname ?? suggested.address ?? "—")
-            Text("Tap ★ next to the real ISP hop below to confirm — the first non-local hop isn't always right on networks with their own public IP space (e.g. campus/enterprise).")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .appKitToolTip(Self.suggestedEdgeHopHelp, enabled: !isCapturingScreenshot)
         } else if traceroute.isRunning {
             Text("Tracing…")
                 .foregroundStyle(.secondary)
