@@ -32,6 +32,41 @@ Check items off or delete them as they land; add new ones as they come up.
 
   Empty output means clean.
 
+- [ ] **Known Networks still opens behind other windows, sometimes.**
+  Note this is *not* a missing `openWindowInFront` call — that landed in
+  `0f8f80e` and all three footer buttons use it. So the remaining case is
+  narrower, and worth pinning down before changing anything:
+  - Does it happen only when the window is **already open** (just buried)?
+    `openWindow(id:)` on an existing window doesn't necessarily order it
+    front, and `NSApp.activate` raises the app's *key* window, which may
+    be a different one.
+  - Or on first open too, in which case the likely cause is ordering —
+    `NSApp.activate` runs synchronously, before SwiftUI has actually
+    created the window, so there's nothing to raise yet.
+
+  Fix probably needs the window itself ordered front once it exists
+  (`NSApplication.shared.windows` lookup by identifier, then
+  `makeKeyAndOrderFront`), rather than relying on app activation alone.
+  Reproduce first — an intermittent one is easy to "fix" without evidence.
+
+- [ ] **Investigate whether a network label can be silently cleared.**
+  Observed once: a label set to `foo bar` read back as `NULL` a few
+  minutes later. Ruled out at the time — the `KnownNetwork` row was *not*
+  recreated (same `Z_PK`, same `firstSeenAt`, `timesSeen` still
+  incrementing), so only an explicit `setLabel` could have written NULL.
+  Never established whether it was cleared by hand while testing or
+  cleared itself.
+
+  Suspect if it's real: `KnownNetworksView.commitLabel` fires on focus
+  loss whenever a draft exists, so if SwiftUI ever writes an empty string
+  into the row's `TextField` binding during a `List` rebuild (which
+  `refreshKnownNetworks()` causes by reassigning the array), that creates
+  an empty draft and blanks the label on the next focus change.
+
+  Cheapest first step is making it answerable rather than guessing: log
+  label writes to `UIStateLogger`, then check the log next time it
+  happens.
+
 - [ ] **"Generate Report" button on Network Review.** Reuse
   `ScreenshotService`'s `ImageRenderer` against the Review content rather
   than the live popover — it captures exactly what a technician is
