@@ -52,6 +52,7 @@ rendered directly by GitHub — no separate build or deploy step, just push.
   - [Data retention](#data-retention)
 - [Debug tooling (DEBUG builds only)](#debug-tooling-debug-builds-only)
 - [Project layout](#project-layout)
+- [System requirements](#system-requirements)
 - [Building a universal (Intel + Apple Silicon) binary](#building-a-universal-intel--apple-silicon-binary)
 - [Notes on sandboxing](#notes-on-sandboxing)
 - [Signed and notarized releases](#signed-and-notarized-releases)
@@ -615,6 +616,59 @@ deliberately breaking `isLikelyLocalPingFailure` (dropping its DNS/HTTP
 survival requirement, so it suppresses unconditionally) fails exactly
 one test — `doesNotSuppressRealOutage`, the one guarding against a real
 outage going unlogged.
+
+## System requirements
+
+Measured on the development Mac (Intel Core i5-8500, 6 cores, 32 GB,
+macOS 15.7.7) against a real network with 5 SNMP devices and 8 ping
+targets. Figures are from the app's own instrumentation, not estimates —
+`ConnectivityCheck.systemLoad`, `SubprocessTracer` and `StoreSizeService`
+already record most of this.
+
+| | |
+|---|---|
+| **macOS** | 14.0 or later |
+| **Architecture** | Intel and Apple Silicon (Release archives are universal) |
+| **CPU, steady state** | **0.9% of one core** (0.15% of a 6-core machine) |
+| **Memory** | **~74 MB** resident, 7 threads |
+| **Disk** | ~3.6 MB early on; **~35 MB projected** at 7-day steady state |
+| **Network** | a few KB per check round; see below |
+
+**CPU is cadence-driven, so the steady-state figure is the floor, not the
+ceiling.** Checks run every 30s while everything is healthy and **every
+5s while anything is unhealthy** — a sustained outage is a 6x increase in
+round frequency, and each round pings every target. A manual SNMP **Scan**
+is the real peak: it sweeps the subnet with up to 32 concurrent `snmpget`
+processes. Nothing else in the app approaches that, and it only ever runs
+when asked.
+
+**Disk needs the retention rules to make sense of.** Three telemetry
+tables are pruned to a 7-day window (`ConnectivityCheckRecord`,
+`WiFiSampleRecord`, `DiscoveredDeviceRecord`), which is what makes the
+total converge instead of growing forever. `ConnectivityCheckRecord`
+dominates: 10 checks per round, every 30s, is ~28,800 rows/day and about
+201,600 rows at steady state. Measured at ~179 bytes/row (an upper bound
+— that divides the whole store by just this table's rows), which projects
+to roughly 35 MB.
+
+Events, DHCP lease history and SNMP device state are **not** pruned, by
+design — they're change logs, not telemetry, so they only grow when
+something actually changes. On a stable network that is a handful of rows
+a day; on a flapping one it is bounded by how often the network flaps
+rather than by the clock. The footer shows live store size, so this is
+observable rather than theoretical.
+
+**Network use is deliberately small**: per round, one ICMP echo per
+target (8 here), one DNS query for a randomized subdomain, and one HTTP
+fetch of Apple's captive-portal probe. SNMP polls add a few hundred bytes
+per known device each minute, and the public IP is re-checked every few
+minutes. That lands in the low single-digit KB per round — call it a few
+MB a day. **Speed Test is the one exception** and is never automatic: it
+moves up to ~50 MB per run and only when clicked.
+
+**What it does not need**: no admin rights, no kernel extension, no
+always-on internet (it degrades to reporting what's unreachable), and no
+account or cloud service — everything stays on the machine.
 
 ## Known limitations
 

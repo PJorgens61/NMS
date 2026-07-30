@@ -125,7 +125,7 @@ struct KnownNetworksView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Forget \(network.label ?? network.routerMAC)")
-            .accessibilityHint("Deletes this network and every event, DHCP lease, and SNMP device recorded on it")
+            .accessibilityHint("Deletes this network and every event, DHCP lease, SNMP device, and Wi-Fi reading recorded on it")
         }
         .padding(.vertical, 2)
     }

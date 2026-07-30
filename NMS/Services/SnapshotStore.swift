@@ -390,6 +390,26 @@ final class SnapshotStore {
         )) {
             for device in devices { context.delete(device) }
         }
+        // Added late, and that's the point worth recording: this method
+        // was written when there were three per-network tables, and
+        // `WiFiSampleRecord` shipped afterwards without anything
+        // connecting the two. Found by deleting a real network and
+        // noticing 90 samples survive it — with SSID and BSSID attached,
+        // which is precisely what "forget this network" should remove.
+        //
+        // Worse than orphaned rows: `KnownNetwork.fingerprint` is derived
+        // (`routerMAC|subnet`), so rejoining the same network mints the
+        // identical fingerprint and the "forgotten" samples silently
+        // reattach to it.
+        //
+        // **Anything added to this file with a `networkFingerprint` must
+        // be deleted here too.** There is no compiler check for that — the
+        // four tables are related only by convention.
+        if let samples = try? context.fetch(FetchDescriptor<WiFiSampleRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint }
+        )) {
+            for sample in samples { context.delete(sample) }
+        }
         context.delete(network)
         try? context.save()
 
