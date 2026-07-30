@@ -20,11 +20,34 @@ struct KnownNetworksView: View {
     /// sidesteps that class of bug entirely.
     @State private var reviewingNetwork: KnownNetwork?
 
+    /// In-progress label edits, keyed by fingerprint. Held separately from
+    /// the stored `KnownNetwork.label` so a save happens once per edit
+    /// rather than once per keystroke — `setLabel` calls
+    /// `refreshKnownNetworks()`, which reassigns the array this `List` is
+    /// built from, and doing that mid-typing fights the text field for
+    /// focus. An entry is cleared once committed, so the binding falls
+    /// back to the stored value.
+    @State private var draftLabels: [String: String] = [:]
+    /// Which row's field has focus, so losing focus commits the edit —
+    /// `.onSubmit` alone would silently discard a label the user typed and
+    /// then clicked away from.
+    @FocusState private var focusedFingerprint: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Known Networks")
                 .font(.headline)
                 .padding([.horizontal, .top], 12)
+                .padding(.bottom, 2)
+
+            // The name field is deliberately borderless, so it reads as a
+            // label until clicked — which makes renaming invisible without
+            // saying so once, here, rather than adding a control to every
+            // row.
+            Text("Click a name to rename it. Clearing it restores the Wi-Fi network name.")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
                 .padding(.bottom, 6)
 
             if networkIdentity.knownNetworks.isEmpty {
@@ -43,6 +66,16 @@ struct KnownNetworksView: View {
         }
         .frame(minWidth: 420, minHeight: 240)
         .onAppear { networkIdentity.refreshKnownNetworks() }
+        // Commits the row that *just lost* focus, which is the common way
+        // an edit ends — clicking another row, or anywhere else in the
+        // window. Without this, only pressing Return would save.
+        .onChange(of: focusedFingerprint) { previous, _ in
+            guard
+                let previous,
+                let network = networkIdentity.knownNetworks.first(where: { $0.fingerprint == previous })
+            else { return }
+            commitLabel(for: network)
+        }
         .sheet(item: $reviewingNetwork) { network in
             NetworkReviewView(network: network, snapshotStore: snapshotStore)
         }
@@ -52,8 +85,18 @@ struct KnownNetworksView: View {
     private func row(for network: KnownNetwork) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(displayName(for: network))
+                // The placeholder is the same fallback the row used to
+                // show as static text, so an unlabelled network still
+                // reads as "Thistle (Wi-Fi)" or "Ethernet" — just greyed,
+                // which is honest: that name is derived, not stored.
+                // Typing replaces it; clearing the field restores it.
+                TextField(displayName(for: network), text: labelBinding(for: network))
+                    .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
+                    .focused($focusedFingerprint, equals: network.fingerprint)
+                    .onSubmit { commitLabel(for: network) }
+                    .accessibilityLabel("Name for \(displayName(for: network))")
+                    .accessibilityHint("Type a name for this network; leave empty to use the Wi-Fi network name or connection type")
                 Text("\(network.routerMAC) on \(network.subnet)")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -85,6 +128,27 @@ struct KnownNetworksView: View {
             .accessibilityHint("Deletes this network and every event, DHCP lease, and SNMP device recorded on it")
         }
         .padding(.vertical, 2)
+    }
+
+    /// Reads the in-progress draft if there is one, else whatever's
+    /// stored. Writing only touches the draft — see `commitLabel` for when
+    /// that reaches the store.
+    private func labelBinding(for network: KnownNetwork) -> Binding<String> {
+        Binding(
+            get: { draftLabels[network.fingerprint] ?? network.label ?? "" },
+            set: { draftLabels[network.fingerprint] = $0 }
+        )
+    }
+
+    /// Persists a row's edited label, if it actually changed. Clearing the
+    /// draft afterwards is what hands display back to the stored value
+    /// (and, when the label is emptied, to `displayName`'s fallback).
+    private func commitLabel(for network: KnownNetwork) {
+        guard let draft = draftLabels[network.fingerprint] else { return }
+        draftLabels[network.fingerprint] = nil
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != (network.label ?? "") else { return }
+        networkIdentity.setLabel(trimmed, for: network)
     }
 
     /// User label, else the most recent Wi-Fi SSID seen on this network,

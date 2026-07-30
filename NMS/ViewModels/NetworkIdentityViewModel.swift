@@ -64,9 +64,20 @@ final class NetworkIdentityViewModel: ObservableObject {
         snapshotStore.setCurrentNetworkFingerprint(nil)
     }
 
-    func setLabel(_ label: String) {
-        guard let currentNetwork else { return }
-        snapshotStore.setLabel(label, for: currentNetwork)
+    /// Names a network — any known network, not just the current one,
+    /// which is the whole point: `KnownNetworksView` lists every network
+    /// this Mac has seen, and a field technician labelling a site they
+    /// visited last week is exactly the case that matters. (The previous
+    /// version of this took no network and silently only worked on
+    /// `currentNetwork`; nothing ever called it, so it was dead code
+    /// enforcing a restriction no caller wanted.)
+    ///
+    /// An empty label clears it rather than storing `""` — see
+    /// `SnapshotStore.setLabel` — so the display falls back to the Wi-Fi
+    /// SSID or "Ethernet" again, which is what an emptied field should
+    /// mean.
+    func setLabel(_ label: String, for network: KnownNetwork) {
+        snapshotStore.setLabel(label, for: network)
         refreshKnownNetworks()
     }
 
