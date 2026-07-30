@@ -135,6 +135,26 @@ struct ContentView: View {
                 }
             }
 
+            // Window-only, not popover-gated by a feature flag: this adds
+            // a new full-width section, and the popover's fixed-height
+            // budget is exactly the constraint this whole app has fought
+            // hardest — a 5th section costs space a fresh install didn't
+            // ask for. `isInWindow` already threads through everywhere
+            // else for per-tile scroll-box sizing; gating a whole section
+            // on it is the same pattern, not new plumbing. Hidden outright
+            // on Ethernet — nothing here has a Wi-Fi answer. Placed above
+            // Events (moved up on request) rather than at the bottom with
+            // the other full-width sections, since it's read-at-a-glance
+            // current state, not scrollable history like they are.
+            if isInWindow && wifiSSID.currentSSID != nil {
+                Divider()
+
+                Text("Wi-Fi")
+                    .font(.headline)
+
+                wifiSection
+            }
+
             Divider()
 
             Text("Events")
@@ -183,23 +203,6 @@ struct ContentView: View {
                 .font(.headline)
 
             dhcpHistoryList
-
-            // Window-only, not popover-gated by a feature flag: this adds
-            // a new full-width section, and the popover's fixed-height
-            // budget is exactly the constraint this whole app has fought
-            // hardest — a 5th section costs space a fresh install didn't
-            // ask for. `isInWindow` already threads through everywhere
-            // else for per-tile scroll-box sizing; gating a whole section
-            // on it is the same pattern, not new plumbing. Hidden outright
-            // on Ethernet — nothing here has a Wi-Fi answer.
-            if isInWindow && wifiSSID.currentSSID != nil {
-                Divider()
-
-                Text("Wi-Fi")
-                    .font(.headline)
-
-                wifiSection
-            }
 
             Divider()
 
