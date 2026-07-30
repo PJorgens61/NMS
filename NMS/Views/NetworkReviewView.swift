@@ -51,7 +51,7 @@ struct NetworkReviewView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(viewModel.network.label?.isEmpty == false ? viewModel.network.label! : "Unlabeled network")
+            Text(displayName)
                 .font(.title3.weight(.semibold))
             Text("\(viewModel.network.routerMAC) on \(viewModel.network.subnet)")
                 .font(.system(size: 11))
@@ -60,6 +60,19 @@ struct NetworkReviewView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Same label → Wi-Fi SSID → "Ethernet" fallback as
+    /// `KnownNetworksView.displayName(for:)`, reading `viewModel.wifiSamples`
+    /// (already fetched, newest-first) instead of a second store query.
+    private var displayName: String {
+        if let label = viewModel.network.label, !label.isEmpty {
+            return label
+        }
+        if let ssid = viewModel.wifiSamples.first?.ssid, !ssid.isEmpty {
+            return "\(ssid) (Wi-Fi)"
+        }
+        return "Ethernet"
     }
 
     @ViewBuilder

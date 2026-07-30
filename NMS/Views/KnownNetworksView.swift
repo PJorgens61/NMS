@@ -52,7 +52,7 @@ struct KnownNetworksView: View {
     private func row(for network: KnownNetwork) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(network.label?.isEmpty == false ? network.label! : "Unlabeled network")
+                Text(displayName(for: network))
                     .font(.system(size: 13, weight: .medium))
                 Text("\(network.routerMAC) on \(network.subnet)")
                     .font(.system(size: 10))
@@ -85,5 +85,33 @@ struct KnownNetworksView: View {
             .accessibilityHint("Deletes this network and every event, DHCP lease, and SNMP device recorded on it")
         }
         .padding(.vertical, 2)
+    }
+
+    /// User label, else the most recent Wi-Fi SSID seen on this network,
+    /// else "Ethernet" — mirrors `ContentView.networkDisplay(_:)`'s
+    /// fallback chain for the *current* network, but `KnownNetwork` itself
+    /// has no persisted SSID or connection-type field to fall back to, so
+    /// this reads the one most recent `WiFiSampleRecord` for the
+    /// fingerprint instead (same query `NetworkReviewViewModel` uses, just
+    /// capped to the single newest row). No Wi-Fi sample ever recorded on
+    /// this network is taken as "it's Ethernet" — `WiFiSSIDViewModel`
+    /// samples every 60s for as long as a network stays on Wi-Fi, so a
+    /// genuinely Wi-Fi network wouldn't have zero samples for long.
+    ///
+    /// Previously just "Unlabeled network" whenever `label` was nil —
+    /// which was *every* network, since nothing in the UI ever calls
+    /// `NetworkIdentityViewModel.setLabel`. That's a separate, still-open
+    /// gap (no UI to actually set a label) — this fallback means a nil
+    /// label no longer reads as "no information available" when the SSID
+    /// or connection type is already known.
+    private func displayName(for network: KnownNetwork) -> String {
+        if let label = network.label, !label.isEmpty {
+            return label
+        }
+        if let ssid = snapshotStore.fetchWiFiSampleHistory(for: network.fingerprint, limit: 1).first?.ssid,
+           !ssid.isEmpty {
+            return "\(ssid) (Wi-Fi)"
+        }
+        return "Ethernet"
     }
 }
