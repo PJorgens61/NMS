@@ -481,7 +481,12 @@ struct NMSApp: App {
         Window("Preferences", id: "preferences") {
             PreferencesView()
         }
-        .defaultSize(width: 380, height: 260)
+        // Sizes to whatever the content actually measures rather than a
+        // guessed `defaultSize` — that guess (380x260) was too short and
+        // truncated both feature descriptions mid-sentence. Content
+        // sizing means a longer description, a larger system font, or a
+        // future third toggle can't reintroduce that.
+        .windowResizability(.contentSize)
     }
 
     /// Gates the comparison window's *content*, not the `Window` scene
