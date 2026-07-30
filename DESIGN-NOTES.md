@@ -2984,6 +2984,52 @@ per-tab activity data, but a real, achievable recency signal — better
 than raw open-frequency alone, and doesn't require anything beyond
 what the rest of this section already proposes.
 
+### Does the macOS DNS cache help? No — checked directly, rejected on two independent grounds
+
+Same instinct as the network-attribution question: the system DNS
+cache holds recently-resolved hostnames, which in principle could
+surface SaaS domains a browser tab-scan or `lsof` might miss. Checked
+directly on this machine rather than assumed:
+
+```
+$ dscacheutil -cachedump -entries Host
+Viewing host entries requires administrator privileges.
+
+$ dscacheutil -statistics
+Unable to get details from the cache node
+```
+
+Confirmed: even the lightest statistics query is blocked without
+root. The one technique that does still work —
+`sudo killall -INFO mDNSResponder`, which makes mDNSResponder dump its
+cache state to the system log rather than a queryable API — still
+needs `sudo`. That's a different privilege class than anything else
+in this app: `arp`/`ping`/`traceroute`/`snmpget`/`lsof` are all usable
+by a regular account, no elevation needed anywhere. Root access here
+means either prompting for a password (nothing else in NMS does that)
+or a privileged helper tool — a new architecture category, not a flag
+on an existing shell-out.
+
+Rejected on a second, independent ground even setting privilege
+aside: the content itself is worse than what's already designed for
+this purpose.
+- **No history** — TTL-evicted, point-in-time only, same limitation
+  `arp -a` has, but without this app's existing periodic-snapshot
+  workaround for that problem.
+- **No attribution to origin, worse than the per-tab finding above**
+  — the system DNS cache is shared by every process on the Mac, not
+  scoped to one browser, so a cached entry can't be traced to a SaaS
+  tab vs. a background OS check vs. an ad network.
+- **Much noisier** — a single page load triggers lookups for a dozen
+  third-party/tracker/CDN domains unrelated to the page's actual
+  purpose, with no clean way to separate those from the domain the
+  user actually cares about, unlike the tab list (which only contains
+  URLs the user actually navigated to).
+
+Net: a real, verifiable macOS capability, but strictly worse than the
+tab-scan approach already proposed on every axis that matters here —
+more privileged, less attributable, noisier. Not worth building.
+
 ### Open questions before implementing
 
 - Which services actually get a built-in entry vs. requiring the user
