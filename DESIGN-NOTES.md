@@ -2482,3 +2482,251 @@ Previously: adopting it would turn all four of these into hard errors,
 requiring the isolation cascade to be worked through then instead of now.
 That's no longer the real cost — there's nothing left in this category to
 work through.
+
+## Historical health score (green / yellow / red)
+
+Distinct from `ConnectionLayer`'s real-time status (what's true right
+now) — this is a trend signal: how has the network behaved over some
+window (last hour, last day, last week). Worth keeping visually separate
+from the live indicator rather than merging them, since conflating "down
+right now" with "was flaky an hour ago" makes both harder to read at a
+glance.
+
+### Useful statistics
+
+- **Latency: percentiles (p50/p95), not the mean.** Latency is
+  right-skewed — a mean gets dragged by rare bad spikes and stops
+  representing typical experience. p50 is "typical," p95 is "how bad do
+  the worst moments get," which is usually the more actionable number.
+- **Jitter, as its own axis**: std-dev or IQR on latency, separate from
+  the median. Consistently-slow and wildly-variable read very
+  differently to a user even at the same average.
+- **Outage character: MTBF and MTTR, not just uptime %.** Derived by
+  pairing up `AppEventRecord`'s existing down/up transitions. Five short
+  outages and one long one can have identical total downtime but very
+  different real-world impact — worth keeping as two numbers, not one.
+- **Trend: a rolling recent-window vs. longer-baseline comparison**, not
+  fixed absolute thresholds alone — accounts for some networks just
+  being naturally noisier than others. Deliberately not reaching for
+  ARIMA/anomaly-detection/ML here — disproportionate complexity and
+  opacity for a single-network app; a black-box anomaly score is hard to
+  explain to yourself when the indicator changes color. The plain stats
+  above stay legible enough to debug by eye, which is worth more than a
+  cleverer model here.
+
+### Scoring scheme
+
+Z-score against the network's own historical mean/SD for a given metric
+(assumes higher = better — uptime %, throughput — not raw latency,
+which would need inverting first):
+
+- `z > 0` (above mean) → **green**
+- `-1 ≤ z ≤ 0` → **yellow**
+- `z < -1` → **red**
+
+Asymmetric on purpose: for a roughly-normal distribution, "above the
+mean" covers about half of all readings, so green means "at or above
+typical," not "exceptionally good." That's the right shape for
+something glanced at constantly — green should be the common case, not
+a rare treat.
+
+Two real costs of this approach, both worth accepting knowingly rather
+than discovering later:
+
+- **Self-relative, not absolute.** Mean/SD come from the network's own
+  history, so a chronically mediocre network still reads green about
+  half the time relative to its own drifted-down baseline. This answers
+  "is today typical for this network," not "is this objectively good" —
+  a different question than it might look like at a glance.
+- **Needs a dead zone around `z = 0`.** Noise straddling the exact mean
+  would otherwise flip the color on nearly every reading. Require
+  something like `z > 0.1` / `z < -0.1` to actually change the displayed
+  color, or a minimum-duration-in-zone rule — the same kind of
+  hysteresis a thermostat uses to avoid short-cycling.
+
+Also needs a minimum-sample-size guard: with too little history, mean/SD
+are noise, not signal. Below some threshold, show "not enough data yet"
+— the same shape as `ConnectionLayer`'s existing `.unknown` state —
+rather than a color that looks confident and isn't.
+
+### Storage: this is what the RRDtool section's open question was asking
+
+The RRDtool section above concluded `SnapshotStore.pruneIfNeeded`
+already closes the *unbounded growth* gap, but left one question
+explicitly open: whether genuine long-term consolidated history (weeks
+or months, not the sparkline's 10–15 minutes) is an actual goal. The
+z-score baseline above is exactly that goal arriving — a multi-day (or
+longer) mean/SD can't be computed from 7 days of raw rows once older
+rows are pruned, and re-deriving it from scratch on every launch by
+re-reading everything would be the "old fine-grained rows accumulate
+forever" problem that section warned about, just moved earlier.
+
+A narrow, SwiftData-native answer, without adopting RRDtool: store
+**sufficient statistics** per day per layer, not raw rows — small,
+additive, and enough to reconstruct an exact multi-day mean/SD without
+re-touching the pruned raw data:
+
+```swift
+@Model
+final class ConnectivityDailySummary {
+    var layer: String              // matches ConnectionLayer's identifiers
+    var day: Date                  // start of day, truncated
+
+    var sampleCount: Int
+    var successCount: Int
+
+    // Sums, not pre-computed averages — additive across days, so a
+    // multi-day mean/SD is exact, not an average of averages (which
+    // would be wrong: you can't average per-day standard deviations
+    // and get the correct combined SD).
+    var latencySum: Double         // Σx
+    var latencySumSquares: Double  // Σx²
+
+    var outageCount: Int
+    var outageDurationSum: TimeInterval   // feeds MTTR
+}
+```
+
+Computed once per day (e.g. opportunistically at launch, rolling up
+whatever `pruneIfNeeded` is about to discard, rather than a new
+scheduler), then queried by summing the additive fields across the
+requested window:
+
+```swift
+func baselineStats(layer: String, days: Int) -> (mean: Double, stdDev: Double)? {
+    let summaries = fetchDailySummaries(layer: layer, sinceDays: days)
+    let n = summaries.reduce(0) { $0 + $1.successCount }
+    guard n > minimumSampleThreshold else { return nil }  // .unknown, not a guess
+
+    let sum = summaries.reduce(0) { $0 + $1.latencySum }
+    let sumSq = summaries.reduce(0) { $0 + $1.latencySumSquares }
+    let mean = sum / Double(n)
+    let stdDev = sqrt(max(0, sumSq / Double(n) - mean * mean))
+    return (mean, stdDev)
+}
+```
+
+Storage cost is trivial either way — roughly 1,460 rows/year across all
+`ConnectionLayer` values kept indefinitely — so this isn't solving a
+size problem, it's solving an information-loss problem: `pruneIfNeeded`
+deleting raw rows after 7 days is exactly right for the sparkline use
+case and exactly wrong for "what's normal for this network over the
+last month," unless something like this sits between the two.
+
+### Open questions before implementing
+
+- Does this get its own UI element, or fold into an existing one (e.g.
+  an outline/badge around the `ConnectionLayer` rows it summarizes)?
+- One score per layer, or one overall score combining all layers
+  (worst-of, matching the existing root-cause philosophy, or something
+  else)?
+- What's the actual minimum-sample threshold before trusting mean/SD —
+  needs picking, not just gesturing at "enough history"?
+
+## Business SaaS monitoring
+
+A different kind of "is the network working" question: not "is the
+internet reachable," but "are the specific services this business
+actually depends on reachable" — Slack, Zoom, Salesforce, Microsoft
+365, and similar. Splits into two problems with very different
+feasibility.
+
+### Discovery ("what's this Mac actually using") — real ceiling
+
+`lsof -i -P -n` (bundled with macOS, confirmed working without root for
+the current user's own processes) maps each live connection to the
+local process that owns it — the same "shell out to an OS-native tool"
+pattern as `ping`/`arp`/`traceroute`/`snmpget`. For a native SaaS
+client — Slack.app, zoom.us, the Dropbox/OneDrive sync agents — this
+cleanly answers "is Slack connected right now," no IP-address guessing
+involved.
+
+Two things limit it, one fundamental and one closeable:
+
+- **Raw IP address doesn't reliably identify a service.** Most SaaS
+  traffic sits behind shared CDN infrastructure (Cloudflare, Akamai,
+  AWS) — one IP can serve many unrelated services, one service can
+  present hundreds of IPs. `netstat` alone (IP:port, no process) can't
+  distinguish services this way; `lsof`'s process-name mapping sidesteps
+  the problem entirely for native apps, which is why it's the better
+  tool here, not `netstat`.
+- **Browser-hosted SaaS is invisible to process-mapping** — Salesforce,
+  Google Workspace, and most CRM/HR/finance tools used through a browser
+  tab all show up as "Safari"/"Chrome," indistinguishable by service.
+  Real visibility would need the DNS query or TLS SNI hostname, which
+  means actual packet capture — on current macOS that's a Network
+  Extension / content-filter entitlement from Apple, not an Info.plist
+  key like the Location/Local-Network permissions this app already
+  requests. Materially bigger technical and administrative lift than
+  anything else in this app — closer to building a Little Snitch than
+  adding a monitored service. Treated as out of scope rather than
+  chased.
+
+### Monitoring (once you know what to watch) — the easy, useful part
+
+Doesn't need discovery to work — a small, fixed list of SaaS endpoints
+that matter (consistent with this app's existing minimal-configuration
+bias) is enough on its own. Periodic reachability/latency checks against
+those endpoints are the same pattern `HTTPCheckService` already runs
+against the captive-portal probe, just pointed at a business SaaS
+endpoint instead — and feed directly into the health-score design above
+with no new storage shape needed, since a SaaS check is just another
+`ConnectionLayer`-shaped row.
+
+**Prefer a vendor's status-page API over pinging their marketing
+domain**, where one exists — it reports actual service state
+("operational"/"degraded"/"major outage") rather than inferring health
+indirectly from raw request latency, the same reason `HTTPCheckService`
+already checks a real endpoint instead of a bare ping. The following
+were checked directly (`curl`, live, this session) rather than assumed
+from documentation:
+
+| Service | Endpoint | Format |
+|---|---|---|
+| Slack | `https://slack-status.com/api/v2.0.0/current` | JSON |
+| Zoom | `https://www.zoomstatus.com/api/v2/summary.json` | JSON |
+| Salesforce | `https://api.status.salesforce.com/v1/instances/<INSTANCE>/status` | JSON, per-org instance |
+| Google Cloud | `https://status.cloud.google.com/incidents.json` | JSON |
+| Jira / Confluence | `https://status.atlassian.com/api/v2/summary.json` | JSON |
+| Trello | `https://trello.status.atlassian.com/api/v2/summary.json` | JSON |
+| Asana | `https://status.asana.com/api/v2/summary.json` | JSON |
+| Notion | `https://www.notion-status.com/api/v2/summary.json` | JSON |
+| Dropbox | `https://status.dropbox.com/api/v2/summary.json` | JSON |
+| Zendesk | `https://status.zendesk.com/api/incidents/active` | JSON (custom, not Atlassian-shaped) |
+| Intercom | `https://www.finstatus.com/api/v2/summary.json` | JSON (rebranded domain) |
+| Xero | `https://status.xero.com/api/v2/summary.json` | JSON |
+| QuickBooks / Intuit | `https://status.quickbooks.intuit.com/api/v2/summary.json` | JSON |
+| Gusto | `https://status.gusto.com/api/v2/summary.json` | JSON |
+| BambooHR | `https://bamboohr.statuspage.io/api/v2/summary.json` | JSON |
+| NetSuite | `https://status.netsuite.com/api/v2/summary.json` | JSON |
+| AWS | `https://status.aws.amazon.com/rss/<service>-<region>.rss` | RSS (legacy, unauthenticated; the modern Health Dashboard requires sign-in) |
+| Azure | `https://azure.status.microsoft/en-us/status/feed/` | RSS |
+
+No public, unauthenticated endpoint found for three, despite looking:
+**Microsoft 365** (the real API — Microsoft Graph Service
+Communications API — requires an OAuth app registration; confirmed
+`401` without one), **Workday** (`status.workday.com` redirects
+straight to a SAML login, tenant-authenticated only), and **ADP** (no
+public status page found at all). A plain `HTTPCheckService`-style
+reachability check against their login domain is the fallback for
+these three — there's no higher-signal alternative to prefer.
+
+One flagged as unreliable despite existing: **Okta** — Statuspage-
+powered per its page source, but `status.okta.com/api/v2/summary.json`
+returned `401` on a direct, unauthenticated request even though the
+human-facing page loads fine, suggesting bot/access protection on the
+API path specifically. Worth a periodic re-check rather than building
+on it as-is.
+
+### Open questions before implementing
+
+- Which services actually get a built-in entry vs. requiring the user
+  to supply a domain — full table above, or a smaller curated subset?
+- Combine the status-page check with an `lsof`-based native-app signal
+  when both exist (e.g. Slack), or keep them as two independent checks?
+  A status-page "operational" plus the local app showing no open
+  connections would be a genuinely useful combined signal, not just
+  redundant.
+- Does an unresolvable service (Workday/ADP/M365) get a visibly
+  different UI treatment ("reachability only, no status API") so it
+  isn't mistaken for the higher-confidence status-page-backed checks?
