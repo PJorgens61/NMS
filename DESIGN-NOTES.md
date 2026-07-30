@@ -4,6 +4,30 @@ Ideas discussed and worked through but not yet implemented. Each section is a
 sketch, not a spec — enough to pick back up from later without re-deriving
 the reasoning, not a promise of the exact eventual shape.
 
+## Contents
+
+- [DNS testing: is `dig` an alternative to `getaddrinfo`?](#dns-testing-is-dig-an-alternative-to-getaddrinfo)
+- [DHCP lease tracking](#dhcp-lease-tracking)
+- [UI tooltips](#ui-tooltips)
+- [Network Quality (speed / responsiveness) testing, on demand](#network-quality-speed--responsiveness-testing-on-demand)
+- [Latency history sparklines](#latency-history-sparklines)
+- [Active-overrides banner (closing a real gap in the debug tooling itself)](#active-overrides-banner-closing-a-real-gap-in-the-debug-tooling-itself)
+- [The MacBook Air height constraint, recurring, and a real fix for tracking it](#the-macbook-air-height-constraint-recurring-and-a-real-fix-for-tracking-it)
+- [Interface-down injection can now produce real events](#interface-down-injection-can-now-produce-real-events)
+- [UI state debug log (for AI-assisted verification)](#ui-state-debug-log-for-ai-assisted-verification)
+- [IP broadcast for LAN discovery — why it doesn't work, and what does](#ip-broadcast-for-lan-discovery--why-it-doesnt-work-and-what-does)
+- [mDNS/Bonjour: TXT records and dynamic service-type discovery](#mdnsbonjour-txt-records-and-dynamic-service-type-discovery)
+- [RRDtool for historical storage](#rrdtool-for-historical-storage)
+- [Classical dual-router VRRP identity](#classical-dual-router-vrrp-identity)
+- [Per-network device scoping, and fixing the network fingerprint](#per-network-device-scoping-and-fixing-the-network-fingerprint)
+- [Deferred Wi-Fi/link telemetry](#deferred-wi-filink-telemetry)
+- [Popover screenshot button](#popover-screenshot-button)
+- [Store size in the footer](#store-size-in-the-footer)
+- [No retention policy anywhere (measured)](#no-retention-policy-anywhere-measured)
+- [The concurrency warnings — all four now fixed](#the-concurrency-warnings--all-four-now-fixed)
+- [Historical health score (green / yellow / red)](#historical-health-score-green--yellow--red)
+- [Business SaaS monitoring](#business-saas-monitoring)
+
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
 `DNSResolutionService` currently uses `getaddrinfo`, probing a freshly
@@ -2673,3 +2697,595 @@ Previously: adopting it would turn all four of these into hard errors,
 requiring the isolation cascade to be worked through then instead of now.
 That's no longer the real cost — there's nothing left in this category to
 work through.
+
+## Historical health score (green / yellow / red)
+
+Distinct from `ConnectionLayer`'s real-time status (what's true right
+now) — this is a trend signal: how has the network behaved over some
+window (last hour, last day, last week). Worth keeping visually separate
+from the live indicator rather than merging them, since conflating "down
+right now" with "was flaky an hour ago" makes both harder to read at a
+glance.
+
+### Useful statistics
+
+- **Latency: percentiles (p50/p95), not the mean.** Latency is
+  right-skewed — a mean gets dragged by rare bad spikes and stops
+  representing typical experience. p50 is "typical," p95 is "how bad do
+  the worst moments get," which is usually the more actionable number.
+- **Jitter, as its own axis**: std-dev or IQR on latency, separate from
+  the median. Consistently-slow and wildly-variable read very
+  differently to a user even at the same average.
+- **Outage character: MTBF and MTTR, not just uptime %.** Derived by
+  pairing up `AppEventRecord`'s existing down/up transitions. Five short
+  outages and one long one can have identical total downtime but very
+  different real-world impact — worth keeping as two numbers, not one.
+- **Trend: a rolling recent-window vs. longer-baseline comparison**, not
+  fixed absolute thresholds alone — accounts for some networks just
+  being naturally noisier than others. Deliberately not reaching for
+  ARIMA/anomaly-detection/ML here — disproportionate complexity and
+  opacity for a single-network app; a black-box anomaly score is hard to
+  explain to yourself when the indicator changes color. The plain stats
+  above stay legible enough to debug by eye, which is worth more than a
+  cleverer model here.
+
+### Scoring scheme
+
+Z-score against the network's own historical mean/SD for a given metric
+(assumes higher = better — uptime %, throughput — not raw latency,
+which would need inverting first):
+
+- `z > 0` (above mean) → **green**
+- `-1 ≤ z ≤ 0` → **yellow**
+- `z < -1` → **red**
+
+Asymmetric on purpose: for a roughly-normal distribution, "above the
+mean" covers about half of all readings, so green means "at or above
+typical," not "exceptionally good." That's the right shape for
+something glanced at constantly — green should be the common case, not
+a rare treat.
+
+Two real costs of this approach, both worth accepting knowingly rather
+than discovering later:
+
+- **Self-relative, not absolute.** Mean/SD come from the network's own
+  history, so a chronically mediocre network still reads green about
+  half the time relative to its own drifted-down baseline. This answers
+  "is today typical for this network," not "is this objectively good" —
+  a different question than it might look like at a glance.
+- **Needs a dead zone around `z = 0`.** Noise straddling the exact mean
+  would otherwise flip the color on nearly every reading. Require
+  something like `z > 0.1` / `z < -0.1` to actually change the displayed
+  color, or a minimum-duration-in-zone rule — the same kind of
+  hysteresis a thermostat uses to avoid short-cycling.
+
+Also needs a minimum-sample-size guard: with too little history, mean/SD
+are noise, not signal. Below some threshold, show "not enough data yet"
+— the same shape as `ConnectionLayer`'s existing `.unknown` state —
+rather than a color that looks confident and isn't.
+
+### Storage: this is what the RRDtool section's open question was asking
+
+The RRDtool section above concluded `SnapshotStore.pruneIfNeeded`
+already closes the *unbounded growth* gap, but left one question
+explicitly open: whether genuine long-term consolidated history (weeks
+or months, not the sparkline's 10–15 minutes) is an actual goal. The
+z-score baseline above is exactly that goal arriving — a multi-day (or
+longer) mean/SD can't be computed from 7 days of raw rows once older
+rows are pruned, and re-deriving it from scratch on every launch by
+re-reading everything would be the "old fine-grained rows accumulate
+forever" problem that section warned about, just moved earlier.
+
+A narrow, SwiftData-native answer, without adopting RRDtool: store
+**sufficient statistics** per day per layer, not raw rows — small,
+additive, and enough to reconstruct an exact multi-day mean/SD without
+re-touching the pruned raw data:
+
+```swift
+@Model
+final class ConnectivityDailySummary {
+    var layer: String              // matches ConnectionLayer's identifiers
+    var day: Date                  // start of day, truncated
+
+    var sampleCount: Int
+    var successCount: Int
+
+    // Sums, not pre-computed averages — additive across days, so a
+    // multi-day mean/SD is exact, not an average of averages (which
+    // would be wrong: you can't average per-day standard deviations
+    // and get the correct combined SD).
+    var latencySum: Double         // Σx
+    var latencySumSquares: Double  // Σx²
+
+    var outageCount: Int
+    var outageDurationSum: TimeInterval   // feeds MTTR
+}
+```
+
+Computed once per day (e.g. opportunistically at launch, rolling up
+whatever `pruneIfNeeded` is about to discard, rather than a new
+scheduler), then queried by summing the additive fields across the
+requested window:
+
+```swift
+func baselineStats(layer: String, days: Int) -> (mean: Double, stdDev: Double)? {
+    let summaries = fetchDailySummaries(layer: layer, sinceDays: days)
+    let n = summaries.reduce(0) { $0 + $1.successCount }
+    guard n > minimumSampleThreshold else { return nil }  // .unknown, not a guess
+
+    let sum = summaries.reduce(0) { $0 + $1.latencySum }
+    let sumSq = summaries.reduce(0) { $0 + $1.latencySumSquares }
+    let mean = sum / Double(n)
+    let stdDev = sqrt(max(0, sumSq / Double(n) - mean * mean))
+    return (mean, stdDev)
+}
+```
+
+Storage cost is trivial either way — roughly 1,460 rows/year across all
+`ConnectionLayer` values kept indefinitely — so this isn't solving a
+size problem, it's solving an information-loss problem: `pruneIfNeeded`
+deleting raw rows after 7 days is exactly right for the sparkline use
+case and exactly wrong for "what's normal for this network over the
+last month," unless something like this sits between the two.
+
+### Open questions before implementing
+
+- Does this get its own UI element, or fold into an existing one (e.g.
+  an outline/badge around the `ConnectionLayer` rows it summarizes)?
+- One score per layer, or one overall score combining all layers
+  (worst-of, matching the existing root-cause philosophy, or something
+  else)?
+- What's the actual minimum-sample threshold before trusting mean/SD —
+  needs picking, not just gesturing at "enough history"?
+
+## Business SaaS monitoring
+
+A different kind of "is the network working" question: not "is the
+internet reachable," but "are the specific services this business
+actually depends on reachable" — Slack, Zoom, Salesforce, Microsoft
+365, and similar. Splits into two problems with very different
+feasibility.
+
+### Discovery ("what's this Mac actually using") — real ceiling
+
+`lsof -i -P -n` (bundled with macOS, confirmed working without root for
+the current user's own processes) maps each live connection to the
+local process that owns it — the same "shell out to an OS-native tool"
+pattern as `ping`/`arp`/`traceroute`/`snmpget`. For a native SaaS
+client — Slack.app, zoom.us, the Dropbox/OneDrive sync agents — this
+cleanly answers "is Slack connected right now," no IP-address guessing
+involved.
+
+Two things limit it, one fundamental and one closeable:
+
+- **Raw IP address doesn't reliably identify a service.** Most SaaS
+  traffic sits behind shared CDN infrastructure (Cloudflare, Akamai,
+  AWS) — one IP can serve many unrelated services, one service can
+  present hundreds of IPs. `netstat` alone (IP:port, no process) can't
+  distinguish services this way; `lsof`'s process-name mapping sidesteps
+  the problem entirely for native apps, which is why it's the better
+  tool here, not `netstat`.
+- **Browser-hosted SaaS is invisible to process-mapping** — Salesforce,
+  Google Workspace, and most CRM/HR/finance tools used through a browser
+  tab all show up as "Safari"/"Chrome," indistinguishable by service.
+  Real visibility would need the DNS query or TLS SNI hostname, which
+  means actual packet capture — on current macOS that's a Network
+  Extension / content-filter entitlement from Apple, not an Info.plist
+  key like the Location/Local-Network permissions this app already
+  requests. Materially bigger technical and administrative lift than
+  anything else in this app — closer to building a Little Snitch than
+  adding a monitored service. Treated as out of scope rather than
+  chased.
+
+### Monitoring (once you know what to watch) — the easy, useful part
+
+Doesn't need discovery to work — a small, fixed list of SaaS endpoints
+that matter (consistent with this app's existing minimal-configuration
+bias) is enough on its own. Periodic reachability/latency checks against
+those endpoints are the same pattern `HTTPCheckService` already runs
+against the captive-portal probe, just pointed at a business SaaS
+endpoint instead — and feed directly into the health-score design above
+with no new storage shape needed, since a SaaS check is just another
+`ConnectionLayer`-shaped row.
+
+**Prefer a vendor's status-page API over pinging their marketing
+domain**, where one exists — it reports actual service state
+("operational"/"degraded"/"major outage") rather than inferring health
+indirectly from raw request latency, the same reason `HTTPCheckService`
+already checks a real endpoint instead of a bare ping. The following
+were checked directly (`curl`, live, this session) rather than assumed
+from documentation:
+
+| Service | Endpoint | Format |
+|---|---|---|
+| Slack | `https://slack-status.com/api/v2.0.0/current` | JSON |
+| Zoom | `https://www.zoomstatus.com/api/v2/summary.json` | JSON |
+| Salesforce | `https://api.status.salesforce.com/v1/instances/<INSTANCE>/status` | JSON, per-org instance |
+| Google Cloud | `https://status.cloud.google.com/incidents.json` | JSON |
+| Jira / Confluence | `https://status.atlassian.com/api/v2/summary.json` | JSON |
+| Trello | `https://trello.status.atlassian.com/api/v2/summary.json` | JSON |
+| Asana | `https://status.asana.com/api/v2/summary.json` | JSON |
+| Notion | `https://www.notion-status.com/api/v2/summary.json` | JSON |
+| Dropbox | `https://status.dropbox.com/api/v2/summary.json` | JSON |
+| Zendesk | `https://status.zendesk.com/api/incidents/active` | JSON (custom, not Atlassian-shaped) |
+| Intercom | `https://www.finstatus.com/api/v2/summary.json` | JSON (rebranded domain) |
+| Xero | `https://status.xero.com/api/v2/summary.json` | JSON |
+| QuickBooks / Intuit | `https://status.quickbooks.intuit.com/api/v2/summary.json` | JSON |
+| Gusto | `https://status.gusto.com/api/v2/summary.json` | JSON |
+| BambooHR | `https://bamboohr.statuspage.io/api/v2/summary.json` | JSON |
+| NetSuite | `https://status.netsuite.com/api/v2/summary.json` | JSON |
+| AWS | `https://status.aws.amazon.com/rss/<service>-<region>.rss` | RSS (legacy, unauthenticated; the modern Health Dashboard requires sign-in) |
+| Azure | `https://azure.status.microsoft/en-us/status/feed/` | RSS |
+
+No public, unauthenticated endpoint found for three, despite looking:
+**Microsoft 365** (the real API — Microsoft Graph Service
+Communications API — requires an OAuth app registration; confirmed
+`401` without one), **Workday** (`status.workday.com` redirects
+straight to a SAML login, tenant-authenticated only), and **ADP** (no
+public status page found at all). A plain `HTTPCheckService`-style
+reachability check against their login domain is the fallback for
+these three — there's no higher-signal alternative to prefer.
+
+One flagged as unreliable despite existing: **Okta** — Statuspage-
+powered per its page source, but `status.okta.com/api/v2/summary.json`
+returned `401` on a direct, unauthenticated request even though the
+human-facing page loads fine, suggesting bot/access protection on the
+API path specifically. Worth a periodic re-check rather than building
+on it as-is.
+
+### Where this fits the existing green/yellow/red severity scheme
+
+Red is already reserved for the core network itself being broken
+(interface/router/DNS/HTTP/Internet unreachable) and yellow already
+means "marginal" — something worth noting that isn't a core-network
+failure. A SaaS outage is exactly that shape: the network is fully
+healthy, but a service that's depended on isn't. That's a better fit
+for yellow than a stretch, but it raises two questions the existing
+single-LAN-device definition of yellow never had to answer:
+
+- **Does SaaS monitoring share yellow with the current trigger, or
+  replace/extend it?** Today yellow means "a monitored LAN device (not
+  the router) is unreachable." If SaaS reachability gets folded into
+  the same color without a way to tell them apart, yellow starts
+  meaning "either a LAN device is offline or a business SaaS app is
+  down" — two structurally different problems collapsed into one
+  glance-level signal. Solvable (the app already has a root-cause
+  drill-down pattern for `ConnectionLayer`), but worth deciding
+  deliberately rather than by accident.
+- **Should every SaaS outage land at exactly yellow, or should severity
+  scale with what's actually affected?** A low-priority internal tool
+  being briefly unreachable and a CRM being down during business hours
+  aren't the same severity, even though both are "network's fine, a
+  SaaS app isn't." Yellow is currently defined as low-stakes by
+  default ("worth noting, not itself a real problem") — that
+  undersells a Salesforce outage in a way it doesn't undersell an
+  offline printer. Once several SaaS services are monitored at once,
+  there's a real choice between "any outage triggers yellow uniformly"
+  and "severity scales with how many/how critical the affected
+  services are," potentially warranting something above yellow even
+  with the underlying network fully healthy.
+
+### Does this vary by network? (home / coffee shop / office)
+
+Splits into two signals that have been talked about as one so far, and
+they behave oppositely once you're roaming between networks:
+
+- **A vendor's own status-page result is a global fact.** If Slack's
+  status API reports a major outage, that's true at home, at a coffee
+  shop, and at the office, all at once — it doesn't need per-network
+  tracking, and scoping it to whichever `KnownNetwork` happened to be
+  active when it was observed would be actively wrong. One real-world
+  incident, reported the same way regardless of location.
+- **The plain-reachability fallback (Workday/ADP/Microsoft 365, or
+  anything without a status API) genuinely is network-dependent.** A
+  stricter office network might filter or block a SaaS domain outright;
+  a coffee shop's captive portal can make *everything* fail until you
+  log in, which isn't "Slack is down" at all. Neither should be
+  reported as a global SaaS outage — they're local-network problems,
+  and should be tagged by `KnownNetwork` (already in the app,
+  fingerprints by gateway MAC) the same way other per-network state
+  already is, specifically so "blocked at the office" doesn't get
+  misreported as "Slack is down" once you're back home on a network
+  where it works fine.
+
+Practical consequence: a status-API check reporting an outage should
+be cross-checked against whether the core `ConnectionLayer` layers
+(router/DNS/HTTP) are themselves healthy first. If they're not, there's
+no internet at all, and "the SaaS service is down" would be the wrong
+diagnosis — only trust a status-API outage reading when the underlying
+network is otherwise fine.
+
+This also reaches back into the health-score baseline design above: if
+SaaS latency ever gets folded into the same z-score-against-historical-
+baseline scheme as everything else, mixing home-fiber latency with
+coffee-shop-WiFi latency into one baseline would produce a number that
+means nothing — "normal" at a coffee shop looks nothing like "normal"
+at home. That baseline would need to be computed per-`KnownNetwork`,
+not globally, for the same reason the reachability signal does.
+
+### AI assistants: Claude, ChatGPT, Gemini
+
+For a lot of people right now this category is as load-bearing as
+Slack or a CRM — a real candidate for the "critical" flag above, not a
+novelty addition. Same direct verification as the rest of this table:
+
+| Service | Endpoint | Format |
+|---|---|---|
+| Claude (Anthropic) | `https://status.claude.com/api/v2/summary.json` | JSON — confirmed live; status.anthropic.com now redirects here (recent rebrand). Tracks `claude.ai`, the API, Claude Code, etc. as separate components |
+| ChatGPT (OpenAI) | `https://status.openai.com/api/v2/summary.json` | JSON — confirmed live; tracks ChatGPT, API, Images, Playground, Sora separately |
+| Gemini (Google) | — | No public JSON API found. `aistudio.google.com/status` is plain HTML; Gemini incidents are otherwise scattered across Google Cloud's general dashboard (not Gemini-specific) and the Google Workspace dashboard (consumer app only). Plain reachability check against `gemini.google.com` is the honest fallback, same shape as the M365/Workday/ADP gap below |
+
+Both Claude and ChatGPT ship native macOS apps (`Claude.app` confirmed
+installed on this machine), so the `lsof`-based native-app signal
+above applies to them directly too — no domain-guessing needed to tell
+whether the app itself is running and connected.
+
+### Identity/SSO providers, and Apple/iCloud
+
+Identity providers are arguably the highest-leverage entries to
+monitor in this whole list — if Okta or Auth0 goes down, it doesn't
+degrade one app, it can cut off login to everything that depends on
+it. Stronger "critical" candidates than most individual productivity
+apps. Also verified directly:
+
+| Service | Endpoint | Format |
+|---|---|---|
+| Apple (iCloud, App Store, etc.) | `https://www.apple.com/support/systemstatus/data/system_status_en_US.js` | JSON — confirmed live, and unusually granular: separate entries per iCloud sub-feature (Account, Backup, Bookmarks, Calendar, Contacts, Drive, Keychain, Mail, Notes, ...), not one blob like everything else in this table |
+| Auth0 (Okta) | `https://auth0.statuspage.io/api/v2/summary.json` | JSON |
+| Duo Security (Cisco) | `https://status.duo.com/api/v2/summary.json` | JSON |
+| Ping Identity | `https://status.pingidentity.com/api/v2/summary.json` | JSON |
+
+Two more checked and not resolved, same as the earlier gaps: **OneLogin**
+(no working status API found — the obvious `onelogin.statuspage.io`
+guess just redirects to Statuspage's own homepage, not a real page)
+and **Microsoft Entra ID / Azure AD** (no separate status page at all —
+folded into the Azure/M365 dashboards already listed above; nothing
+new to add, Azure's existing RSS entry already covers it).
+
+Worth a decision before implementing: Apple's per-sub-feature
+granularity is finer than every other entry in this table (which
+report one status per named component). Does NMS care about "iCloud"
+as a single thing, or is exposing that it's specifically iCloud Backup
+that's down (say) actually useful?
+
+### Login/session signals for discovery — what to use, what to avoid
+
+A different question from monitoring itself: could NMS use the fact
+that the Mac is actively logged into a SaaS service to *auto-discover*
+what's worth monitoring, instead of requiring the user to type each
+one in? Two categories of answer here, and they're not close calls in
+either direction.
+
+**Ruled out — touches actual credential/session material:**
+
+- **Reading Keychain-saved passwords** for other apps/sites needs
+  either a disruptive per-item consent prompt or Full Disk Access — an
+  extremely broad, all-or-nothing grant, wrong to ask for from a
+  background monitoring utility. Also a saved password only proves
+  "an account exists," not "currently logged in" — a static fact, not
+  a live one.
+- **Reading browser session cookies** (the actual proof of an active
+  login) is a materially bigger ask than anything else in this app's
+  design — functionally equivalent to being able to impersonate the
+  user's live sessions to those services. Ruled out independent of
+  technical feasibility; this is exactly the kind of access that
+  should require explicit, per-service, informed consent, not passive
+  background monitoring.
+
+**Worth considering — doesn't touch credentials at all:**
+
+- **Browser tab inspection via AppleScript/Apple Events**
+  (`tell application "Safari" to get URL of every tab of every
+  window`, or Chrome's equivalent) can tell whether a tab is open to
+  `slack.com` or `salesforce.com` without ever reading a password or
+  cookie. Partially closes the "browser-based SaaS is invisible to
+  `lsof`" gap noted above, specifically for *discovery* — suggesting
+  what to monitor, not proving an active session. Real costs: needs an
+  Automation permission prompt ("NMS wants to control Safari"), a
+  genuine user-facing consent step; and it's a weaker signal than it
+  sounds — an open tab doesn't prove authentication, and most SaaS
+  sessions outlive the tab being open anyway, so a closed tab doesn't
+  prove logged-out either.
+- **macOS's own Internet Accounts** (System Settings → Internet
+  Accounts) — if the user has already added a Google or
+  Microsoft/Exchange account at the OS level, that's an explicit,
+  already-consented signal about which identity providers matter to
+  them, without touching a password. Not verified here whether there's
+  a clean public API to enumerate that list generically, versus access
+  scoped per-framework (Contacts/Calendar/Mail); needs checking before
+  relying on it.
+
+Net position: neither of the acceptable options proves an active
+session the way Keychain/cookie access would — both are meant for
+*discovery* (auto-suggesting a starter monitoring list), not as a
+live "are you logged in right now" gate on whether a check counts.
+
+### The privacy risk isn't hypothetical — confirmed by actually running it
+
+Ran both `lsof -i -P -n` and a real AppleScript tab scan (`tell
+application "Brave Browser" ... get URL of every tab of every
+window`) live against this Mac, not just designed on paper. `lsof`
+behaved exactly as scoped — process-to-connection mapping only, no
+sensitive content. The tab scan is where the risk stopped being
+theoretical: alongside the expected SaaS-relevant tabs (GitHub, a
+statuspage-related search), it also returned several tabs that were
+personal investment/finance research — a portfolio-tracking URL among
+them — with zero discrimination between "useful for SaaS discovery"
+and "none of this feature's business." The scan doesn't know the
+difference; it returns every open tab, full URLs included.
+
+That confirms the fix from the design above isn't optional, and
+sharpens what it needs to be: **filter against the known SaaS domain
+table immediately, in memory, before anything else happens with the
+result.** Non-matching tabs must never be logged, displayed, written
+to any persisted store, or even held past the filtering step — not
+"redact before display," which would still mean the raw list existed
+somewhere first. The only output of this subsystem should be "these
+of your configured/candidate SaaS domains have an open tab," never
+the tab list itself in any form.
+
+One thing the same test validated positively: combining the two
+signals produced a more confident read than either alone — `lsof`
+independently confirmed the GitHub connection the tab scan also
+showed (Brave holding a connection to GitHub's own dedicated IP range
+at the same time a GitHub tab was open), the same "combine, don't
+pick one" argument the LAN-discovery section above makes for ARP vs.
+SNMP vs. the switch's MAC table. Relevant to the open question below
+about whether to combine the status-page check with the `lsof`
+signal — this is a second, independent data point in favor of
+combining rather than treating them as redundant.
+
+### Can network activity be attributed to a specific tab? No — checked directly, not assumed
+
+Came up while thinking through the priority-tracking idea above: if
+tab-open-frequency risks over-weighting stale tabs left open for
+days, could actual network activity per tab do better — is this tab
+still *live*, not just open? Checked rather than assumed, since it
+matters which answer is true.
+
+Brave's process tree right now has roughly 20 separate renderer
+processes, one per tab/site (confirmed via `ps`). But every
+connection `lsof -i` reports is attributed to a single shared helper
+process — none of the individual renderer PIDs carry any network
+connections at all. This isn't a missing capability to work around;
+it's how Chromium's architecture actually works — all real network
+I/O is centralized in one shared network-service process regardless
+of how many renderer processes exist for tab isolation. The
+OS-visible process boundary and the tab boundary don't line up for
+network traffic, so no amount of `lsof`/`ps` cleverness gets from
+"this connection" to "this tab." Confirmed for Brave (Chromium); not
+checked for Safari, whose WebKit process model may differ.
+
+The only place that association genuinely exists is inside the
+browser itself — a browser extension using `chrome.webRequest`
+(which does expose a `tabId` per request) or Chromium's internal
+`net-export`/DevTools Protocol logging. That's a materially heavier
+design than anything else here: a separate installable artifact,
+browser-specific (wouldn't cover Safari the same way), and it would
+need its own channel back to the native app (native messaging or a
+local socket) — a new category of complexity, not a refinement of
+the AppleScript approach. Not pursued further for now.
+
+Practical consequence for the stale-tab problem: since
+network-correlation is a dead end at the OS level, **which tab is
+currently frontmost/active** (AppleScript can get this directly —
+`active tab of front window`) is the honest ceiling of what's
+available without taking on a browser extension. Weaker than true
+per-tab activity data, but a real, achievable recency signal — better
+than raw open-frequency alone, and doesn't require anything beyond
+what the rest of this section already proposes.
+
+### Does the macOS DNS cache help? No — checked directly, rejected on two independent grounds
+
+Same instinct as the network-attribution question: the system DNS
+cache holds recently-resolved hostnames, which in principle could
+surface SaaS domains a browser tab-scan or `lsof` might miss. Checked
+directly on this machine rather than assumed:
+
+```
+$ dscacheutil -cachedump -entries Host
+Viewing host entries requires administrator privileges.
+
+$ dscacheutil -statistics
+Unable to get details from the cache node
+```
+
+Confirmed: even the lightest statistics query is blocked without
+root. The one technique that does still work —
+`sudo killall -INFO mDNSResponder`, which makes mDNSResponder dump its
+cache state to the system log rather than a queryable API — still
+needs `sudo`. That's a different privilege class than anything else
+in this app: `arp`/`ping`/`traceroute`/`snmpget`/`lsof` are all usable
+by a regular account, no elevation needed anywhere. Root access here
+means either prompting for a password (nothing else in NMS does that)
+or a privileged helper tool — a new architecture category, not a flag
+on an existing shell-out.
+
+Rejected on a second, independent ground even setting privilege
+aside: the content itself is worse than what's already designed for
+this purpose.
+- **No history** — TTL-evicted, point-in-time only, same limitation
+  `arp -a` has, but without this app's existing periodic-snapshot
+  workaround for that problem.
+- **No attribution to origin, worse than the per-tab finding above**
+  — the system DNS cache is shared by every process on the Mac, not
+  scoped to one browser, so a cached entry can't be traced to a SaaS
+  tab vs. a background OS check vs. an ad network.
+- **Much noisier** — a single page load triggers lookups for a dozen
+  third-party/tracker/CDN domains unrelated to the page's actual
+  purpose, with no clean way to separate those from the domain the
+  user actually cares about, unlike the tab list (which only contains
+  URLs the user actually navigated to).
+
+Net: a real, verifiable macOS capability, but strictly worse than the
+tab-scan approach already proposed on every axis that matters here —
+more privileged, less attributable, noisier. Not worth building.
+
+### Bookmarks and history — one usable the same way as tabs, one rejected like Keychain
+
+Checked directly, and the two need different treatment, not the same
+one.
+
+**Bookmarks (Chromium/Brave): fully readable, no special permission
+at all.** A plain JSON file under the user's own `~/Library/
+Application Support/...`, owned by the user, no TCC gate. Verified by
+actually parsing it: 2,267 real bookmarks read back successfully, no
+prompt, no Full Disk Access.
+
+**History (Chromium/Brave): not TCC-blocked, but unreliable in
+practice while the browser is running.** The file itself is readable,
+but querying the live SQLite database returned `database is locked` —
+Brave holds a lock on it whenever it's open, which is essentially
+always for a browser in active use. Working around that means copying
+the file first and querying the copy, not querying in place.
+
+**Safari: both blocked outright.** `ls` on Safari's data directory
+(legacy path and the modern sandboxed-container path) returned
+"Operation not permitted" — real TCC protection, stronger than
+Chromium's plain-file approach. Reaching Safari's data at all would
+need Full Disk Access, the same broad grant already ruled out for
+Keychain above.
+
+Recommended treatment, and they diverge:
+
+- **Bookmarks**: viable as a discovery source, same rules as the tab
+  scan above — filter against the known SaaS domain list immediately,
+  never persist or display the rest. Worth weighing that a bookmark
+  is a weaker recency signal than an open tab (bookmarked once, years
+  ago, proves nothing about current use) even though it's a more
+  deliberate one ("I cared about this" vs. "I happen to have this
+  open").
+- **History**: reject on the same grounds as Keychain/cookies above,
+  not treated as "the tab scan, but bigger." It isn't credential
+  material, but it is a comprehensive log of everywhere the user has
+  ever browsed, and the copy-the-file workaround needed to dodge the
+  lock makes "the app briefly holds the whole thing" concrete rather
+  than theoretical. It would genuinely solve the frequency/recency
+  problem better than anything else considered — Chromium's schema
+  already tracks `visit_count` and `last_visit_time` per URL, so no
+  new sampling system would be needed — but that convenience isn't
+  worth what it costs. If ever revisited, it needs its own explicit,
+  separate consent, not bundled into "the tab-scan feature" as if
+  it's the same ask.
+
+### Open questions before implementing
+
+- Which services actually get a built-in entry vs. requiring the user
+  to supply a domain — full table above, or a smaller curated subset?
+- Combine the status-page check with an `lsof`-based native-app signal
+  when both exist (e.g. Slack), or keep them as two independent checks?
+  A status-page "operational" plus the local app showing no open
+  connections would be a genuinely useful combined signal, not just
+  redundant.
+- Does an unresolvable service (Workday/ADP/M365/Gemini/OneLogin) get
+  a visibly different UI treatment ("reachability only, no status
+  API") so it isn't mistaken for the higher-confidence
+  status-page-backed checks?
+- Does SaaS monitoring share yellow with the existing LAN-device
+  trigger, or get its own visually distinct signal?
+- Does severity scale with the number/criticality of affected SaaS
+  services, or does any single outage trigger the same yellow
+  uniformly?
+- Is AppleScript-based tab inspection worth the Automation-permission
+  ask for a discovery aid alone, or should the built-in table above
+  just be considered good enough as a starting default?
