@@ -12,7 +12,6 @@ struct ContentView: View {
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
-    @ObservedObject var bonjourDiscovery: BonjourDiscoveryViewModel
     @ObservedObject var snmp: SNMPViewModel
     /// Not `@ObservedObject` — a plain value computed once at launch (see
     /// `NMSApp`), not something that changes while the popover is open.
@@ -143,27 +142,37 @@ struct ContentView: View {
 
             eventList
 
-            Divider()
+            // Gated by `FeatureFlags.snmpDevices` — off by default for a
+            // fresh install, since this is active network probing (SNMP
+            // sweeps) against whatever LAN the Mac is on, not just a UI
+            // section. See that flag's doc comment.
+            if FeatureFlags.snmpDevices {
+                Divider()
 
-            HStack {
-                Text("SNMP Devices")
-                    .font(.headline)
-                Spacer()
-                Button(snmp.isScanning ? "Scanning…" : "Scan") {
-                    snmp.scan()
+                HStack {
+                    Text("SNMP Devices")
+                        .font(.headline)
+                    Spacer()
+                    Button(snmp.isScanning ? "Scanning…" : "Scan") {
+                        snmp.scan()
+                    }
+                    .disabled(snmp.isScanning || !snmp.isAvailable)
+                    .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
+                    .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
                 }
-                .disabled(snmp.isScanning || !snmp.isAvailable)
-                .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
-                .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
+
+                infrastructureList
             }
 
-            infrastructureList
-
-            // LAN Devices and Bonjour Devices sections are hidden — the
-            // popover was too tall for a 13" MacBook screen. The
-            // underlying scans aren't both still running for their own
-            // sake: see `LANDiscoveryViewModel`/`BonjourDiscoveryViewModel`
-            // for what each still feeds now that neither has a UI list.
+            // LAN Devices has no section of its own — the popover was too
+            // tall for a 13" MacBook screen. The underlying scan still
+            // runs for its own sake: see `LANDiscoveryViewModel` for what
+            // it feeds (SNMP's candidate addresses, MAC-merge data) even
+            // with no UI list. Bonjour discovery was removed outright
+            // rather than left dormant like this — see DESIGN-NOTES.md's
+            // "mDNS/Bonjour" section — since it was never actually running
+            // (nothing called its `scan()`) and, even if it had been,
+            // found nothing SNMP's own subnet sweep didn't already cover.
 
             Divider()
 
@@ -209,17 +218,26 @@ struct ContentView: View {
                 .accessibilityHint("Saves an image of this popover and logs an event naming the file, so it can be found without guessing")
                 // Temporary, for comparing this fixed-height popover against
                 // a resizable/scrollable window (see `NMSApp`'s "nms-window"
-                // scene) — not a permanent footer addition.
-                Button("Open in Window") {
-                    openWindow(id: "nms-window")
+                // scene) — not a permanent footer addition. Gated by
+                // `FeatureFlags.comparisonWindow`, off by default for a
+                // fresh install.
+                if FeatureFlags.comparisonWindow {
+                    Button("Open in Window") {
+                        openWindow(id: "nms-window")
+                    }
+                    .accessibilityLabel("Open in Window")
+                    .accessibilityHint("Opens the same content in a resizable, scrollable window")
                 }
-                .accessibilityLabel("Open in Window")
-                .accessibilityHint("Opens the same content in a resizable, scrollable window")
                 Button("Networks…") {
                     openWindow(id: "known-networks")
                 }
                 .accessibilityLabel("Known Networks")
                 .accessibilityHint("Opens a list of every network this Mac has connected to, with a way to forget one")
+                Button("Preferences…") {
+                    openWindow(id: "preferences")
+                }
+                .accessibilityLabel("Preferences")
+                .accessibilityHint("Opens toggles for experimental features")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
@@ -462,7 +480,17 @@ struct ContentView: View {
         // Router/Internet/DNS/HTTP, so this reads like every other layer
         // here (a response time, not a re-trace's resolved hostname).
         let peRouterLayer: ConnectionLayer
-        if traceroute.monitoredHop == nil {
+        if info == nil {
+            // Same reasoning as Network/Local Router/Public IP above: no
+            // interface means no path exists to trace at all, which is a
+            // certain consequence of the root cause, not genuine
+            // uncertainty. Reported directly: without this branch, a
+            // previously-confirmed hop fell through to the
+            // `monitoredHop == nil` case below during a real outage and
+            // showed "Not confirmed" — misleading, since that text means
+            // "you haven't set this up yet," not "this is currently down."
+            peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Edge Router", detail: "—", status: .unhealthy)
+        } else if traceroute.monitoredHop == nil {
             // Not a failure — you haven't confirmed which traceroute hop is
             // the ISP's edge yet (see the Path to Internet section).
             peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Edge Router", detail: "Not confirmed", status: .unknown)
@@ -1134,7 +1162,20 @@ struct ContentView: View {
 
     @ViewBuilder
     private var tracerouteSection: some View {
-        if let monitored = traceroute.monitoredHop {
+        if viewModel.currentInterface == nil {
+            // Reported directly: without this, a real outage fell through
+            // to stale hop data from before the interface went down (or,
+            // if the trace attempt during the outage returned an empty
+            // result, to "Not traced yet") — either way, nothing here
+            // said the actual, certain cause was "there's no interface to
+            // trace from at all." Same reasoning as Network Health's
+            // Network/Local Router/ISP Edge Router rows: this is a
+            // certain consequence of the root cause, not something to
+            // leave looking like stale-but-plausible data.
+            Text("Interface down")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else if let monitored = traceroute.monitoredHop {
             // No summary row here for the monitored hop's name/address —
             // that's already shown in Network Health above (as a response
             // time, not a name) and in the starred row in the hops list
@@ -1171,13 +1212,17 @@ struct ContentView: View {
                 .font(.system(size: 12))
         }
 
-        if let error = traceroute.lastError {
+        // Both of these are independent of the branch above, and both
+        // would otherwise keep showing stale pre-outage data (a lingering
+        // error, or the last real hop list) underneath "Interface down" —
+        // exactly the confusing mix that branch exists to avoid.
+        if viewModel.currentInterface != nil, let error = traceroute.lastError {
             Text(error)
                 .font(.system(size: 11))
                 .foregroundStyle(.red)
         }
 
-        if !traceroute.hops.isEmpty {
+        if viewModel.currentInterface != nil, !traceroute.hops.isEmpty {
             // A fixed-height ScrollView only earns its keep when there are
             // actually more rows than fit — with a confirmed hop (the
             // common case), `displayedHops` is usually just 1-2 entries,

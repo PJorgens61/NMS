@@ -83,9 +83,6 @@ enum StoreInspector {
         text += section(context, "DiscoveredDeviceRecord", \DiscoveredDeviceRecord.discoveredAt, rowsPerTable) {
             "\($0.ipAddress) \($0.macAddress ?? "—") \($0.hostname ?? "—")"
         }
-        text += section(context, "BonjourDeviceRecord", \BonjourDeviceRecord.discoveredAt, rowsPerTable) {
-            "\($0.name) \($0.serviceType) \($0.ipAddress ?? "—")"
-        }
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let filename = "NMS-state-\(fileFormatter.string(from: Date())).txt"

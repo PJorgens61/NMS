@@ -95,13 +95,6 @@ final class SnapshotStore {
         try? context.save()
     }
 
-    func saveBonjourDevices(_ devices: [BonjourDevice], for snapshot: NetworkSnapshot?) {
-        for device in devices {
-            context.insert(BonjourDeviceRecord(from: device, snapshot: snapshot))
-        }
-        try? context.save()
-    }
-
     /// Persists `checks`, first stamping each failure with whether it landed
     /// near a topology change (see `CorrelationService`), and returns the
     /// enriched values so callers can reflect the flag in the UI too.
@@ -163,13 +156,15 @@ final class SnapshotStore {
     /// Deletes telemetry older than `telemetryRetention`, at most once
     /// per `pruneInterval`.
     ///
-    /// **Only three tables are pruned, and the asymmetry is the whole
+    /// **Only two tables are pruned, and the asymmetry is the whole
     /// design.** `ConnectivityCheckRecord` alone is ~90% of all rows
     /// (measured: 4280 of 4736 after 4.5 hours, growing ~953 rows/hour,
     /// ~3.5 MB/day) because it's the one table driven by a timer rather
     /// than by events — one row per target per round, forever.
-    /// `DiscoveredDeviceRecord` and `BonjourDeviceRecord` grow the same
-    /// way per LAN/Bonjour scan. All three are raw observations.
+    /// `DiscoveredDeviceRecord` grows the same way per LAN scan. Both are
+    /// raw observations. (`BonjourDeviceRecord` used to be a third —
+    /// removed along with Bonjour discovery entirely, see
+    /// DESIGN-NOTES.md's "mDNS/Bonjour" section.)
     ///
     /// Everything else is deliberately left alone: `AppEventRecord`,
     /// `PublicIPRecord`, `DHCPLeaseRecord` and `NetworkSnapshot` are
@@ -213,19 +208,18 @@ final class SnapshotStore {
             UIStateLogger.log("SnapshotStore.prune", "ConnectivityCheckRecord batch delete failed: \(error)")
         }
 
-        // Fetch-then-delete for the two that hold a `snapshot`
+        // Fetch-then-delete for the one that holds a `snapshot`
         // relationship. `delete(model:where:)` was confirmed to silently
         // do nothing for these — a real test with a 2-hour window pruned
         // 3544 connectivity checks correctly while leaving all 325
         // eligible `DiscoveredDeviceRecord` rows untouched, oldest still
         // five hours old. Deleting fetched objects individually respects
         // the relationship graph and actually works. Affordable because
-        // these tables are small (hundreds of rows, written per scan
-        // rather than per check round); the same approach on
+        // this table is small (hundreds of rows, written per scan rather
+        // than per check round); the same approach on
         // `ConnectivityCheckRecord` would mean loading six figures of
         // rows into memory.
         deleteFetched(FetchDescriptor<DiscoveredDeviceRecord>(predicate: #Predicate { $0.discoveredAt < cutoff }))
-        deleteFetched(FetchDescriptor<BonjourDeviceRecord>(predicate: #Predicate { $0.discoveredAt < cutoff }))
 
         try? context.save()
     }

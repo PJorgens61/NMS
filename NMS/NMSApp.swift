@@ -24,7 +24,6 @@ struct NMSApp: App {
     @StateObject private var wifiSSID: WiFiSSIDViewModel
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
-    @StateObject private var bonjourDiscovery: BonjourDiscoveryViewModel
     @StateObject private var snmp: SNMPViewModel
 
     // SwiftData requires the container to be kept alive for as long as
@@ -81,7 +80,6 @@ struct NMSApp: App {
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
-        let bonjourDiscovery = BonjourDiscoveryViewModel(snapshotStore: store)
         let connectivity = ConnectivityViewModel(
             networkMonitor: networkMonitor,
             lanDiscovery: lanDiscovery,
@@ -93,7 +91,6 @@ struct NMSApp: App {
             snapshotStore: store,
             networkMonitor: networkMonitor,
             lanDiscovery: lanDiscovery,
-            bonjourDiscovery: bonjourDiscovery,
             traceroute: traceroute
         )
         // Two-phase: `SNMPViewModel` needs view models built alongside
@@ -110,7 +107,8 @@ struct NMSApp: App {
             wifiSSID: wifiSSID,
             eventLog: eventLog,
             traceroute: traceroute,
-            snmp: snmp
+            snmp: snmp,
+            networkQuality: networkQuality
         )
         _networkMonitor = StateObject(wrappedValue: networkMonitor)
         _lanDiscovery = StateObject(wrappedValue: lanDiscovery)
@@ -123,21 +121,12 @@ struct NMSApp: App {
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
-        _bonjourDiscovery = StateObject(wrappedValue: bonjourDiscovery)
         _snmp = StateObject(wrappedValue: snmp)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
         lanDiscovery.scan()
         wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
-        // Bonjour Devices no longer has a UI section (see ContentView —
-        // hidden to fit a 13" screen), and its only other consumer,
-        // `SNMPViewModel`'s candidate list, gains nothing from it: Bonjour
-        // only ever finds link-local/same-subnet devices, which the SNMP
-        // sweep already covers directly. Several real seconds of mDNS
-        // scanning for now-redundant data isn't worth it, so this no
-        // longer runs at launch. `bonjourDiscovery`/`BonjourDiscoveryService`
-        // are otherwise untouched if the section comes back later.
     }
 
     /// Every cross-view-model connection in the app, in one place.
@@ -146,7 +135,7 @@ struct NMSApp: App {
     /// Only two view models consume other view models' state —
     /// `ConnectivityViewModel` (reads `networkMonitor`, `traceroute`,
     /// `publicIP`, `snmp`) and `SNMPViewModel` (reads `networkMonitor`,
-    /// `lanDiscovery`, `bonjourDiscovery`, `traceroute`) — so the whole
+    /// `lanDiscovery`, `traceroute`) — so the whole
     /// dependency matrix is roughly eight edges and small enough to audit by
     /// reading one function.
     ///
@@ -172,7 +161,8 @@ struct NMSApp: App {
         wifiSSID: WiFiSSIDViewModel,
         eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
-        snmp: SNMPViewModel
+        snmp: SNMPViewModel,
+        networkQuality: NetworkQualityViewModel
     ) {
         // MARK: Topology change fan-out
         // A change to the Mac's own interface/IP/router invalidates nearly
@@ -198,6 +188,11 @@ struct NMSApp: App {
             // exactly the moment a DHCP lease is likely to have changed
             // too, rather than waiting up to 5 minutes for the next poll.
             dhcpLease.check()
+            // A new network means a genuinely different set of reachable
+            // printers (CUPS' own configured list doesn't change, but
+            // which of them are actually on this LAN does) — re-read
+            // rather than waiting for the next launch to notice.
+            connectivity.refreshConfiguredPrinters()
             // The path to the internet (and the ISP edge router) can change
             // along with the topology change itself, so re-trace now rather
             // than waiting up to 10 minutes for the next periodic run.
@@ -279,6 +274,12 @@ struct NMSApp: App {
             // connection appears to be offline." sat under Info while every
             // Network Health row was green, until the next 5-minute tick.
             publicIP.check()
+            // Same bug, third symptom: Speed Test's own `lastError` is just
+            // as sticky, and reported directly — Ethernet reconnecting
+            // still showed "offline" until a manual re-run. Cleared, not
+            // re-fetched: a real Speed Test transfer must never happen
+            // without the user asking for it.
+            networkQuality.clearStaleErrorOnRecovery()
         }
 
         // MARK: Event log refresh
@@ -318,7 +319,6 @@ struct NMSApp: App {
             wifiSSID: wifiSSID,
             eventLog: eventLog,
             traceroute: traceroute,
-            bonjourDiscovery: bonjourDiscovery,
             snmp: snmp,
             buildInfo: buildInfo,
             storeURL: storeURL,
@@ -353,10 +353,19 @@ struct NMSApp: App {
         // dependent on chaining working. Wheel-scrolling over the gaps
         // between tiles (and chaining out of a tile) still works too; the
         // scrollbar is just the guaranteed path now, not the only one.
+        // Deliberately an always-declared `Window` scene, gating its
+        // *content* rather than the scene itself — see
+        // `comparisonWindowContent`'s doc comment for why: a conditional
+        // `Scene` here crashed `swift-frontend` outright ("failed to
+        // produce diagnostic for expression"), a real type-checker
+        // failure, not something fixable by restructuring the Scene side.
+        // `FeatureFlags.comparisonWindow` still fully gates what a tester
+        // can actually see — the footer button that opens this window is
+        // hidden when the flag is off (see `ContentView`), so nothing
+        // routes here in the first place; an empty window existing but
+        // unreachable is a compiler workaround, not a real hole.
         Window("NMS", id: "nms-window") {
-            NoBounceScrollView(persistentScrollbar: true) {
-                contentView(isInWindow: true)
-            }
+            comparisonWindowContent
         }
         .defaultSize(width: 600, height: 700)
 
@@ -366,6 +375,31 @@ struct NMSApp: App {
             KnownNetworksView(networkIdentity: networkIdentity)
         }
         .defaultSize(width: 460, height: 320)
+
+        // A plain `Window`, not a `Settings` scene — see
+        // `PreferencesView`'s doc comment for why that doesn't reliably
+        // work for a `.accessory` app.
+        Window("Preferences", id: "preferences") {
+            PreferencesView()
+        }
+        .defaultSize(width: 380, height: 260)
+    }
+
+    /// Gates the comparison window's *content*, not the `Window` scene
+    /// itself — see the scene declaration's doc comment in `body` for why
+    /// a conditional `Scene` isn't the mechanism here. `FeatureFlags
+    /// .comparisonWindow` off means an empty window that's unreachable
+    /// anyway (the footer button that opens it is hidden in that case),
+    /// not a real content leak.
+    @ViewBuilder
+    private var comparisonWindowContent: some View {
+        if FeatureFlags.comparisonWindow {
+            NoBounceScrollView(persistentScrollbar: true) {
+                contentView(isInWindow: true)
+            }
+        } else {
+            EmptyView()
+        }
     }
 
     /// macOS forces menu bar icons to render as monochrome "template"
@@ -479,7 +513,6 @@ struct NMSApp: App {
             NetworkQualityRecord.self,
             AppEventRecord.self,
             ProviderEdgeRecord.self,
-            BonjourDeviceRecord.self,
             SNMPDeviceRecord.self
         ])
         let storeURL = Self.storeURL()

@@ -4,8 +4,11 @@ import Foundation
 /// (switch, AP, router, printer, UPS), which is exactly the network
 /// infrastructure whose failure explains the outages this app already
 /// tracks. Complements ARP discovery (only sees hosts we've exchanged
-/// traffic with) and Bonjour (only sees hosts that advertise a service):
-/// a managed switch typically does neither, but does answer SNMP.
+/// traffic with): a managed switch typically doesn't, but does answer
+/// SNMP. See `PrinterDiscoveryService` for a third, printer-specific
+/// source that finds a printer regardless of whether it speaks SNMP at
+/// all — the user's own configured-printer list (`lpstat -v`), not
+/// network-based discovery.
 struct SNMPDevice: Equatable, Identifiable {
     var id: String { ipAddress }
 

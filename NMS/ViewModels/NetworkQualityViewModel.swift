@@ -35,6 +35,26 @@ final class NetworkQualityViewModel: ObservableObject {
         recentRuns = snapshotStore.fetchNetworkQualityHistory()
     }
 
+    /// Clears a stale error left over from a run attempted during an
+    /// outage, once the network is confirmed back up — called from
+    /// `connectivity.onInternetReachable`. Reported directly: Ethernet
+    /// reconnecting still showed "The Internet connection appears to be
+    /// offline." until the user happened to click "Run Speed Test" again,
+    /// long after that stopped being true.
+    ///
+    /// Deliberately does *not* re-run the test itself — a real, sizable
+    /// transfer must never happen without the user explicitly asking, per
+    /// this type's whole reason for being on-demand only (see the type's
+    /// own doc comment). Only the now-stale error text is cleared; the
+    /// same "stale-after-recovery" bug class `PublicIPViewModel` already
+    /// had, just resolved by clearing here instead of re-fetching, since
+    /// re-fetching would cost a real transfer this type must never spend
+    /// without being asked.
+    func clearStaleErrorOnRecovery() {
+        guard !isRunning else { return }
+        lastError = nil
+    }
+
     /// Download and upload run sequentially, not concurrently — running
     /// both at once would have them contend for the same pipe and
     /// understate both numbers, which defeats the entire point of a

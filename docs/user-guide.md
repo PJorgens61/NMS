@@ -186,6 +186,16 @@ than as two separate devices. SNMP community strings — the read-only
 "password" your gear expects — default to `public`; click **Change** to
 edit them as a comma-separated list, tried in the order you list them.
 
+**Printers get monitored even without SNMP.** Any network printer you've
+already set up in System Settings → Printers & Scanners gets watched for
+reachability too, whether or not it answers SNMP — NMS reads your Mac's
+own printer configuration (`lpstat`) rather than relying on discovery. A
+printer that also answers SNMP shows up once, in the list above; one
+that doesn't still gets pinged, it just doesn't get its own row here
+(no uptime/firmware to show for it) — its status folds into the same
+marginal/critical signal and Events log as everything else being
+watched.
+
 ### DHCP History
 
 Every time your DHCP lease actually changes — a different server,

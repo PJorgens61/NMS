@@ -26,7 +26,10 @@ the reasoning, not a promise of the exact eventual shape.
 - [No retention policy anywhere (measured)](#no-retention-policy-anywhere-measured)
 - [The concurrency warnings — all four now fixed](#the-concurrency-warnings--all-four-now-fixed)
 - [Historical health score (green / yellow / red)](#historical-health-score-green--yellow--red)
+- [Printer discovery via CUPS](#printer-discovery-via-cups)
 - [Business SaaS monitoring](#business-saas-monitoring)
+- [Feature flags, now that friends are installing this too](#feature-flags-now-that-friends-are-installing-this-too)
+- [A message bus for cross-view-model events? Considered, rejected](#a-message-bus-for-cross-view-model-events-considered-rejected)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -1630,6 +1633,32 @@ explicitly not decided:
   often carry a UUID/serial number, unlike an IP address, which can
   change), or fold into the existing `BonjourDeviceRecord`?
 
+### Removed entirely, rather than left dormant
+
+None of the above was ever built — and it turned out `BonjourDiscoveryViewModel.scan()`
+was never called from anywhere in the app at all, confirmed directly by
+grepping every call site. Not "hidden with no UI," genuinely inert:
+`devices` stayed permanently empty, and its one remaining consumer
+(`SNMPViewModel.candidateAddresses()`, folding Bonjour-found hosts into
+the SNMP sweep's target list) always read that empty list. A feature
+flag was considered and rejected for the same reason it would have been
+pointless: a flag means "off by default, does something when turned on,"
+and this did nothing regardless of any flag, on or off.
+
+Removed outright: `BonjourDiscoveryViewModel`, `BonjourDiscoveryService`,
+`BonjourDevice`, `BonjourDeviceRecord`, the `Schema` entry, the
+`saveBonjourDevices`/pruning code in `SnapshotStore`, and every reference
+across `NMSApp`/`SNMPViewModel`/`ContentView`. Confirmed harmless:
+`BonjourDeviceRecord`'s removal from the `Schema` array didn't repeat the
+migration failure `KnownNetwork`'s schema change caused earlier this
+session — the real on-disk store opened cleanly on the next launch with
+no fallback to in-memory, unlike removing a mandatory attribute from an
+existing entity, dropping an entity from the schema entirely is
+apparently a lightweight change SwiftData tolerates.
+
+What actually replaced it, for the one real use case that mattered
+(finding devices SNMP doesn't) — see "Printer discovery via CUPS" below.
+
 ## RRDtool for historical storage
 
 Prompted directly: would [rrdtool](https://github.com/oetiker/rrdtool-1.x)
@@ -2838,6 +2867,74 @@ last month," unless something like this sits between the two.
 - What's the actual minimum-sample threshold before trusting mean/SD —
   needs picking, not just gesturing at "enough history"?
 
+## Printer discovery via CUPS
+
+Reported directly: valuing that NMS catches a home printer being
+powered off before someone else tries to print to it, and asking
+whether that was a Bonjour feature (it wasn't — `BrotherLaserPrinter`
+was always found via the SNMP subnet sweep) and whether SNMP-based
+discovery generalizes to "typical" networked printers. It mostly does —
+SNMP's Printer MIB (RFC 3805) is the real industry standard, not a
+lucky accident specific to this one printer — but the real gap is
+discovery, not monitoring: a printer that doesn't run an SNMP agent at
+all (common on cheaper consumer printers that only speak IPP/AirPrint)
+never gets discovered by the subnet sweep, and therefore never gets
+pinged either, even though plain ICMP doesn't need SNMP to work.
+
+**The fix: ask macOS, not the network.** `lpstat -v` reads CUPS's own
+configuration — the printers the user has actually set up in System
+Settings → Printers & Scanners — which is the user's own expressed
+intent, not an inference from scanning. Verified against this Mac's
+real printer: `lpstat -v` reported `device for brotherlaserprinter:
+ipp://brotherlaserprinter/ipp/port1`. Two things confirmed directly,
+not assumed:
+
+- **CUPS can report a bare mDNS short name with no `.local` suffix.**
+  `ping brotherlaserprinter` fails immediately ("No route to host," no
+  address even attempted) while `ping brotherlaserprinter.local`
+  resolves correctly to the real address. `PrinterDiscoveryService
+  .resolvedHost(from:)` appends `.local` to anything that isn't already
+  a bare IP or already suffixed, specifically because of this.
+- **`lpstat -l -p <name>` has an `Alerts:` field** (confirmed present,
+  currently reading `none` on the one real printer available to test
+  against) — CUPS's own surfacing of the printer's IPP
+  `printer-state-reasons` (`media-empty`, `cover-open`, `toner-low`,
+  etc.). This is genuinely a different, richer signal than reachability
+  — "ready to print," not just "powered on" — deliberately deferred:
+  shipped plain reachability first, since a real non-`none` alert value
+  hasn't been seen yet to confirm exact wording/format, and it adds a
+  third status dimension (reachable-but-not-ready) needing its own UI
+  treatment rather than reusing healthy/unhealthy as-is.
+
+**Scheme allow-list, not a block-list.** `usb://` is excluded for the
+obvious reason (a USB printer's "online" state is about the cable to
+this Mac, not a network path). `dnssd://` is excluded too, deliberately
+not attempted: it reports an mDNS *service instance name*
+(`Brother%20HL-L2395DW._ipp._tcp.local.`), not reliably a bare
+resolvable host, and there's no bundled macOS tool for resolving one
+short of hand-rolling mDNS-SD. Same reasoning as `SubnetCalculator`
+treating "can't tell" as "don't act" rather than guessing — a printer
+CUPS only reports via `dnssd://` simply isn't monitored yet, rather than
+monitored incorrectly.
+
+**Dedup against SNMP by name, not by IP.** The common case is a printer
+found by *both* sources (it answers SNMP and is configured in CUPS) —
+verified live: `BrotherLaserPrinter` (SNMP's own display name) and
+`brotherlaserprinter` (CUPS's) matched case-insensitively and produced
+exactly one ping target, not two logging duplicate up/down events for
+one physical device. Deduping by IP instead would need resolving the
+CUPS hostname first — a DNS lookup on every refresh, for a case
+name-matching already handles for free.
+
+**No new UI section, no feature flag.** A CUPS-only printer (no SNMP)
+has no uptime/firmware to show, so it's a silent `ConnectivityService
+.Target` contributing to Events/overall status exactly like the
+router does — a visible list would be a natural fast-follow, not core
+to what was asked for. No flag, unlike SNMP's own gating: this only
+pings printers the user already configured themselves, not a
+subnet-wide active probe of every device guessing community strings —
+meaningfully less invasive.
+
 ## Business SaaS monitoring
 
 A different kind of "is the network working" question: not "is the
@@ -3289,3 +3386,137 @@ Recommended treatment, and they diverge:
 - Is AppleScript-based tab inspection worth the Automation-permission
   ask for a discovery aid alone, or should the built-in table above
   just be considered good enough as a starting default?
+
+## Feature flags, now that friends are installing this too
+
+Every feature up to this point has been on unconditionally — reasonable
+when the only two Macs running NMS were the two it was developed on, and
+any half-finished feature was only ever the developer's own problem.
+That stopped being true the moment friends asked to install it on their
+own Macs for testing: now there's a real audience to protect from
+features that are still being hardened, without a way to manage a
+per-person rollout (this is a local-only app with no server, no
+auto-update, no App Store distribution — see the README's privacy
+section).
+
+**Rejected: a full flag system.** The usual reasons for one — staged
+rollout to a subset of users, a remote kill-switch without redeploying,
+A/B testing — don't apply when there's no server to serve flags from and
+no independent update channel; whatever's in the `.app` you hand someone
+is what they run until their next manual pull-and-build. Building a flag
+registry, admin UI, or remote-config fetch would be real complexity
+solving a problem this setup doesn't have.
+
+**What shipped instead**: `FeatureFlags`, a plain enum reading
+`UserDefaults.bool(forKey:)` per flag — the same mechanism `NMSStorePath`
+and `FailureInjector`'s debug overrides already use, deliberately *not*
+`#if DEBUG`-gated, since these need to work in whatever build a tester
+actually runs. `UserDefaults.bool(forKey:)` returns `false` for an unset
+key, so every flag defaults to **off** for a fresh install — a tester
+gets the stable core experience unless a flag is explicitly turned on via
+one `defaults write` command (documented in the README's "Experimental
+features" section). Two flags shipped initially:
+
+- **`FeatureComparisonWindow`** — the resizable "Open in Window"
+  alternative to the popover, still explicitly "not yet a replacement"
+  in its own doc comments.
+- **`FeatureSNMPDevices`** — gates more than the UI section.
+  `SNMPViewModel` itself does no rehydration, starts no poll timer, and
+  `scan()`/`poll()` no-op while this is off, because the feature is
+  active network probing (SNMP sweeps) against whatever LAN the Mac is
+  on — a friend testing on their own network hasn't necessarily
+  reviewed or approved that, independent of whether they'd find the UI
+  section useful. This one had several real bugs found and fixed
+  against it recently too (see "Per-network device scoping"), which
+  independently argued for not exposing it by default yet.
+
+**One real consequence worth remembering**: machines already running NMS
+before a flag existed don't have the key set either, so an unset key
+reads as "off" for them too — not just fresh installs. Both of the
+developer's own Macs needed `defaults write ... -bool true` for these two
+keys the moment this shipped, or the comparison window and SNMP Devices
+would have silently disappeared from daily use. Any future flag needs the
+same manual step on existing machines, or a conscious decision to default
+it to "on" instead if hiding it from the developer's own use isn't
+acceptable.
+
+### A real `swift-frontend` compiler bug, found while wiring the gate
+
+Gating the comparison `Window` scene with `if FeatureFlags.comparisonWindow { Window(...) { ... } }`
+directly inside `NMSApp.body` crashed the compiler outright — "failed to
+produce diagnostic for expression; please submit a bug report," the same
+category of internal type-checker failure (not a real semantic error) as
+the `NoBounceScrollView.Coordinator` `EarlyPerfInliner` crash found
+earlier this session, just at a different compiler stage (type-checking
+here, SIL optimization there).
+
+Extracting the conditional into its own `@SceneBuilder` computed property
+didn't fix it — the crash just moved to that property's declaration
+line. Extracting the `Window`'s content into a separately-named `some
+View` property didn't fix it either. What actually worked: stop making
+the *`Scene`* conditional at all, and gate the *content* instead —
+`Window("NMS", id: "nms-window") { comparisonWindowContent }` is always
+declared, and `comparisonWindowContent` is a `@ViewBuilder` property that
+returns either the real content or `EmptyView()` depending on the flag.
+`View`'s result-builder support for conditionals is evidently far more
+battle-tested than `Scene`'s; the same `if`/`else` shape that crashed the
+compiler at the `Scene` level compiled cleanly one layer down at the
+`View` level with zero changes to the branching logic itself.
+
+Functionally equivalent either way for what actually matters here — the
+footer button that opens this window is itself gated by the same flag
+(see `ContentView`), so an empty-but-technically-registered `Window`
+scene is unreachable by a tester who hasn't opted in, not a real content
+leak. Worth remembering as a general pattern: if a conditional `Scene`
+ever produces this exact "failed to produce diagnostic" crash again, push
+the condition down into the content instead of trying to restructure the
+`Scene`-level branching further.
+
+## A message bus for cross-view-model events? Considered, rejected
+
+Raised directly: `NMSApp.wireDependencies` has grown into a long
+function wiring roughly a dozen closures between concrete view model
+instances — would a pub-sub message bus (an `AppEvent` enum, published
+and subscribed to, so producers don't need a direct reference to their
+consumers) decouple this and make it more manageable as more features
+get added?
+
+**Recommendation: no, and not on general principle — this codebase's own
+documented history argues against it specifically.**
+
+`wireDependencies`' own doc comment is explicit about why it's one big,
+centralized function rather than scattered wiring: this exact bug class
+has hit the app three times already — a consumer that should react to a
+dependency changing, but doesn't, because the wiring for it was
+missing. The ISP Edge Router row went silent for 30s, the SNMP MAC merge
+for 60s, and a third case since (see the per-network-scoping ordering
+bug). The fix that's worked all three times is the same: make every edge
+explicit in one place, so a *missing* edge is visible by reading the
+function, not something discovered from a user report.
+
+A message bus is close to the opposite of that property. With pub-sub,
+"what listens to interface-down" isn't answerable by reading the
+producer — it requires grepping every subscription site across the
+codebase to reconstruct the same graph this file currently makes visible
+in one read. The failure mode gets *quieter*, not louder: a consumer
+that forgot to subscribe produces silence, same as today, but there's no
+longer a single function where its absence is noticeable at a glance.
+
+**Scale is the other mismatch.** Message buses earn their keep where
+producers and consumers genuinely can't know each other — many
+independent modules or teams. Here it's roughly a dozen view models, one
+developer, all constructed in one `init()`. The doc comment already
+quantifies the real graph: "roughly eight edges." That's not the
+complexity a bus is for.
+
+### If the actual problem is readability, not coupling
+
+Splitting `wireDependencies` into a few smaller private functions,
+grouped by the same categories the existing `// MARK:` comments already
+use (topology-change fan-out, derived-state dependencies, reachability
+transitions, event-log refresh) — each still fully explicit, each still
+called from one place in `init()` — would address "this function is
+long to read" directly, without giving up "a missing edge is visible by
+inspection," which is the property that's actually caught three real
+bugs here. Not yet done; noted as the lower-risk alternative if the
+function's length becomes a real problem rather than a hypothetical one.

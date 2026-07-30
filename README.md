@@ -239,23 +239,51 @@ Router, Internet, DNS, or HTTP can carry it.
 
 ### What's hidden
 
-LAN Devices and Bonjour Devices have no popover section — removed
-entirely to fit a 13" MacBook Air's shorter screen, not just collapsed.
-`LANDiscoveryViewModel`'s ARP-based scan keeps running regardless (it
-still feeds network recognition and SNMP's discovery candidates);
-Bonjour's launch-time scan no longer runs automatically, since its only
-remaining consumer (SNMP candidate-sourcing) is already covered by the
-subnet sweep directly.
+LAN Devices has no popover section — removed entirely to fit a 13"
+MacBook Air's shorter screen, not just collapsed. `LANDiscoveryViewModel`'s
+ARP-based scan keeps running regardless (it still feeds network
+recognition and SNMP's discovery candidates). Bonjour discovery was
+removed from the app entirely (not just hidden) — see DESIGN-NOTES.md's
+"mDNS/Bonjour" section for why: it was never actually being triggered to
+run, and even when it had been, found nothing the SNMP subnet sweep
+didn't already cover.
 
 ### Data retention
 
 `SnapshotStore.pruneIfNeeded` deletes rows older than 7 days from the
-three tables driven by the polling timer rather than by events —
-`ConnectivityCheckRecord`, `DiscoveredDeviceRecord`, `BonjourDeviceRecord`
+two tables driven by the polling timer rather than by events —
+`ConnectivityCheckRecord`, `DiscoveredDeviceRecord`
 — throttled to run at most once an hour, from the write that causes the
 growth. Change-log tables (`AppEventRecord`, `PublicIPRecord`,
 `DHCPLeaseRecord`, `NetworkSnapshot`, `NetworkQualityRecord`) are never
 pruned — they're small, and their whole value is their age.
+
+## Experimental features
+
+A couple of features aren't on by default for a fresh install, now that
+this runs on more than the two Macs it was developed on — friends testing
+it on their own machines get the stable, core experience unless they
+opt in. Unlike the debug tooling below, these work in *any* build
+(Release included), backed by plain `UserDefaults`:
+
+```
+defaults write Thistle.NMS FeatureComparisonWindow -bool true
+defaults write Thistle.NMS FeatureSNMPDevices -bool true
+```
+
+- **`FeatureComparisonWindow`** — the resizable "Open in Window"
+  alternative to the popover. Still genuinely experimental: see
+  `DESIGN-NOTES.md`'s "The MacBook Air height constraint" for the
+  ongoing comparison against the popover.
+- **`FeatureSNMPDevices`** — SNMP device discovery/monitoring. Off by
+  default specifically because it's active network probing (SNMP
+  sweeps) against whatever LAN the Mac is on — worth turning on only if
+  you're comfortable with that on your own network. When off, the
+  feature is fully inert (no sweeps, no polling), not just hidden from
+  the popover.
+
+Delete either key (`defaults delete Thistle.NMS <key>`) to go back to
+the default (off).
 
 ## Debug tooling (DEBUG builds only)
 
@@ -314,8 +342,6 @@ NMS/
 │   ├── Assets.xcassets
 │   ├── Models/
 │   │   ├── AppEventRecord.swift               # SwiftData model, the event log (+ AppEventKind)
-│   │   ├── BonjourDevice.swift                # Bonjour-discovered device value type
-│   │   ├── BonjourDeviceRecord.swift          # SwiftData model, persisted per-snapshot Bonjour list
 │   │   ├── ConnectionLayer.swift              # Network Health row value type
 │   │   ├── ConnectivityCheck.swift            # Reachability check value type (+ CPU load)
 │   │   ├── ConnectivityCheckRecord.swift      # SwiftData model, persisted check history
@@ -337,19 +363,20 @@ NMS/
 │   │   └── TracerouteHop.swift                # One hop's value type (+ RFC1918 classification)
 │   ├── Services/
 │   │   ├── AppleNetworkQualityService.swift   # networkQuality CLI wrapper (RPM/responsiveness)
-│   │   ├── BonjourDiscoveryService.swift      # Browses/resolves Bonjour (mDNS) services
 │   │   ├── BuildInfoService.swift             # Reads git HEAD from the known checkout
 │   │   ├── ConnectivityService.swift          # Pings a target via /sbin/ping
 │   │   ├── CorrelationService.swift           # Time-proximity failure/change matching
 │   │   ├── DHCPLeaseService.swift             # Reads the cached lease via ipconfig getpacket
 │   │   ├── DNSResolutionService.swift         # Resolves a hostname via getaddrinfo
 │   │   ├── FailureInjector.swift              # DEBUG-only failure/override injection
+│   │   ├── FeatureFlags.swift                 # UserDefaults-backed experimental-feature gating
 │   │   ├── HTTPCheckService.swift             # Real HTTP fetch via Apple's captive-portal probe
 │   │   ├── IPClassifier.swift                 # RFC 1918 private-address classification
 │   │   ├── LANDiscoveryService.swift          # Enumerates LAN devices via arp -n -a
 │   │   ├── LocationAuthorizationService.swift # Requests Core Location auth (for SSID)
 │   │   ├── NetworkQualityService.swift        # Cloudflare-endpoint throughput measurement
 │   │   ├── OverallStatus.swift                # Menu bar severity: normal/marginal/critical
+│   │   ├── PrinterDiscoveryService.swift      # Configured-printer discovery via lpstat -v
 │   │   ├── PublicIPService.swift              # Looks up WAN IP via api.ipify.org
 │   │   ├── ReverseDNSService.swift            # PTR lookup via getnameinfo
 │   │   ├── SNMPService.swift                  # SNMP GET/sweep via /usr/bin/snmpget
@@ -365,7 +392,6 @@ NMS/
 │   │   ├── UIStateLogger.swift                # DEBUG-only log of every value pushed into the UI
 │   │   └── WiFiSSIDService.swift               # Reads current Wi-Fi SSID/BSSID via CoreWLAN
 │   ├── ViewModels/
-│   │   ├── BonjourDiscoveryViewModel.swift    # Bridges BonjourDiscoveryService -> SwiftUI
 │   │   ├── ConnectivityViewModel.swift        # Bridges ConnectivityService -> SwiftUI
 │   │   ├── DHCPLeaseViewModel.swift           # Bridges DHCPLeaseService -> SwiftUI
 │   │   ├── EventLogViewModel.swift            # Fetches/exposes the event log
@@ -380,6 +406,9 @@ NMS/
 │   │   └── WiFiSSIDViewModel.swift            # Bridges WiFiSSIDService -> SwiftUI
 │   └── Views/
 │       ├── ContentView.swift                  # Menu bar popover UI
+│       ├── KnownNetworksView.swift            # Known-networks list window, with delete
+│       ├── NoBounceScrollView.swift           # AppKit-backed non-bouncing scroll container
+│       ├── PreferencesView.swift              # Experimental-feature toggles window
 │       ├── Sparkline.swift                    # Hand-drawn Canvas latency sparkline
 │       └── ToolTip.swift                      # AppKit-backed tooltip (SwiftUI's .help() doesn't render here)
 ├── NMSTests/                                  # Default template test target (unused so far)
@@ -437,9 +466,9 @@ set again on each machine.
 - `INFOPLIST_KEY_NSLocationUsageDescription` /
   `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription` — required for the
   Wi-Fi SSID feature's Core Location prompt to appear at all.
-- `INFOPLIST_KEY_NSLocalNetworkUsageDescription` — required for Bonjour
-  discovery to find anything; without it, `NWBrowser` silently returns
-  zero results.
+- `INFOPLIST_KEY_NSLocalNetworkUsageDescription` — required for LAN
+  discovery and the SNMP subnet sweep to find anything at all; without
+  it, both silently return zero results.
 
 The first time you're on Wi-Fi, macOS prompts for Location access (for
 the SSID; decline and the popover falls back to the generic interface
@@ -495,8 +524,9 @@ handles this automatically.
 
 ## Network activity and privacy
 
-Nearly everything stays on the local network: `arp -a`, Bonjour
-browsing, SNMP GETs, ping/traceroute. Persistence is local SwiftData;
+Nearly everything stays on the local network: `arp -a`, SNMP GETs,
+ping/traceroute, `lpstat` (reads local CUPS configuration, no network
+I/O at all). Persistence is local SwiftData;
 nothing is uploaded anywhere. Two checks leave the network, both on a
 timer:
 
@@ -555,7 +585,7 @@ outage going unlogged.
 - Correlation is a fixed 90-second time-proximity window, not causal
   proof.
 - LAN discovery only sees hosts already in the ARP cache (plus whatever
-  Bonjour/SNMP find by other means) — no active ping sweep populates it.
+  SNMP/CUPS find by other means) — no active ping sweep populates it.
 - SNMP v1/v2c only; no SNMPv3 auth/privacy.
 - The bundled net-snmp (5.6.2.1, ~2011) hasn't been updated by Apple in
   over a decade and is deprecation-listed — `SNMPService.isAvailable`

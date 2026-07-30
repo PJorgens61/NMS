@@ -12,12 +12,20 @@ final class ConnectivityViewModel: ObservableObject {
     private let service = ConnectivityService()
     private let dnsService = DNSResolutionService()
     private let httpService = HTTPCheckService()
+    private let printerService = PrinterDiscoveryService()
     private let snapshotStore: SnapshotStore
     private weak var networkMonitor: NetworkMonitorViewModel?
     private weak var lanDiscovery: LANDiscoveryViewModel?
     private weak var traceroute: TracerouteViewModel?
     private weak var snmp: SNMPViewModel?
     private weak var publicIP: PublicIPViewModel?
+    /// Refreshed at launch and on every topology change (see
+    /// `NMSApp.onChangePersisted` → `refreshConfiguredPrinters()`), not on
+    /// every check round — `lpstat -v` is a fast, local-only read (no
+    /// network I/O), but configured printers essentially never change
+    /// mid-session, so there's nothing to gain from re-reading it every
+    /// 5-30s the way `buildTargets` runs.
+    private var configuredPrinters: [PrinterDiscoveryService.ConfiguredPrinter] = []
     /// Set when `runChecks()` is called while a round is already in flight;
     /// the deferred round fires from `finishChecking()`. Needed because
     /// `TracerouteViewModel.onTraceCompleted` can land while the very first
@@ -93,6 +101,7 @@ final class ConnectivityViewModel: ObservableObject {
         self.traceroute = traceroute
         self.publicIP = publicIP
         self.snapshotStore = snapshotStore
+        refreshConfiguredPrinters()
         runChecks()
     }
 
@@ -101,6 +110,16 @@ final class ConnectivityViewModel: ObservableObject {
     /// injected once the graph is fully built (see `NMSApp.init`).
     func attach(snmp: SNMPViewModel) {
         self.snmp = snmp
+    }
+
+    /// Re-reads the printers macOS has configured (System Settings →
+    /// Printers & Scanners) — see `PrinterDiscoveryService`. Called at
+    /// launch and again on every topology change from `NMSApp`, the same
+    /// cadence `wifiSSID.refresh`/`dhcpLease.check` already use for things
+    /// unlikely to change mid-session but worth re-reading whenever the
+    /// network itself does.
+    func refreshConfiguredPrinters() {
+        configuredPrinters = printerService.configuredNetworkPrinters()
     }
 
     /// Recent latency per Network Health layer, keyed by
@@ -503,10 +522,26 @@ final class ConnectivityViewModel: ObservableObject {
         // here to avoid pinging it twice per round.
         let routerAddress = networkMonitor?.currentInterface?.routerAddress
         let infrastructure = (snmp?.devices ?? []).filter { $0.ipAddress != routerAddress }
-        infrastructureLabels = Set(infrastructure.map(\.displayName))
+        var infrastructureNames = Set(infrastructure.map(\.displayName))
         for device in infrastructure.prefix(Self.maxInfrastructureTargets) {
             targets.append(ConnectivityService.Target(label: device.displayName, host: device.ipAddress))
         }
+        // Printers macOS already has configured (see
+        // `PrinterDiscoveryService`), deduped by name (case-insensitive)
+        // against SNMP-discovered infrastructure — a printer found by both
+        // (the common case: it answers SNMP *and* is configured in CUPS)
+        // should only produce one ping target, not two under different
+        // labels logging duplicate up/down events for the same physical
+        // device. Not deduped by IP: `lpstat -v` reports a hostname
+        // (`brotherlaserprinter.local`), not the bare IP SNMP discovery
+        // uses, and resolving both to compare would cost a DNS lookup on
+        // every refresh for a case name-matching already handles.
+        let infrastructureNamesLowercased = Set(infrastructureNames.map { $0.lowercased() })
+        for printer in configuredPrinters where !infrastructureNamesLowercased.contains(printer.name.lowercased()) {
+            targets.append(ConnectivityService.Target(label: printer.name, host: printer.host))
+            infrastructureNames.insert(printer.name)
+        }
+        infrastructureLabels = infrastructureNames
         targets.append(ConnectivityService.Target(label: OverallStatus.internetLabel, host: Self.internetHost))
         // The confirmed ISP edge router, monitored by ping on this same
         // fast/reactive cadence — `TracerouteViewModel` only owns finding

@@ -38,7 +38,6 @@ final class SNMPViewModel: ObservableObject {
     private let snapshotStore: SnapshotStore
     private weak var networkMonitor: NetworkMonitorViewModel?
     private weak var lanDiscovery: LANDiscoveryViewModel?
-    private weak var bonjourDiscovery: BonjourDiscoveryViewModel?
     private weak var traceroute: TracerouteViewModel?
     private var timer: Timer?
 
@@ -94,13 +93,11 @@ final class SNMPViewModel: ObservableObject {
         snapshotStore: SnapshotStore,
         networkMonitor: NetworkMonitorViewModel,
         lanDiscovery: LANDiscoveryViewModel,
-        bonjourDiscovery: BonjourDiscoveryViewModel,
         traceroute: TracerouteViewModel
     ) {
         self.snapshotStore = snapshotStore
         self.networkMonitor = networkMonitor
         self.lanDiscovery = lanDiscovery
-        self.bonjourDiscovery = bonjourDiscovery
         self.traceroute = traceroute
         let defaults = UserDefaults.standard
         if let stored = defaults.stringArray(forKey: Self.communitiesDefaultsKey), !stored.isEmpty {
@@ -110,14 +107,22 @@ final class SNMPViewModel: ObservableObject {
         } else {
             communities = [Self.defaultCommunity]
         }
+        // Gated by `FeatureFlags.snmpDevices` — off by default for a fresh
+        // install, this view model stays fully inert: no rehydration, no
+        // poll timer, `scan()`/`poll()` no-op. Not just a UI hide, since
+        // this is active network probing (SNMP sweeps) against whatever
+        // LAN the Mac is on, which a tester hasn't necessarily approved.
+        guard FeatureFlags.snmpDevices else { return }
         // Rehydrate previously-discovered devices instead of sweeping at
         // launch. A full /24 sweep takes ~16s and forks up to 32 processes;
-        // running that during startup — alongside the LAN scan, Bonjour
-        // discovery, traceroute, connectivity checks and location auth —
-        // is exactly the launch-time contention that already produced an
-        // intermittent-empty-results bug in Bonjour discovery. Known
-        // devices show (and start being polled and pinged) immediately;
-        // the sweep itself is on demand via the popover's "Scan" button.
+        // running that during startup — alongside the LAN scan, traceroute,
+        // connectivity checks and location auth — is exactly the
+        // launch-time contention that already produced an
+        // intermittent-empty-results bug in Bonjour discovery (since
+        // removed entirely; see DESIGN-NOTES.md's "mDNS/Bonjour" section),
+        // back when that ran at launch too. Known devices show (and start
+        // being polled and pinged) immediately; the sweep itself is on
+        // demand via the popover's "Scan" button.
         devices = snapshotStore.fetchSNMPDevices().map(Self.device(from:))
         timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.pollInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -178,6 +183,7 @@ final class SNMPViewModel: ObservableObject {
     /// manual click: any device still around gets a fresh `firstSeenAt`
     /// instead of keeping its actual history.
     func scan() {
+        guard FeatureFlags.snmpDevices else { return }
         guard !isScanning else { return }
         guard SNMPService.isAvailable else {
             lastError = "snmpget not found — SNMP discovery unavailable on this macOS version."
@@ -546,11 +552,6 @@ final class SNMPViewModel: ObservableObject {
         }
         for device in lanDiscovery?.devices ?? [] {
             addresses.insert(device.ipAddress)
-        }
-        for device in bonjourDiscovery?.devices ?? [] {
-            if let ip = device.ipAddress {
-                addresses.insert(ip)
-            }
         }
         for hop in traceroute?.hops ?? [] {
             if let address = hop.address, hop.isLocal == true {

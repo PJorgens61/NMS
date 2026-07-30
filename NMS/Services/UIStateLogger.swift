@@ -196,8 +196,7 @@ enum UIStateLogger {
     /// `@unchecked Sendable`: every mutable stored property (`pending`) is
     /// only ever touched while holding `condition`, so it's genuinely safe
     /// to share across threads — the compiler just can't see a lock as a
-    /// proof of that. Same pattern as `BonjourDiscoveryService`'s
-    /// `UnsafeBox`.
+    /// proof of that.
     private nonisolated final class WriterThread: Thread, @unchecked Sendable {
         static let heartbeatInterval: TimeInterval = 20
         private let condition = NSCondition()
