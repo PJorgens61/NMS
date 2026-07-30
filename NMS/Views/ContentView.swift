@@ -184,6 +184,23 @@ struct ContentView: View {
 
             dhcpHistoryList
 
+            // Window-only, not popover-gated by a feature flag: this adds
+            // a new full-width section, and the popover's fixed-height
+            // budget is exactly the constraint this whole app has fought
+            // hardest — a 5th section costs space a fresh install didn't
+            // ask for. `isInWindow` already threads through everywhere
+            // else for per-tile scroll-box sizing; gating a whole section
+            // on it is the same pattern, not new plumbing. Hidden outright
+            // on Ethernet — nothing here has a Wi-Fi answer.
+            if isInWindow && wifiSSID.currentSSID != nil {
+                Divider()
+
+                Text("Wi-Fi")
+                    .font(.headline)
+
+                wifiSection
+            }
+
             Divider()
 
             HStack {
@@ -562,7 +579,7 @@ struct ContentView: View {
                     // Absent for Network/Interface, which have no
                     // latency concept.
                     if let samples = latencyHistory[layer.id] {
-                        Sparkline(samples: samples)
+                        Sparkline(values: samples.map(\.latencyMs))
                     }
                     Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
                         .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
@@ -862,6 +879,55 @@ struct ContentView: View {
                     .appKitToolTip(Self.dhcpLeaseHelp, enabled: !isCapturingScreenshot)
             }
         }
+    }
+
+    /// Current signal/link characteristics plus a short RSSI trend —
+    /// window-only, see this section's call site in `body`. Reuses
+    /// `Sparkline` (generalized from Network Health's latency-only
+    /// version) rather than a second, parallel mini-chart type.
+    @ViewBuilder
+    private var wifiSection: some View {
+        // Not the plain `row(_:_:)` helper, so the sparkline can sit
+        // inline between label and value — same layout Network Health's
+        // per-layer rows already use for their own sparklines.
+        HStack {
+            Text("Signal")
+                .foregroundStyle(.secondary)
+            Spacer()
+            if wifiSSID.recentSamples.count > 1 {
+                Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
+            }
+            Text(wifiSignalDetail)
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.system(size: 12))
+        row("Channel", wifiChannelDetail)
+        if let rate = wifiSSID.currentPHYRateMbps {
+            row("PHY Rate", "\(Int(rate)) Mbps")
+        }
+        if let security = wifiSSID.currentSecurity {
+            row("Security", security)
+        }
+    }
+
+    /// RSSI plus its trend, with an SNR parenthetical when noise is also
+    /// available — "-52 dBm (SNR 38 dB)". Noise isn't always reported (some
+    /// adapters/driver states omit it), so the SNR half is conditional
+    /// rather than showing a misleading partial calculation.
+    private var wifiSignalDetail: String {
+        guard let rssi = wifiSSID.currentRSSI else { return "—" }
+        if let noise = wifiSSID.currentNoise {
+            return "\(rssi) dBm (SNR \(rssi - noise) dB)"
+        }
+        return "\(rssi) dBm"
+    }
+
+    private var wifiChannelDetail: String {
+        guard let number = wifiSSID.currentChannelNumber else { return "—" }
+        guard let band = wifiSSID.currentChannelBand else { return "\(number)" }
+        return "\(number) (\(band))"
     }
 
     /// The "Speed Test" tile's full content: the data-cost note (moved
@@ -1339,16 +1405,20 @@ struct ContentView: View {
         return "\(name) \(type)"
     }
 
-    /// Appends the router's MAC address (its `KnownNetwork` fingerprint, the
-    /// same value used to recognize the network at all) in parentheses when
-    /// it's already known, so a router swap or a VRRP failover between two
-    /// physical boxes at the same IP is visible without cross-referencing
-    /// the SNMP device list. Falls back to the bare IP before the first LAN
-    /// scan of this session has recognized the network.
+    /// Just the IP — deliberately not appending the router's `KnownNetwork`
+    /// fingerprint the way this used to. That was originally a bare MAC
+    /// address, shown so a VRRP failover between two physical boxes at the
+    /// same IP would be visible without cross-referencing the SNMP device
+    /// list. Once the per-network scoping work changed `fingerprint` to
+    /// `routerMAC|subnet` (see DESIGN-NOTES.md's "Per-network device
+    /// scoping"), this row started leaking that internal identity string
+    /// verbatim — `10.0.0.1 (bc:b9:23:81:a6:d4|10.0.0.0/24)` — never a
+    /// deliberate display choice, just an unaudited side effect. Reported
+    /// directly; simplified to the plain IP rather than reconstructing a
+    /// clean bare-MAC-only version, since that's what was actually asked
+    /// for.
     private func routerDisplay(_ info: NetworkInterfaceInfo) -> String {
-        guard let ip = info.routerAddress else { return "—" }
-        guard let fingerprint = networkIdentity.currentNetwork?.fingerprint else { return ip }
-        return "\(ip) (\(fingerprint))"
+        info.routerAddress ?? "—"
     }
 
     /// IP address and subnet mask combined into one CIDR-notation row

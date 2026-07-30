@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A compact latency trend for one Network Health layer, sized to sit
-/// inline on an existing row.
+/// A compact trend line for a value that changes over time — Network
+/// Health's per-layer latency originally, now also reused for Wi-Fi RSSI
+/// history — sized to sit inline on an existing row.
 ///
 /// **Hand-drawn rather than Swift Charts**, which DESIGN-NOTES.md
 /// originally proposed. Two reasons, and the first is specific to this
@@ -17,49 +18,60 @@ import SwiftUI
 /// the row it joins. That matters more than it sounds — the popover
 /// fits a 13" MacBook Air exactly, and the Events list was trimmed by
 /// two rows to make it do so.
+///
+/// **`[Double?]`, not `[LatencySample]`** — this used to take
+/// `LatencySample` directly, but every use of a sample here was really
+/// just its `latencyMs`; nothing about the drawing logic cares what the
+/// value *means*, only where it sits between the series' own min/max and
+/// where it's `nil` (a gap, not a zero). Generalizing the input type let
+/// Wi-Fi RSSI reuse this outright instead of a second, parallel
+/// mini-chart — `nil` means "no signal reading that round" for RSSI, the
+/// same "gap, not a failure rendered as zero" meaning it had for a failed
+/// ping.
 struct Sparkline: View {
-    let samples: [LatencySample]
+    let values: [Double?]
 
     private static let size = CGSize(width: 44, height: 11)
 
     var body: some View {
         Canvas { context, size in
-            guard samples.count > 1 else { return }
+            guard values.count > 1 else { return }
 
-            // Scaled per-instance, never shared across layers. DNS probes
-            // run in single-digit ms and internet pings in tens, so one
-            // axis across all five rows would flatten the faster ones
-            // into an apparently dead line.
-            let values = samples.compactMap(\.latencyMs)
-            let lowest = values.min() ?? 0
-            let highest = values.max() ?? 1
+            // Scaled per-instance, never shared across layers/series. DNS
+            // probes run in single-digit ms and internet pings in tens
+            // (and RSSI is a third, unrelated scale entirely), so one axis
+            // across all of them would flatten the smaller-range ones into
+            // an apparently dead line.
+            let present = values.compactMap { $0 }
+            let lowest = present.min() ?? 0
+            let highest = present.max() ?? 1
             // A flat line sits mid-height rather than at an arbitrary
             // edge, which is what a zero-range span would otherwise do.
             let span = highest - lowest
-            let step = size.width / CGFloat(samples.count - 1)
+            let step = size.width / CGFloat(values.count - 1)
 
-            func point(_ index: Int, _ latency: Double) -> CGPoint {
+            func point(_ index: Int, _ value: Double) -> CGPoint {
                 let x = CGFloat(index) * step
-                let normalized = span > 0 ? (latency - lowest) / span : 0.5
-                // Inverted: higher latency should read as higher on the
+                let normalized = span > 0 ? (value - lowest) / span : 0.5
+                // Inverted: a higher value should read as higher on the
                 // chart, and the canvas origin is top-left.
                 let y = size.height - (CGFloat(normalized) * size.height)
                 return CGPoint(x: x, y: y)
             }
 
-            // The line is drawn only through successful checks, and
-            // *broken* at failures rather than interpolated across them.
-            // Bridging a gap would render an outage as a smooth line
-            // between the checks either side of it — the one reading the
-            // sparkline exists to prevent.
+            // The line is drawn only through present values, and *broken*
+            // at gaps rather than interpolated across them. Bridging a gap
+            // would render a real outage (or a missed Wi-Fi sample) as a
+            // smooth line between the points either side of it — the one
+            // reading the sparkline exists to prevent.
             var path = Path()
             var penDown = false
-            for (index, sample) in samples.enumerated() {
-                guard let latency = sample.latencyMs else {
+            for (index, value) in values.enumerated() {
+                guard let value else {
                     penDown = false
                     continue
                 }
-                let location = point(index, latency)
+                let location = point(index, value)
                 if penDown {
                     path.addLine(to: location)
                 } else {
@@ -69,9 +81,9 @@ struct Sparkline: View {
             }
             context.stroke(path, with: .color(.secondary), lineWidth: 1)
 
-            // Failures marked explicitly, at the bottom of the range, in
-            // the same red this app uses for failure everywhere else.
-            for (index, sample) in samples.enumerated() where sample.latencyMs == nil {
+            // Gaps marked explicitly, at the bottom of the range, in the
+            // same red this app uses for failure everywhere else.
+            for (index, value) in values.enumerated() where value == nil {
                 let x = CGFloat(index) * step
                 let dot = CGRect(x: x - 1, y: size.height - 2, width: 2, height: 2)
                 context.fill(Path(ellipseIn: dot), with: .color(.red))
@@ -80,7 +92,7 @@ struct Sparkline: View {
         .frame(width: Self.size.width, height: Self.size.height)
         // Nothing to draw from a single point, and an empty box reads as
         // a rendering bug rather than as "no history yet".
-        .opacity(samples.count > 1 ? 1 : 0)
+        .opacity(values.count > 1 ? 1 : 0)
         .accessibilityHidden(true)
     }
 }

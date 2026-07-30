@@ -100,6 +100,13 @@ scrollbar on the right reaches whatever doesn't fit on screen. It's a
 comparison alternative alongside the popover for now, not a replacement
 — both stay open to the same underlying state.
 
+The window also has one section the popover never will: **Wi-Fi**
+(signal strength with a short trend line, channel/band, negotiated PHY
+rate, security), visible only on Wi-Fi. It's gated to the window
+specifically rather than a feature flag, since the popover's fixed
+height is exactly the budget a new full-width section shouldn't spend
+on every fresh install by default.
+
 ### Network Health
 
 Seven rows, ordered bottom-to-top as the actual dependency chain out of
@@ -386,7 +393,8 @@ NMS/
 │   │   ├── PublicIPRecord.swift               # SwiftData model, persisted public-IP change history
 │   │   ├── SNMPDevice.swift                   # SNMP-discovered infrastructure device value type
 │   │   ├── SNMPDeviceRecord.swift             # SwiftData model, current state per SNMP device
-│   │   └── TracerouteHop.swift                # One hop's value type (+ RFC1918 classification)
+│   │   ├── TracerouteHop.swift                # One hop's value type (+ RFC1918 classification)
+│   │   └── WiFiSampleRecord.swift             # SwiftData model, periodic Wi-Fi signal/link history
 │   ├── Services/
 │   │   ├── AppleNetworkQualityService.swift   # networkQuality CLI wrapper (RPM/responsiveness)
 │   │   ├── BuildInfoService.swift             # Reads git HEAD from the known checkout

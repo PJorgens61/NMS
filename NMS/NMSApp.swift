@@ -594,7 +594,8 @@ struct NMSApp: App {
             NetworkQualityRecord.self,
             AppEventRecord.self,
             ProviderEdgeRecord.self,
-            SNMPDeviceRecord.self
+            SNMPDeviceRecord.self,
+            WiFiSampleRecord.self
         ])
         let storeURL = Self.storeURL()
         do {

@@ -12,10 +12,30 @@ final class WiFiSSIDViewModel: ObservableObject {
     @Published private(set) var currentBSSID: String? {
         didSet { UIStateLogger.log("WiFiSSIDViewModel.currentBSSID", currentBSSID as Any) }
     }
+    @Published private(set) var currentRSSI: Int?
+    @Published private(set) var currentNoise: Int?
+    @Published private(set) var currentChannelNumber: Int?
+    @Published private(set) var currentChannelBand: String?
+    @Published private(set) var currentPHYRateMbps: Double?
+    @Published private(set) var currentSecurity: String?
+    /// Newest-first, for `ContentView`'s Wi-Fi history — see
+    /// `SnapshotStore.fetchWiFiSampleHistory`.
+    @Published private(set) var recentSamples: [WiFiSampleRecord] = []
 
     private let ssidService = WiFiSSIDService()
     private let authService = LocationAuthorizationService()
     private let snapshotStore: SnapshotStore
+    private var timer: Timer?
+
+    /// Unlike Network Health's 5-30s connectivity cadence, RSSI/PHY rate
+    /// don't need near-real-time tracking — this is a trend over minutes,
+    /// not a reachability check. Matches `SNMPViewModel`'s poll interval,
+    /// which is in the same "worth sampling periodically, not urgently"
+    /// category. `WiFiSampleRecord` joins `SnapshotStore.pruneIfNeeded`'s
+    /// retention group from the start (see that method) specifically
+    /// because a timer-driven table run at this cadence is exactly the
+    /// shape of table that grows unbounded if it doesn't.
+    private static let sampleInterval: TimeInterval = 60
 
     /// The last Wi-Fi network actually seen, which is *not* the same as the
     /// previous value of `currentSSID`: that goes nil every time Ethernet
@@ -33,14 +53,28 @@ final class WiFiSSIDViewModel: ObservableObject {
         self.snapshotStore = snapshotStore
     }
 
-    /// Re-reads the SSID if `isWiFi`, requesting Core Location
+    deinit {
+        timer?.invalidate()
+    }
+
+    /// Re-reads Wi-Fi state if `isWiFi`, requesting Core Location
     /// authorization first if it hasn't been granted yet. Pass `false` for
-    /// Ethernet/no-connection so a stale SSID doesn't linger in the UI
-    /// after switching away from Wi-Fi.
+    /// Ethernet/no-connection so stale Wi-Fi state doesn't linger in the UI
+    /// after switching away from Wi-Fi — this also stops the periodic
+    /// sampling timer, since sampling a radio that isn't in use would just
+    /// record the same "not connected" reading every interval.
     func refresh(isWiFi: Bool) {
         guard isWiFi else {
             currentSSID = nil
             currentBSSID = nil
+            currentRSSI = nil
+            currentNoise = nil
+            currentChannelNumber = nil
+            currentChannelBand = nil
+            currentPHYRateMbps = nil
+            currentSecurity = nil
+            timer?.invalidate()
+            timer = nil
             return
         }
         authService.requestAuthorization { [weak self] in
@@ -49,12 +83,47 @@ final class WiFiSSIDViewModel: ObservableObject {
             // @Published state.
             Task { @MainActor in
                 guard let self else { return }
-                let info = self.ssidService.currentInfo()
-                self.currentSSID = info.ssid
-                self.currentBSSID = info.bssid
-                self.logNetworkChangeIfNeeded(to: info.ssid)
+                self.sample()
+                self.startSamplingIfNeeded()
             }
         }
+    }
+
+    private func startSamplingIfNeeded() {
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: Self.sampleInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.sample()
+            }
+        }
+    }
+
+    /// Reads current Wi-Fi state, updates the published fields, logs a
+    /// network-change event if warranted, and persists the reading —
+    /// called immediately on every `refresh(isWiFi: true)` and again every
+    /// `sampleInterval` after that while still on Wi-Fi.
+    private func sample() {
+        let info = ssidService.currentInfo()
+        currentSSID = info.ssid
+        currentBSSID = info.bssid
+        currentRSSI = info.rssi
+        currentNoise = info.noise
+        currentChannelNumber = info.channelNumber
+        currentChannelBand = info.channelBand
+        currentPHYRateMbps = info.phyRateMbps
+        currentSecurity = info.security
+        logNetworkChangeIfNeeded(to: info.ssid)
+        snapshotStore.recordWiFiSample(
+            ssid: info.ssid,
+            bssid: info.bssid,
+            rssi: info.rssi,
+            noise: info.noise,
+            channelNumber: info.channelNumber,
+            channelBand: info.channelBand,
+            phyRateMbps: info.phyRateMbps,
+            security: info.security
+        )
+        recentSamples = snapshotStore.fetchWiFiSampleHistory()
     }
 
     /// Logs only a genuine move between two *named* networks. Joining from

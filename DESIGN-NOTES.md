@@ -2321,6 +2321,55 @@ list in a fixed-height window, not a scrollable table).
   for one more row, or does it wait until there's a broader Ethernet-side
   feature to justify the investment?
 
+### Implemented, once the resizable window existed to put it in
+
+The blocking question above was "does a point-in-time reading mean
+anything, or does this need history?" — answered directly: track it over
+time, per network. That reframed the space question too: the popover was
+never going to have room for a history view, but the resizable comparison
+window (built later the same session) doesn't have that ceiling, which
+is what actually unblocked this.
+
+- **All three (RSSI, channel/band, PHY rate) shipped together**, plus
+  security — not staged as RSSI-first, since the marginal cost really
+  was small once `WiFiSSIDService` already had the `CWInterface` lookup
+  open for BSSID.
+- **Window-only, not a disclosure group.** `ContentView` already threads
+  `isInWindow: Bool` through for per-tile scroll-box sizing, so gating a
+  whole new full-width "Wi-Fi" section behind it was the same pattern,
+  not new plumbing — simpler than a `DisclosureGroup` and it sidesteps
+  the popover space question outright rather than solving it. Hidden
+  entirely on Ethernet (`wifiSSID.currentSSID != nil` gates it too), not
+  just in the popover.
+- **60s sampling**, matching SNMP's poll interval — RSSI is a trend over
+  minutes, not a reachability check, so it didn't need Connectivity's
+  5-30s cadence. `WiFiSampleRecord` joined `SnapshotStore.pruneIfNeeded`'s
+  retention group from the day it shipped (see "No retention policy
+  anywhere" above) rather than as a fast-follow once it grew large enough
+  to notice, the same shape of table as `ConnectivityCheckRecord`.
+  Scoped per network like Events/DHCP/SNMP.
+- **Security as a static row**, not an event — the simpler of the two
+  options this file originally raised, chosen directly rather than
+  building the "only log it if it changes" version.
+- **RSSI history reuses `Sparkline`**, generalized from
+  `[LatencySample]` to `[Double?]` — nothing about the drawing logic
+  ever cared what the value meant, only where it sits between the
+  series' min/max and where it's `nil` (a gap, not a zero). One call
+  site needed updating (`samples.map(\.latencyMs)`), and RSSI got a real
+  trend line for free instead of a second, parallel mini-chart type.
+- **Ethernet link speed still not built** — genuinely out of scope here,
+  unchanged from the open question above.
+
+Verified end to end with real data on this Mac's own Wi-Fi, not just
+compiled: switching from Ethernet to Wi-Fi logged `Interface changed:
+Ethernet → Wi-Fi` as expected, `WiFiSSIDViewModel`'s periodic timer fired
+at exactly the configured 60s (two real `ConnectivityCheckRecord`-style
+log lines 60.046s apart), and the persisted rows carried real values —
+`-50 dBm, 5 GHz, channel 132, 1300 Mbps, WPA3 Personal`, correctly
+tagged with the current network's fingerprint. The window's Wi-Fi
+section rendered all of it, including a visible two-point sparkline
+trending `-50 → -49`.
+
 ## Popover screenshot button
 
 Built to close the loop on a real, recurring cost this whole project's

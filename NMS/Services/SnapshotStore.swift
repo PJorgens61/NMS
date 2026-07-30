@@ -156,15 +156,16 @@ final class SnapshotStore {
     /// Deletes telemetry older than `telemetryRetention`, at most once
     /// per `pruneInterval`.
     ///
-    /// **Only two tables are pruned, and the asymmetry is the whole
+    /// **Only three tables are pruned, and the asymmetry is the whole
     /// design.** `ConnectivityCheckRecord` alone is ~90% of all rows
     /// (measured: 4280 of 4736 after 4.5 hours, growing ~953 rows/hour,
     /// ~3.5 MB/day) because it's the one table driven by a timer rather
     /// than by events — one row per target per round, forever.
-    /// `DiscoveredDeviceRecord` grows the same way per LAN scan. Both are
-    /// raw observations. (`BonjourDeviceRecord` used to be a third —
-    /// removed along with Bonjour discovery entirely, see
-    /// DESIGN-NOTES.md's "mDNS/Bonjour" section.)
+    /// `DiscoveredDeviceRecord` grows the same way per LAN scan, and
+    /// `WiFiSampleRecord` per periodic Wi-Fi sample. All three are raw
+    /// observations. (`BonjourDeviceRecord` used to be a fourth — removed
+    /// along with Bonjour discovery entirely, see DESIGN-NOTES.md's
+    /// "mDNS/Bonjour" section.)
     ///
     /// Everything else is deliberately left alone: `AppEventRecord`,
     /// `PublicIPRecord`, `DHCPLeaseRecord` and `NetworkSnapshot` are
@@ -198,14 +199,21 @@ final class SnapshotStore {
 
         let cutoff = now.addingTimeInterval(-Self.telemetryRetention)
 
-        // Batch delete for the one table with no relationships. This is
-        // the table that actually gets large (~160k rows at steady
-        // state), so it's worth the efficient path — nothing is loaded
-        // into memory.
+        // Batch delete for the tables with no relationships. `ConnectivityCheckRecord`
+        // is the one that actually gets large (~160k rows at steady state),
+        // so it's worth the efficient path — nothing is loaded into memory.
+        // `WiFiSampleRecord` joined this group from the day it shipped,
+        // rather than as a fast-follow once it grew large enough to
+        // notice — same timer-driven, no-relationship shape.
         do {
             try context.delete(model: ConnectivityCheckRecord.self, where: #Predicate { $0.checkedAt < cutoff })
         } catch {
             UIStateLogger.log("SnapshotStore.prune", "ConnectivityCheckRecord batch delete failed: \(error)")
+        }
+        do {
+            try context.delete(model: WiFiSampleRecord.self, where: #Predicate { $0.sampledAt < cutoff })
+        } catch {
+            UIStateLogger.log("SnapshotStore.prune", "WiFiSampleRecord batch delete failed: \(error)")
         }
 
         // Fetch-then-delete for the one that holds a `snapshot`
@@ -396,6 +404,48 @@ final class SnapshotStore {
     func fetchNetworkQualityHistory(limit: Int = 10) -> [NetworkQualityRecord] {
         var descriptor = FetchDescriptor<NetworkQualityRecord>(
             sortBy: [SortDescriptor(\.testedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Unconditional insert, same reasoning as `recordNetworkQualityResult`
+    /// — a genuine time series, not a change to dedupe against. Unlike that
+    /// one, this runs on a timer (`WiFiSSIDViewModel`'s periodic sampling)
+    /// rather than a user action, so it's grown into `pruneIfNeeded`'s
+    /// retention group from the start rather than as a fast-follow — see
+    /// that method.
+    func recordWiFiSample(
+        ssid: String?,
+        bssid: String?,
+        rssi: Int?,
+        noise: Int?,
+        channelNumber: Int?,
+        channelBand: String?,
+        phyRateMbps: Double?,
+        security: String?
+    ) {
+        context.insert(WiFiSampleRecord(
+            ssid: ssid,
+            bssid: bssid,
+            rssi: rssi,
+            noise: noise,
+            channelNumber: channelNumber,
+            channelBand: channelBand,
+            phyRateMbps: phyRateMbps,
+            security: security,
+            networkFingerprint: currentNetworkFingerprint
+        ))
+        try? context.save()
+    }
+
+    /// Scoped by `currentNetworkFingerprint`: a different network's Wi-Fi
+    /// history never shows here.
+    func fetchWiFiSampleHistory(limit: Int = 30) -> [WiFiSampleRecord] {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<WiFiSampleRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.sampledAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit
         return (try? context.fetch(descriptor)) ?? []
