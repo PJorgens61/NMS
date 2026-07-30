@@ -2718,6 +2718,76 @@ human-facing page loads fine, suggesting bot/access protection on the
 API path specifically. Worth a periodic re-check rather than building
 on it as-is.
 
+### Where this fits the existing green/yellow/red severity scheme
+
+Red is already reserved for the core network itself being broken
+(interface/router/DNS/HTTP/Internet unreachable) and yellow already
+means "marginal" — something worth noting that isn't a core-network
+failure. A SaaS outage is exactly that shape: the network is fully
+healthy, but a service that's depended on isn't. That's a better fit
+for yellow than a stretch, but it raises two questions the existing
+single-LAN-device definition of yellow never had to answer:
+
+- **Does SaaS monitoring share yellow with the current trigger, or
+  replace/extend it?** Today yellow means "a monitored LAN device (not
+  the router) is unreachable." If SaaS reachability gets folded into
+  the same color without a way to tell them apart, yellow starts
+  meaning "either a LAN device is offline or a business SaaS app is
+  down" — two structurally different problems collapsed into one
+  glance-level signal. Solvable (the app already has a root-cause
+  drill-down pattern for `ConnectionLayer`), but worth deciding
+  deliberately rather than by accident.
+- **Should every SaaS outage land at exactly yellow, or should severity
+  scale with what's actually affected?** A low-priority internal tool
+  being briefly unreachable and a CRM being down during business hours
+  aren't the same severity, even though both are "network's fine, a
+  SaaS app isn't." Yellow is currently defined as low-stakes by
+  default ("worth noting, not itself a real problem") — that
+  undersells a Salesforce outage in a way it doesn't undersell an
+  offline printer. Once several SaaS services are monitored at once,
+  there's a real choice between "any outage triggers yellow uniformly"
+  and "severity scales with how many/how critical the affected
+  services are," potentially warranting something above yellow even
+  with the underlying network fully healthy.
+
+### Does this vary by network? (home / coffee shop / office)
+
+Splits into two signals that have been talked about as one so far, and
+they behave oppositely once you're roaming between networks:
+
+- **A vendor's own status-page result is a global fact.** If Slack's
+  status API reports a major outage, that's true at home, at a coffee
+  shop, and at the office, all at once — it doesn't need per-network
+  tracking, and scoping it to whichever `KnownNetwork` happened to be
+  active when it was observed would be actively wrong. One real-world
+  incident, reported the same way regardless of location.
+- **The plain-reachability fallback (Workday/ADP/Microsoft 365, or
+  anything without a status API) genuinely is network-dependent.** A
+  stricter office network might filter or block a SaaS domain outright;
+  a coffee shop's captive portal can make *everything* fail until you
+  log in, which isn't "Slack is down" at all. Neither should be
+  reported as a global SaaS outage — they're local-network problems,
+  and should be tagged by `KnownNetwork` (already in the app,
+  fingerprints by gateway MAC) the same way other per-network state
+  already is, specifically so "blocked at the office" doesn't get
+  misreported as "Slack is down" once you're back home on a network
+  where it works fine.
+
+Practical consequence: a status-API check reporting an outage should
+be cross-checked against whether the core `ConnectionLayer` layers
+(router/DNS/HTTP) are themselves healthy first. If they're not, there's
+no internet at all, and "the SaaS service is down" would be the wrong
+diagnosis — only trust a status-API outage reading when the underlying
+network is otherwise fine.
+
+This also reaches back into the health-score baseline design above: if
+SaaS latency ever gets folded into the same z-score-against-historical-
+baseline scheme as everything else, mixing home-fiber latency with
+coffee-shop-WiFi latency into one baseline would produce a number that
+means nothing — "normal" at a coffee shop looks nothing like "normal"
+at home. That baseline would need to be computed per-`KnownNetwork`,
+not globally, for the same reason the reachability signal does.
+
 ### Open questions before implementing
 
 - Which services actually get a built-in entry vs. requiring the user
@@ -2730,3 +2800,8 @@ on it as-is.
 - Does an unresolvable service (Workday/ADP/M365) get a visibly
   different UI treatment ("reachability only, no status API") so it
   isn't mistaken for the higher-confidence status-page-backed checks?
+- Does SaaS monitoring share yellow with the existing LAN-device
+  trigger, or get its own visually distinct signal?
+- Does severity scale with the number/criticality of affected SaaS
+  services, or does any single outage trigger the same yellow
+  uniformly?
