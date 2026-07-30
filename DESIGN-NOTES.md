@@ -2909,6 +2909,41 @@ session the way Keychain/cookie access would — both are meant for
 *discovery* (auto-suggesting a starter monitoring list), not as a
 live "are you logged in right now" gate on whether a check counts.
 
+### The privacy risk isn't hypothetical — confirmed by actually running it
+
+Ran both `lsof -i -P -n` and a real AppleScript tab scan (`tell
+application "Brave Browser" ... get URL of every tab of every
+window`) live against this Mac, not just designed on paper. `lsof`
+behaved exactly as scoped — process-to-connection mapping only, no
+sensitive content. The tab scan is where the risk stopped being
+theoretical: alongside the expected SaaS-relevant tabs (GitHub, a
+statuspage-related search), it also returned several tabs that were
+personal investment/finance research — a portfolio-tracking URL among
+them — with zero discrimination between "useful for SaaS discovery"
+and "none of this feature's business." The scan doesn't know the
+difference; it returns every open tab, full URLs included.
+
+That confirms the fix from the design above isn't optional, and
+sharpens what it needs to be: **filter against the known SaaS domain
+table immediately, in memory, before anything else happens with the
+result.** Non-matching tabs must never be logged, displayed, written
+to any persisted store, or even held past the filtering step — not
+"redact before display," which would still mean the raw list existed
+somewhere first. The only output of this subsystem should be "these
+of your configured/candidate SaaS domains have an open tab," never
+the tab list itself in any form.
+
+One thing the same test validated positively: combining the two
+signals produced a more confident read than either alone — `lsof`
+independently confirmed the GitHub connection the tab scan also
+showed (Brave holding a connection to GitHub's own dedicated IP range
+at the same time a GitHub tab was open), the same "combine, don't
+pick one" argument the LAN-discovery section above makes for ARP vs.
+SNMP vs. the switch's MAC table. Relevant to the open question below
+about whether to combine the status-page check with the `lsof`
+signal — this is a second, independent data point in favor of
+combining rather than treating them as redundant.
+
 ### Open questions before implementing
 
 - Which services actually get a built-in entry vs. requiring the user
