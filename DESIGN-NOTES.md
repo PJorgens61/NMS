@@ -4,6 +4,30 @@ Ideas discussed and worked through but not yet implemented. Each section is a
 sketch, not a spec — enough to pick back up from later without re-deriving
 the reasoning, not a promise of the exact eventual shape.
 
+## Contents
+
+- [DNS testing: is `dig` an alternative to `getaddrinfo`?](#dns-testing-is-dig-an-alternative-to-getaddrinfo)
+- [DHCP lease tracking](#dhcp-lease-tracking)
+- [UI tooltips](#ui-tooltips)
+- [Network Quality (speed / responsiveness) testing, on demand](#network-quality-speed--responsiveness-testing-on-demand)
+- [Latency history sparklines](#latency-history-sparklines)
+- [Active-overrides banner (closing a real gap in the debug tooling itself)](#active-overrides-banner-closing-a-real-gap-in-the-debug-tooling-itself)
+- [The MacBook Air height constraint, recurring, and a real fix for tracking it](#the-macbook-air-height-constraint-recurring-and-a-real-fix-for-tracking-it)
+- [Interface-down injection can now produce real events](#interface-down-injection-can-now-produce-real-events)
+- [UI state debug log (for AI-assisted verification)](#ui-state-debug-log-for-ai-assisted-verification)
+- [IP broadcast for LAN discovery — why it doesn't work, and what does](#ip-broadcast-for-lan-discovery--why-it-doesnt-work-and-what-does)
+- [mDNS/Bonjour: TXT records and dynamic service-type discovery](#mdnsbonjour-txt-records-and-dynamic-service-type-discovery)
+- [RRDtool for historical storage](#rrdtool-for-historical-storage)
+- [Classical dual-router VRRP identity](#classical-dual-router-vrrp-identity)
+- [Per-network device scoping, and fixing the network fingerprint](#per-network-device-scoping-and-fixing-the-network-fingerprint)
+- [Deferred Wi-Fi/link telemetry](#deferred-wi-filink-telemetry)
+- [Popover screenshot button](#popover-screenshot-button)
+- [Store size in the footer](#store-size-in-the-footer)
+- [No retention policy anywhere (measured)](#no-retention-policy-anywhere-measured)
+- [The concurrency warnings — all four now fixed](#the-concurrency-warnings--all-four-now-fixed)
+- [Historical health score (green / yellow / red)](#historical-health-score-green--yellow--red)
+- [Business SaaS monitoring](#business-saas-monitoring)
+
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
 `DNSResolutionService` currently uses `getaddrinfo`, probing a freshly
