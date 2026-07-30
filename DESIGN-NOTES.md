@@ -32,6 +32,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [A message bus for cross-view-model events? Considered, rejected](#a-message-bus-for-cross-view-model-events-considered-rejected)
 - [Network Review: a read-only look at a past network](#network-review-a-read-only-look-at-a-past-network)
 - [Printer fault detection (out of paper, cover open): a real dead end, on this hardware](#printer-fault-detection-out-of-paper-cover-open-a-real-dead-end-on-this-hardware)
+- [Blocking work, and the two thread pools it can starve](#blocking-work-and-the-two-thread-pools-it-can-starve)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -3728,3 +3729,135 @@ fields is on the network. Not pursued further: printing an actual test
 job while faulted, to see if that's the one trigger CUPS/SNMP do respond
 to — floated but not tried, since the two tests already run were enough
 to call this a dead end for now rather than open-ended further probing.
+
+## Blocking work, and the two thread pools it can starve
+
+From a concurrency review of the whole app. Two findings, one a live bug
+and one a latent hazard, both about the same underlying thing: **this app
+does a lot of genuinely blocking work** (`ping`, `snmpget`, `lpstat`,
+`traceroute`, `getaddrinfo`), and where that blocking happens matters more
+than how much of it there is.
+
+### The live bug: `lpstat` on the main thread
+
+`PrinterDiscoveryService` wasn't marked `nonisolated`, so under the
+project-wide `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` its methods were
+main-actor isolated. `ConnectivityViewModel.refreshPrinterAlerts()` called
+one synchronously from `apply(_:)` — so `Process` + `waitUntilExit()` ran
+inline on the main thread, once per check round, and once every 5s during
+an outage, which is exactly when the popover is open and being watched.
+
+Measured from this app's own `SubprocessTracer` output rather than
+estimated: **33–127ms, averaging 91ms.** The trace shows the
+serialization directly — nothing interleaves between start and end:
+
+```
+proc.start | #10 lpstat -l -p
+proc.end   | #10 lpstat -l -p — ok in 69ms
+ConnectivityViewModel.checks | [...]        <- 13ms after lpstat finished
+```
+
+After moving it off-main, the same three lines reorder, which is the
+proof the fix works:
+
+```
+proc.start | #9 lpstat -l -p
+ConnectivityViewModel.checks | [...]        <- 19ms after lpstat STARTED
+proc.end   | #9 lpstat -l -p — ok in 97ms   <- still running 78ms later
+```
+
+Worth naming why this slipped through: **every other subprocess-backed
+view model here already did it correctly** (DHCP, LAN discovery, SNMP,
+traceroute, speed test all hop to `DispatchQueue.global(qos: .utility)`
+first). These two printer calls were the only exceptions in the codebase,
+and the comment justifying them reasoned about CPU cost — "`lpstat` is
+cheap" — which is true and beside the point. The question was never how
+much work it does, it's which thread waits for it.
+
+Two consequences of making it async needed handling, neither obvious:
+
+- **Overlapping reads.** At launch three rounds fire within ~500ms (the
+  three edges in `wireDerivedStateDependencies` each call `runChecks()`).
+  Harmless while the read was inline; once completions land
+  asynchronously they can interleave and double-log a single transition.
+  Overlapping reads are now dropped rather than queued — the next round
+  re-reads anyway.
+- **A re-derive edge.** `refreshConfiguredPrinters()` becoming async
+  meant the round that requested it had already built its target list
+  without those printers — precisely the bug class
+  `wireDerivedStateDependencies` exists to prevent, and which this
+  project has now hit five times. It re-runs `runChecks()` when the list
+  actually changes (guarded on a real change, so it can't loop).
+
+### The latent hazard: coordinator threads that only wait
+
+`runChecks()` parked a `.utility` pool thread on `DispatchGroup.wait()`
+purely to coordinate, and `ConnectivityService.check(targets:)` parked a
+second one the same way one level down. With 8 targets that's ~11 pool
+threads per round, **two of which did nothing but block, on the same
+bounded pool the pings themselves draw from.**
+
+Nothing had broken. But `UIStateLogger`'s own notes already blame exactly
+this shape for a real 17-minute writer stall, and it's why
+`DNSResolutionService` was moved onto a dedicated `Thread`. A pool thread
+blocked waiting for work that needs more threads from that same pool is a
+deadlock waiting for enough load.
+
+Both are now `async let` / `withTaskGroup`. Waiting holds no thread at
+all; only the calls that genuinely must block still occupy one.
+
+### `BlockingWork`, and why `Task { }` alone would have been worse
+
+The obvious-looking fix — wrap each blocking call in a `Task` — would
+have been a **downgrade**, and it's worth writing down why, because the
+code reads as if it should work.
+
+Swift's concurrency runtime has its own cooperative thread pool, sized to
+roughly one thread per core, and unlike libdispatch's it deliberately
+does *not* grow under load; the whole design assumes tasks suspend rather
+than block. A `Task` calling `waitUntilExit()` holds one of those few
+threads hostage for the full duration, and enough at once wedges the
+concurrency runtime process-wide — a strictly worse failure than
+saturating the dispatch pool, which at least expands.
+
+So `BlockingWork.run` pushes the blocking half onto
+`DispatchQueue.global(qos: .utility)` and lets the caller merely suspend.
+The distinction that matters isn't "block a dispatch thread instead of a
+cooperative one" — it's that *waiting* now costs no thread anywhere, and
+only work that truly must block occupies the pool built to absorb it.
+`LANDiscoveryViewModel.performScan` had already written this pattern out
+inline; `BlockingWork` is that pattern factored out once there were three
+callers.
+
+### Also found, and fixed
+
+- `onEventLogged?()` fired once per printer instead of once per round —
+  each call is a full SwiftData refetch in `EventLogViewModel`.
+  `logTransitions` right below it already used a `loggedAny` flag.
+- One retain cycle: `networkMonitor.onChangePersisted` is stored *on*
+  `networkMonitor` and also read it. The only self-referential edge in
+  the whole wiring graph — every other assignment captures a different
+  object than the one it's stored on. No leak today (these live for the
+  process lifetime), but it would the moment any became per-scene.
+
+### Checked and deliberately left alone
+
+- **Event-log edges are complete.** All 14 `logEvent` call sites have a
+  matching `onEventLogged?()`. No instance of the missing-edge bug class.
+- **`UIStateLogger`'s lock ordering is sound.** Both the producer path
+  and the writer's own heartbeat take `sequenceLock` → `condition` in
+  that order (the heartbeat releases `condition` first), so there's no
+  inversion and no deadlock.
+- **`DNSResolutionService`'s timeout path** never reads `capturedStatus`
+  (Swift's `guard` short-circuits), and the captured `var` lives in a
+  heap box the closure retains — so the orphaned thread's late write is
+  safe, not a use-after-free.
+- **`deinit { timer?.invalidate() }`** on `@MainActor` view models is
+  technically unsound (`deinit` is nonisolated), but these objects never
+  deinit, and every alternative adds risk for no benefit. Left as-is
+  deliberately, not overlooked.
+
+Verified: clean build with zero warnings, 38/38 unit tests, and against
+the running app — pings still fan out concurrently (8 starts within 2ms),
+`ConnectivityCheck` order still preserved despite a task group yielding by
+completion, main-thread heartbeat steady at its 20s interval.

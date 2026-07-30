@@ -59,23 +59,31 @@ struct ConnectivityService {
     /// running them one after another could add up several seconds just
     /// for pings, on top of whatever DNS/HTTP then add after. Concurrently,
     /// the whole batch is bounded by the single slowest ping, not their sum.
-    func check(targets: [Target]) -> [ConnectivityCheck] {
+    ///
+    /// A task group rather than the `DispatchGroup` this used to use. The
+    /// individual pings still block (they're subprocesses; that's
+    /// unavoidable, and `BlockingWork` puts each on a pool built to absorb
+    /// it), but *coordinating* them no longer parks a whole `.utility`
+    /// thread on `group.wait()` doing nothing. That thread came out of the
+    /// same bounded pool the pings themselves need, which is the shape
+    /// `UIStateLogger`'s own notes blame for a real 17-minute writer stall.
+    func check(targets: [Target]) async -> [ConnectivityCheck] {
         guard !targets.isEmpty else { return [] }
-        var results = [ConnectivityCheck?](repeating: nil, count: targets.count)
-        let lock = NSLock()
-        let group = DispatchGroup()
-        for (index, target) in targets.enumerated() {
-            group.enter()
-            DispatchQueue.global(qos: .utility).async {
-                let result = self.check(target)
-                lock.lock()
-                results[index] = result
-                lock.unlock()
-                group.leave()
+        // Carries its index so results stay in the caller's target order —
+        // a task group yields values in completion order, and Network
+        // Health's rows are built positionally from this.
+        return await withTaskGroup(of: (offset: Int, check: ConnectivityCheck).self) { group in
+            for (index, target) in targets.enumerated() {
+                group.addTask {
+                    (index, await BlockingWork.run { self.check(target) })
+                }
             }
+            var results = [ConnectivityCheck?](repeating: nil, count: targets.count)
+            for await result in group {
+                results[result.offset] = result.check
+            }
+            return results.compactMap { $0 }
         }
-        group.wait()
-        return results.compactMap { $0 }
     }
 
     private static let latencyRegex = try! NSRegularExpression(pattern: #"time=([0-9.]+) ms"#)

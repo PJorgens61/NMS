@@ -259,54 +259,51 @@ final class ConnectivityViewModel: ObservableObject {
         // serial dead time. Measured directly on a failing round: pings
         // (parallel among themselves) took ~2.1s, then DNS's 2s timeout,
         // then HTTP's 2s timeout, landing the round ~4s after the last ping
-        // had already finished. All three now start together instead —
-        // HTTP is kicked off immediately since it's genuinely `async` and
-        // costs nothing to start early; pings and DNS both block their own
-        // thread (`Process`/`waitUntilExit` and a semaphore-gated
-        // `getaddrinfo`, respectively) so each gets its own queue via a
-        // `DispatchGroup`, run concurrently with each other and with HTTP.
-        // Worst case is now whichever single one of the three is slowest,
-        // not the sum of all three.
-        let httpTask = Task { await Self.runHTTPCheck(httpService) }
+        // had already finished. All three start together instead, so a
+        // round costs whichever single one is slowest, not their sum.
+        //
+        // `async let` rather than the `DispatchGroup` this used to use.
+        // That version parked a `.utility` pool thread on `group.wait()`
+        // purely to coordinate — and `ConnectivityService.check(targets:)`
+        // parked a second one the same way, one level down. Both did
+        // nothing but wait, on the very pool the blocking pings and DNS
+        // probe draw their own threads from; see `BlockingWork` for why
+        // that's the failure shape worth avoiding. An `async let` awaiting
+        // its result holds no thread at all.
+        //
+        // Nothing here blocks the main actor despite the `@MainActor` hop:
+        // every blocking call underneath goes through `BlockingWork.run`,
+        // which dispatches before it waits, and the HTTP fetch is genuinely
+        // async. Only `apply(_:)` needs the main actor, and by then all
+        // three have already resolved.
+        Task { @MainActor [weak self] in
+            async let pings = service.check(targets: targets)
+            async let dns = Self.runDNSCheck(dnsService)
+            async let http = Self.runHTTPCheck(httpService)
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let group = DispatchGroup()
-            var pingResults: [ConnectivityCheck] = []
-            var dnsResult: ConnectivityCheck!
-
-            group.enter()
-            DispatchQueue.global(qos: .utility).async {
-                pingResults = service.check(targets: targets)
-                group.leave()
-            }
-            group.enter()
-            DispatchQueue.global(qos: .utility).async {
-                dnsResult = Self.runDNSCheck(dnsService)
-                group.leave()
-            }
-            group.wait()
-
-            var results = pingResults
-            results.append(dnsResult)
-
-            Task { @MainActor in
-                guard let self else { return }
-                results.append(await httpTask.value)
-                self.apply(results)
-            }
+            var results = await pings
+            results.append(await dns)
+            results.append(await http)
+            self?.apply(results)
         }
     }
 
-    private nonisolated static func runDNSCheck(_ service: DNSResolutionService) -> ConnectivityCheck {
-        let checkedAt = Date()
-        let start = Date()
-        let target = "apple.com (random subdomain probe)"
-        do {
-            try service.probe()
-            let elapsedMs = Date().timeIntervalSince(start) * 1000
-            return ConnectivityCheck(label: OverallStatus.dnsLabel, target: target, success: true, latencyMs: elapsedMs, checkedAt: checkedAt)
-        } catch {
-            return ConnectivityCheck(label: OverallStatus.dnsLabel, target: target, success: false, latencyMs: nil, checkedAt: checkedAt)
+    /// `getaddrinfo` blocks (see `DNSResolutionService.probe`, which bounds
+    /// it with its own timeout on a dedicated thread), so the whole body
+    /// goes through `BlockingWork.run` — this must never run inline on
+    /// either the main actor or a cooperative thread.
+    private nonisolated static func runDNSCheck(_ service: DNSResolutionService) async -> ConnectivityCheck {
+        await BlockingWork.run {
+            let checkedAt = Date()
+            let start = Date()
+            let target = "apple.com (random subdomain probe)"
+            do {
+                try service.probe()
+                let elapsedMs = Date().timeIntervalSince(start) * 1000
+                return ConnectivityCheck(label: OverallStatus.dnsLabel, target: target, success: true, latencyMs: elapsedMs, checkedAt: checkedAt)
+            } catch {
+                return ConnectivityCheck(label: OverallStatus.dnsLabel, target: target, success: false, latencyMs: nil, checkedAt: checkedAt)
+            }
         }
     }
 
