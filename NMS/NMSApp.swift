@@ -178,6 +178,14 @@ struct NMSApp: App {
         // A change to the Mac's own interface/IP/router invalidates nearly
         // everything, so it re-runs nearly everything.
         networkMonitor.onChangePersisted = { snapshot in
+            // Clears recognition and the store's current-network
+            // fingerprint immediately, before the LAN scan below can
+            // re-recognize whatever network this change lands on —
+            // without this, anything recorded during that gap (a DHCP
+            // lease, an SNMP poll, an event) would be tagged with the
+            // *previous* network's fingerprint. See
+            // `NetworkIdentityViewModel.reset`.
+            networkIdentity.reset()
             lanDiscovery.scan(for: snapshot)
             // A topology change is the most likely moment the public IP
             // actually changed, so check it right away rather than waiting
@@ -223,7 +231,11 @@ struct NMSApp: App {
         // `networkIdentity` shares this edge: recognizing a network needs the
         // router's MAC, which only a LAN scan can supply.
         lanDiscovery.onScanCompleted = { devices in
-            networkIdentity.recognize(routerAddress: networkMonitor.currentInterface?.routerAddress, from: devices)
+            networkIdentity.recognize(
+                routerAddress: networkMonitor.currentInterface?.routerAddress,
+                subnetMask: networkMonitor.currentInterface?.subnetMask,
+                from: devices
+            )
             snmp.rebuildDeviceList()
         }
 
@@ -347,6 +359,13 @@ struct NMSApp: App {
             }
         }
         .defaultSize(width: 600, height: 700)
+
+        // A separate window rather than a popover section — see
+        // `KnownNetworksView`'s doc comment.
+        Window("Known Networks", id: "known-networks") {
+            KnownNetworksView(networkIdentity: networkIdentity)
+        }
+        .defaultSize(width: 460, height: 320)
     }
 
     /// macOS forces menu bar icons to render as monochrome "template"

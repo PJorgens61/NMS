@@ -18,7 +18,15 @@ import SwiftData
 /// `DESIGN-NOTES.md`.
 @Model
 final class SNMPDeviceRecord {
-    @Attribute(.unique) var ipAddress: String
+    // No longer `@Attribute(.unique)`: once devices are scoped per
+    // network (see `networkFingerprint`), two different networks can
+    // legitimately each have a `192.168.1.1` — a global uniqueness
+    // constraint would make that unstorable. Uniqueness is now "IP within
+    // a network," enforced in code by `SnapshotStore.recordSNMPDevice`'s
+    // own fetch rather than expressed as a SwiftData constraint, which
+    // can't represent a composite key. See DESIGN-NOTES.md's "Per-network
+    // device scoping."
+    var ipAddress: String
     var sysDescr: String
     var sysName: String?
     var uptimeTicks: Int
@@ -29,8 +37,11 @@ final class SNMPDeviceRecord {
     var community: String = "public"
     var firstSeenAt: Date
     var lastSeenAt: Date
+    /// See `AppEventRecord.networkFingerprint` — same scoping, same `nil`
+    /// meaning.
+    var networkFingerprint: String?
 
-    init(from device: SNMPDevice, firstSeenAt: Date = Date()) {
+    init(from device: SNMPDevice, firstSeenAt: Date = Date(), networkFingerprint: String? = nil) {
         ipAddress = device.ipAddress
         sysDescr = device.sysDescr
         sysName = device.sysName
@@ -38,5 +49,6 @@ final class SNMPDeviceRecord {
         community = device.community
         self.firstSeenAt = firstSeenAt
         lastSeenAt = device.polledAt
+        self.networkFingerprint = networkFingerprint
     }
 }

@@ -14,10 +14,33 @@ import Foundation
 /// the same network at the same moment — a transfer that small finishes
 /// before TCP slow-start ramps up, so it mostly measures TLS handshake
 /// overhead, not sustained capacity. 25MB is the minimum that produced a
-/// believable number on that test.
+/// believable number on that connection.
+///
+/// **That's the wrong number to use unconditionally, though.** Reported
+/// directly from a slow DSL line: the full 25MB transfer either took
+/// unreasonably long or ran past the timeout outright, for a fixed cost
+/// that only gets worse the slower the link is — the exact opposite of
+/// where a large payload is needed. A slow connection doesn't have TCP
+/// slow-start's overhead problem in the first place: at a few Mbps, even
+/// a couple of megabytes takes long enough that the transfer is already
+/// dominated by real sustained throughput, not handshake noise. So each
+/// direction is measured with a small probe first, and only escalates to
+/// the full 25MB if the probe suggests a fast-enough link that the small
+/// transfer would otherwise understate it — cheap and fast on a slow
+/// connection, accurate on a fast one, without needing to know which one
+/// this is in advance.
 struct NetworkQualityService {
-    private static let testBytes = 25_000_000
-    private static let downloadURL = URL(string: "https://speed.cloudflare.com/__down?bytes=\(testBytes)")!
+    private static let probeBytes = 2_000_000
+    private static let fullBytes = 25_000_000
+    /// If the probe alone takes at least this long, the link is slow
+    /// enough that the probe's own reading is already believable —
+    /// escalating to the full transfer would only cost more time and data
+    /// for a number that wouldn't meaningfully change.
+    private static let slowLinkThreshold: TimeInterval = 2.0
+
+    private static func downloadURL(bytes: Int) -> URL {
+        URL(string: "https://speed.cloudflare.com/__down?bytes=\(bytes)")!
+    }
     private static let uploadURL = URL(string: "https://speed.cloudflare.com/__up")!
 
     enum QualityError: Error {
@@ -55,27 +78,39 @@ struct NetworkQualityService {
     /// route currently picks, not necessarily the one NMS is tracking.
     /// Accepted limitation — see DESIGN-NOTES.md's open questions.
     func measureDownload() async throws -> Double {
-        let start = Date()
-        let (_, response) = try await Self.session.data(from: Self.downloadURL)
-        let elapsed = Date().timeIntervalSince(start)
-        try Self.validate(response)
-        return Self.mbps(bytes: Self.testBytes, elapsed: elapsed)
+        let probe = try await downloadOnce(bytes: Self.probeBytes)
+        guard probe.elapsed < Self.slowLinkThreshold else { return probe.mbps }
+        return try await downloadOnce(bytes: Self.fullBytes).mbps
     }
 
     func measureUpload() async throws -> Double {
+        let probe = try await uploadOnce(bytes: Self.probeBytes)
+        guard probe.elapsed < Self.slowLinkThreshold else { return probe.mbps }
+        return try await uploadOnce(bytes: Self.fullBytes).mbps
+    }
+
+    private func downloadOnce(bytes: Int) async throws -> (mbps: Double, elapsed: TimeInterval) {
+        let start = Date()
+        let (_, response) = try await Self.session.data(from: Self.downloadURL(bytes: bytes))
+        let elapsed = Date().timeIntervalSince(start)
+        try Self.validate(response)
+        return (Self.mbps(bytes: bytes, elapsed: elapsed), elapsed)
+    }
+
+    private func uploadOnce(bytes: Int) async throws -> (mbps: Double, elapsed: TimeInterval) {
         var request = URLRequest(url: Self.uploadURL)
         request.httpMethod = "POST"
         // All-zero, not random: this is a request body, never subject to
         // response compression, so there's no risk of it round-tripping
-        // faster than its real size implies — and generating 25MB of
-        // actual randomness would cost real, pointless CPU time on every
-        // run for no measurement benefit.
-        let body = Data(count: Self.testBytes)
+        // faster than its real size implies — and generating random bytes
+        // would cost real, pointless CPU time on every run for no
+        // measurement benefit.
+        let body = Data(count: bytes)
         let start = Date()
         let (_, response) = try await Self.session.upload(for: request, from: body)
         let elapsed = Date().timeIntervalSince(start)
         try Self.validate(response)
-        return Self.mbps(bytes: Self.testBytes, elapsed: elapsed)
+        return (Self.mbps(bytes: bytes, elapsed: elapsed), elapsed)
     }
 
     private static func validate(_ response: URLResponse) throws {

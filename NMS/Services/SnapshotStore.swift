@@ -7,8 +7,61 @@ import SwiftData
 final class SnapshotStore {
     private let context: ModelContext
 
+    /// The current network's identity, per `KnownNetwork.fingerprint` —
+    /// set by `NetworkIdentityViewModel` once it's resolved (or cleared to
+    /// `nil` on a topology change, until the new network is recognized).
+    /// Every per-network write (`logEvent`, `recordDHCPLeaseIfChanged`,
+    /// `recordSNMPDevice`) stamps new rows with this, and every per-network
+    /// read filters by it, so data recorded on one network never shows
+    /// while on another. See DESIGN-NOTES.md's "Per-network device
+    /// scoping."
+    private(set) var currentNetworkFingerprint: String?
+
     init(context: ModelContext) {
         self.context = context
+    }
+
+    func setCurrentNetworkFingerprint(_ fingerprint: String?) {
+        currentNetworkFingerprint = fingerprint
+    }
+
+    /// Retroactively tags every currently-`nil`-fingerprinted
+    /// `AppEventRecord`/`DHCPLeaseRecord`/`SNMPDeviceRecord` row with
+    /// `fingerprint`. Called from `NetworkIdentityViewModel.recognize`
+    /// right as a network is identified.
+    ///
+    /// Needed because of a real, confirmed launch-time race: SNMP
+    /// discovery and DHCP checks both run before the first LAN scan can
+    /// resolve which network this is, so their writes land with `nil`
+    /// while recognition is still pending. Without this, the *next*
+    /// rebuild reads those rows back scoped to the now-known fingerprint,
+    /// finds nothing (the persisted rows are still `nil`), and the
+    /// in-memory list silently goes empty — observed directly:
+    /// `SNMPViewModel.devices` dropped from 5 entries to `[]` within
+    /// 300ms of the first real recognition on a fresh store, and stayed
+    /// empty (`poll()` refuses to run once `devices.isEmpty`), a full
+    /// outage for the rest of the session. This is not the "legacy data"
+    /// the discard-on-conversion decision was about — it's data genuinely
+    /// learned on *this* network moments before its name was known, so
+    /// adopting it here isn't cross-network leakage, it's finishing an
+    /// attribution that was only ever delayed, not wrong.
+    func adoptUntaggedRecords(into fingerprint: String) {
+        if let events = try? context.fetch(FetchDescriptor<AppEventRecord>(
+            predicate: #Predicate { $0.networkFingerprint == nil }
+        )) {
+            for event in events { event.networkFingerprint = fingerprint }
+        }
+        if let leases = try? context.fetch(FetchDescriptor<DHCPLeaseRecord>(
+            predicate: #Predicate { $0.networkFingerprint == nil }
+        )) {
+            for lease in leases { lease.networkFingerprint = fingerprint }
+        }
+        if let devices = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.networkFingerprint == nil }
+        )) {
+            for device in devices { device.networkFingerprint = fingerprint }
+        }
+        try? context.save()
     }
 
     @discardableResult
@@ -194,11 +247,13 @@ final class SnapshotStore {
         }
     }
 
-    /// Looks up the `KnownNetwork` for `fingerprint`, bumping its last-seen
-    /// timestamp and visit count, or creates it if this is the first time
-    /// it's been seen.
+    /// Looks up the `KnownNetwork` for the router MAC + subnet pair,
+    /// bumping its last-seen timestamp and visit count, or creates it if
+    /// this is the first time it's been seen. See `KnownNetwork` for why
+    /// both are needed, not just the router MAC.
     @discardableResult
-    func recordNetworkSeen(fingerprint: String, at date: Date = Date()) -> (network: KnownNetwork, isNew: Bool) {
+    func recordNetworkSeen(routerMAC: String, subnet: String, at date: Date = Date()) -> (network: KnownNetwork, isNew: Bool) {
+        let fingerprint = KnownNetwork.makeFingerprint(routerMAC: routerMAC, subnet: subnet)
         var descriptor = FetchDescriptor<KnownNetwork>(
             predicate: #Predicate { $0.fingerprint == fingerprint }
         )
@@ -211,7 +266,7 @@ final class SnapshotStore {
             return (existing, false)
         }
 
-        let network = KnownNetwork(fingerprint: fingerprint, firstSeenAt: date)
+        let network = KnownNetwork(routerMAC: routerMAC, subnet: subnet, firstSeenAt: date)
         context.insert(network)
         try? context.save()
         return (network, true)
@@ -228,6 +283,37 @@ final class SnapshotStore {
         )
         descriptor.fetchLimit = limit
         return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Forgets a network entirely: every `AppEventRecord`, `DHCPLeaseRecord`
+    /// and `SNMPDeviceRecord` tagged with its fingerprint, plus the
+    /// `KnownNetwork` row itself. A deliberate, real cleanup — not just
+    /// removing it from the list while its data lingers behind orphaned to
+    /// a fingerprint nothing references anymore.
+    func deleteNetwork(_ network: KnownNetwork) {
+        let fingerprint = network.fingerprint
+
+        if let events = try? context.fetch(FetchDescriptor<AppEventRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint }
+        )) {
+            for event in events { context.delete(event) }
+        }
+        if let leases = try? context.fetch(FetchDescriptor<DHCPLeaseRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint }
+        )) {
+            for lease in leases { context.delete(lease) }
+        }
+        if let devices = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint }
+        )) {
+            for device in devices { context.delete(device) }
+        }
+        context.delete(network)
+        try? context.save()
+
+        if currentNetworkFingerprint == fingerprint {
+            currentNetworkFingerprint = nil
+        }
     }
 
     func latestPublicIP() -> PublicIPRecord? {
@@ -257,19 +343,28 @@ final class SnapshotStore {
         return true
     }
 
+    /// Scoped to `currentNetworkFingerprint` — a lease seen on a different
+    /// network shouldn't count as "the previous lease" for change
+    /// detection here, any more than it should show in the history list.
     func latestDHCPLease() -> DHCPLeaseRecord? {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<DHCPLeaseRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
         )
         descriptor.fetchLimit = 1
         return (try? context.fetch(descriptor))?.first
     }
 
-    /// The full history of DHCP lease changes — every real renewal/rebind,
-    /// not a per-poll log — so a stalled or flapping DHCP server is visible
-    /// as a pattern over time, not just today's current lease.
+    /// The full history of DHCP lease changes on the current network —
+    /// every real renewal/rebind, not a per-poll log — so a stalled or
+    /// flapping DHCP server is visible as a pattern over time, not just
+    /// today's current lease. Scoped by `currentNetworkFingerprint`: a
+    /// different network's lease history never shows here.
     func fetchDHCPLeaseHistory(limit: Int = 100) -> [DHCPLeaseRecord] {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<DHCPLeaseRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit
@@ -284,13 +379,13 @@ final class SnapshotStore {
     /// same lease unchanged (the overwhelmingly common case) leave the
     /// renewal-overdue anchor untouched. Returns whether a new row was
     /// inserted, and whether this is the very first lease ever observed
-    /// (so callers can skip logging a "changed" event when there's nothing
-    /// to compare against yet).
+    /// *on this network* (so callers can skip logging a "changed" event
+    /// when there's nothing on this network to compare against yet).
     @discardableResult
     func recordDHCPLeaseIfChanged(_ info: DHCPLeaseInfo) -> (changed: Bool, isFirstEver: Bool) {
         let previous = latestDHCPLease()
         guard previous?.transactionID != info.transactionID else { return (false, false) }
-        context.insert(DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt))
+        context.insert(DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt, networkFingerprint: currentNetworkFingerprint))
         try? context.save()
         return (true, previous == nil)
     }
@@ -329,19 +424,23 @@ final class SnapshotStore {
         case softwareChanged(previousDescr: String, restarted: Bool)
     }
 
-    /// Upserts the device's current state (one row per device, keyed by IP —
-    /// mirrors `recordNetworkSeen`, not an observation log) and reports what
-    /// changed relative to the previously stored state.
+    /// Upserts the device's current state (one row per device, keyed by IP
+    /// *within the current network* — mirrors `recordNetworkSeen`, not an
+    /// observation log) and reports what changed relative to the
+    /// previously stored state. Scoped by `currentNetworkFingerprint`: two
+    /// different networks can legitimately each have a device at the same
+    /// IP address, and this must not confuse them for one another.
     @discardableResult
     func recordSNMPDevice(_ device: SNMPDevice) -> SNMPDeviceChange {
         let ipAddress = device.ipAddress
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<SNMPDeviceRecord>(
-            predicate: #Predicate { $0.ipAddress == ipAddress }
+            predicate: #Predicate { $0.ipAddress == ipAddress && $0.networkFingerprint == fingerprint }
         )
         descriptor.fetchLimit = 1
 
         guard let existing = (try? context.fetch(descriptor))?.first else {
-            context.insert(SNMPDeviceRecord(from: device))
+            context.insert(SNMPDeviceRecord(from: device, networkFingerprint: fingerprint))
             try? context.save()
             return .firstSeen
         }
@@ -386,9 +485,10 @@ final class SnapshotStore {
     /// double the event.
     func syncAliasFreshness(primary: SNMPDevice) {
         guard !primary.aliasAddresses.isEmpty else { return }
+        let fingerprint = currentNetworkFingerprint
         for alias in primary.aliasAddresses {
             var descriptor = FetchDescriptor<SNMPDeviceRecord>(
-                predicate: #Predicate { $0.ipAddress == alias }
+                predicate: #Predicate { $0.ipAddress == alias && $0.networkFingerprint == fingerprint }
             )
             descriptor.fetchLimit = 1
             guard let record = (try? context.fetch(descriptor))?.first else { continue }
@@ -400,27 +500,38 @@ final class SnapshotStore {
         try? context.save()
     }
 
+    /// Scoped by `currentNetworkFingerprint`: a different network's SNMP
+    /// devices never show here.
     func fetchSNMPDevices(limit: Int = 100) -> [SNMPDeviceRecord] {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.lastSeenAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit
         return (try? context.fetch(descriptor)) ?? []
     }
 
-    /// Wipes all persisted SNMP device state. Used by `SNMPViewModel.scan()`
-    /// so a manual sweep is a genuine clear-and-rediscover, not just a
-    /// fresh in-memory list layered on top of old rows — without this, a
-    /// device no longer present (e.g. a topology change, like switching
-    /// which address represents a VRRP pair) would still reappear on next
-    /// launch, since `SNMPViewModel` rehydrates from everything ever
-    /// persisted here. Real cost: any device that *is* still around gets a
-    /// fresh `firstSeenAt` on rediscovery instead of keeping its real
-    /// history — acceptable since this only runs on an explicit, manual
-    /// "Scan" click, not automatically.
+    /// Wipes persisted SNMP device state **for the current network only**.
+    /// Used by `SNMPViewModel.scan()` so a manual sweep is a genuine
+    /// clear-and-rediscover, not just a fresh in-memory list layered on
+    /// top of old rows — without this, a device no longer present (e.g. a
+    /// topology change, like switching which address represents a VRRP
+    /// pair) would still reappear on next launch, since `SNMPViewModel`
+    /// rehydrates from everything persisted here. Scoped rather than
+    /// global specifically because of the scenario this whole feature
+    /// exists for: a manual re-scan while on a *different* network must
+    /// never wipe another network's already-recorded devices. Real cost:
+    /// any device that *is* still around on this network gets a fresh
+    /// `firstSeenAt` on rediscovery instead of keeping its real history —
+    /// acceptable since this only runs on an explicit, manual "Scan"
+    /// click, not automatically.
     func deleteAllSNMPDevices() {
-        guard let all = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>()) else { return }
-        for record in all {
+        let fingerprint = currentNetworkFingerprint
+        guard let matching = try? context.fetch(FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint }
+        )) else { return }
+        for record in matching {
             context.delete(record)
         }
         try? context.save()
@@ -459,7 +570,7 @@ final class SnapshotStore {
 
     @discardableResult
     func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date()) -> AppEventRecord {
-        let event = AppEventRecord(kind: kind, message: message, occurredAt: date)
+        let event = AppEventRecord(kind: kind, message: message, occurredAt: date, networkFingerprint: currentNetworkFingerprint)
         context.insert(event)
         try? context.save()
         return event
@@ -478,8 +589,12 @@ final class SnapshotStore {
     /// on disk. That's a real, known gap (see DESIGN-NOTES.md — it
     /// applies to every table here, not just this one), deliberately not
     /// solved by this constant.
+    /// Scoped by `currentNetworkFingerprint`: a different network's events
+    /// never show here.
     func fetchRecentEvents(limit: Int = 200) -> [AppEventRecord] {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<AppEventRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.occurredAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit

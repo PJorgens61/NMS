@@ -25,8 +25,12 @@ final class DHCPLeaseRecord {
     var transactionID: String
     var observedAt: Date
     var firstObservedAt: Date
+    /// See `AppEventRecord.networkFingerprint` — same scoping, same `nil`
+    /// meaning ("not recognized yet," not "belongs to every network").
+    var networkFingerprint: String?
 
-    init(from info: DHCPLeaseInfo, firstObservedAt: Date) {
+    init(from info: DHCPLeaseInfo, firstObservedAt: Date, networkFingerprint: String? = nil) {
+        self.networkFingerprint = networkFingerprint
         interfaceName = info.interfaceName
         serverIdentifier = info.serverIdentifier
         assignedAddress = info.assignedAddress

@@ -148,10 +148,13 @@ demand.
 
 Two independent sources sharing one history list:
 
-- **Run Speed Test** measures throughput against a public endpoint —
-  roughly 50MB of real data transfer, so it's a manual action, never run
-  automatically. Takes about a second on a fast connection.
-- **Run Network Quality** (next to the "~50MB per run" label) runs
+- **Run Speed Test** measures throughput against a public endpoint — up
+  to roughly 50MB of real data transfer on a fast connection, so it's a
+  manual action, never run automatically. On a slow connection (DSL,
+  say) it uses much less: each direction starts with a small probe and
+  only pulls the full amount if the probe suggests it's needed for an
+  accurate reading. Takes about a second on a fast connection.
+- **Run Network Quality** (next to the "up to ~50MB per run" label) runs
   Apple's own network quality test for the one signal a plain transfer
   can't produce — responsiveness under load (RPM). Takes 25–40 seconds.
 
@@ -196,8 +199,9 @@ gateway, DNS, domain, lease/T1/T2 timers, transaction ID) on the second.
 **Refresh** re-reads network state immediately. The camera icon saves a
 screenshot of the popover and logs an event naming the file. **Open in
 Window** opens the same live data in a separate, resizable window (see
-below). **Quit** exits NMS. The small gray line underneath shows the
-build hash and the store's on-disk size.
+below). **Networks…** opens the list of every network NMS has recognized
+(see Scenario E). **Quit** exits NMS. The small gray line underneath
+shows the build hash and the store's on-disk size.
 
 ### Open in Window
 
@@ -259,10 +263,19 @@ they're noticed.
 ### Scenario E — Recognizing you're on a different network
 
 The **Known network** / **New network** line is keyed on the router's
-own hardware address, not its name — so it correctly tells apart your
-home network from a similarly-named guest network on the same router,
-and recognizes your own network again after leaving and coming back,
-even across an interface change (Ethernet to Wi-Fi).
+own hardware address plus the subnet — not the network's name — so it
+correctly tells apart a main LAN from a guest VLAN on the *same* router
+(which otherwise share the same hardware address), and recognizes your
+own network again after leaving and coming back, even across an
+interface change (Ethernet to Wi-Fi).
+
+Events, SNMP Devices, and DHCP History are all scoped to whichever
+network is current: visiting a neighbor's network, or any network other
+than your own, never mixes its data into your usual history, and
+switching back shows your own history exactly as it was. **Networks…**
+in the footer opens a list of every network NMS has ever recognized —
+name, visit count, last seen — with a way to forget one entirely
+(deletes it and everything recorded on it).
 
 ## 5. Reference tables
 

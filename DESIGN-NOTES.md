@@ -355,6 +355,27 @@ capture, and the live UI gives no hint anything is wrong.
 - Tone/length convention for the text itself — one terse sentence, and
   don't just restate the visible label back at the user.
 
+### A third motivation shows up: height, not just discoverability
+
+Every tooltip above was added for the same reason — dense terminology
+that deserved an explanation somewhere. The "Suggested (unconfirmed)"
+ISP-hop row had its explanatory sentence converted to a tooltip for a
+different reason entirely: real, reported height cost. That branch in
+`tracerouteSection` — a visible wrapped-text paragraph, not just the
+label row — only renders while the ISP edge hop is *unconfirmed*, which
+describes every network the very first time it's visited. On the
+network this was developed against, the hop had long since been
+confirmed, so the branch (and its extra line) had gone quiet and
+unnoticed. Testing on other, unfamiliar networks is exactly the scenario
+that re-triggers it on every one of them, and surfaced it as a live
+regression risk against the popover's ~829pt MacBook Air ceiling
+(`DESIGN-NOTES.md`'s "MacBook Air height constraint" section) — a
+network-dependent line that wasn't accounted for in any of that
+calibration work, because it never appeared on the network being
+calibrated against. Moved to `appKitToolTip` on the row itself, same
+mechanism as `dhcpLeaseHelp`/`reachabilityHelp`, which removes the line
+entirely rather than shrinking it.
+
 ## Network Quality (speed / responsiveness) testing, on demand
 
 Two candidate implementations, covering different parts of the signal.
@@ -630,6 +651,46 @@ Verified end to end against the real store: the subprocess trace showed
 persisted row matched (933 Mbps down, 938 up, RPM 818↓/1065↑, base
 11ms), and a real capture confirmed both triggers and the two-line row
 render correctly. Scenario suite still 11/11 afterward.
+
+### The fixed 25MB size was wrong for the opposite reason on a slow line
+
+Reported directly from testing on other, unfamiliar networks: the
+Cloudflare speed test was unusable on a slow DSL connection — a fixed
+25MB transfer either took an unreasonable amount of time or ran into the
+45s resource timeout outright, for a fixed cost that gets *worse* the
+slower the link is, exactly backwards from where a large payload is
+actually needed. The original 25MB choice was tuned against the opposite
+problem (a fast connection, where a too-small transfer finishes before
+TCP slow-start ramps up and mostly measures TLS handshake overhead
+instead of real capacity) — it was never tested against a slow one, and
+the two cases turn out to need opposite answers.
+
+The insight that resolves it without picking one fixed size to satisfy
+both: a slow connection doesn't have the fast connection's problem in the
+first place. At a few Mbps, even a couple of megabytes already takes long
+enough that the transfer is dominated by real sustained throughput, not
+handshake noise — the small-payload inaccuracy only exists *because* the
+link is fast enough to blow through it instantly.
+
+Implemented as a two-phase measurement in `NetworkQualityService`, per
+direction (download and upload decide independently, since DSL is often
+asymmetric): a 2MB probe first, and only escalate to the full 25MB
+transfer if the probe finished in under 2 seconds — the signal that the
+link is fast enough for the small payload to be understating it. A probe
+that takes 2+ seconds is itself already a believable reading on a link
+that slow, and escalating further would only cost more time and data for
+a number that wouldn't meaningfully change. `measureDownload`/
+`measureUpload` each now wrap a private `downloadOnce(bytes:)`/
+`uploadOnce(bytes:)` that returns both the computed Mbps and the elapsed
+time, so the decision has what it needs without a second network call
+just to check the clock.
+
+Cost on a fast connection: one extra 2MB round trip per direction (~4MB
+total) before the real one — negligible against the existing ~50MB, and
+invisible in practice since a fast link's 2MB probe finishes in a
+fraction of a second. The `~50MB per run` labels in the UI and docs were
+updated to `up to ~50MB per run` to reflect that it's now a ceiling, not
+a fixed cost.
 
 ## Latency history sparklines
 
@@ -2027,6 +2088,136 @@ reconciliation rather than an identity computed fresh on every sighting.
 - None of this touches VRRP: AP1 at `10.0.0.16` and `10.0.0.17` is one
   device at two addresses on the *same* network, so no amount of network
   tagging separates them. See "Classical dual-router VRRP identity."
+
+### Implemented, in response to real reports from testing on other networks
+
+Reported directly, all from the same round of testing on unfamiliar
+networks: SNMP Devices, DHCP History, and Events all showed data left
+over from other networks, "Known network" visit counts read wrong, there
+was no way to see or forget a previously-visited network, and — a fourth,
+unrelated finding from the same session — the Speed Test's fixed 25MB
+payload made it unusable on a slow DSL line (see this file's "Network
+Quality" section for that one) and the ISP-hop confirmation banner cost a
+real line in the popover on every unconfirmed network (see "UI
+tooltips"). The scoping work above answers most of the open questions —
+some by building what was suggested, some differently, based on explicit
+direction rather than picked unilaterally:
+
+- **Key**: router MAC + subnet, exactly the "Suggested resolution" above
+  — but *without* the 2-of-3 reconciliation/merge step. A DHCP renumber
+  or a router swap will read as a new network, the accepted cost the
+  original table called out. Reconciliation remains unbuilt; nothing
+  here blocks adding it later.
+- **Legacy data**: discarded outright, on explicit direction, rather than
+  either option the open question posed ("show untagged" or "hide
+  untagged"). `KnownNetwork.routerMAC`/`subnet` are non-optional with no
+  default, which made the schema change a hard migration failure rather
+  than a lightweight one — confirmed directly, the real on-disk store
+  hit `NSCocoaErrorDomain 134110` ("missing attribute values on mandatory
+  destination attribute") on first launch after this shipped, caught by
+  the existing in-memory fallback in `NMSApp.makeModelContainer` rather
+  than crashing. The store was then deleted by hand to get a working
+  persistent store again — the same "delete and restart" the README's
+  "Status: early" callout already documents as this project's accepted
+  cost for a schema change with no migration path.
+- **Untagged rows going forward**: every per-network fetch
+  (`fetchRecentEvents`, `fetchDHCPLeaseHistory`, `fetchSNMPDevices`)
+  filters strictly to `networkFingerprint == currentNetworkFingerprint`
+  — no `|| nil` fallback. A row recorded before the network was resolved
+  (the ordering problem below) simply won't appear under any network's
+  view, rather than risking it appearing under whichever one happens to
+  be current later. Direct instruction: "don't let data cross over to
+  networks it was not learned on."
+- **Ordering problem: confirmed, and far worse than "a few orphaned
+  rows."** First guess was that it would just leave harmless nil-tagged
+  orphans behind — wrong. What actually happened, verified directly on a
+  fresh store: `SNMPViewModel.init()` rehydrates from
+  `fetchSNMPDevices()` and writes its first poll before the LAN scan's
+  `recognize` resolves the network, so all five devices landed with
+  `networkFingerprint == nil`. The moment recognition *did* complete,
+  `rebuildDeviceList()`'s next `fetchSNMPDevices()` call — now correctly
+  scoped to the real fingerprint — found nothing (the persisted rows
+  were still `nil`), and `devices` silently went from 5 entries to `[]`.
+  That's terminal, not transient: `poll()` refuses to run at all once
+  `devices.isEmpty`, so nothing was ever going to repopulate it again for
+  the rest of the session short of a manual "Scan." Caught by watching
+  `SNMPViewModel.devices` in the UI state log go empty 300ms after
+  recognition, not by reasoning about the code.
+
+  The fix: `SnapshotStore.adoptUntaggedRecords(into:)`, called from
+  `NetworkIdentityViewModel.recognize` right as a network is identified,
+  retroactively re-tags every currently-`nil` `AppEventRecord`/
+  `DHCPLeaseRecord`/`SNMPDeviceRecord` row with the now-known
+  fingerprint. This is *not* the cross-network leakage the "don't let
+  data cross over" direction was about — the data was genuinely learned
+  on this network, just before this network had a name yet, so adopting
+  it is finishing a delayed attribution, not leaking someone else's data
+  in. Verified by relaunching against the store this bug had already put
+  in the broken state: the existing nil-tagged rows were adopted
+  immediately on the next recognition, and `SNMPViewModel.devices` held
+  its 5 entries across three subsequent rebuilds instead of collapsing.
+- **UI shows primary (current) network only** — the likely answer the
+  open question predicted, confirmed.
+- **`DiscoveredDeviceRecord` unchanged** — deliberately out of scope, per
+  the open question's own framing: no popover section lists it directly,
+  so there was nothing displayed to fix.
+- **`SNMPDeviceRecord.ipAddress` uniqueness removed**, exactly as
+  "Schema consequences" anticipated — enforced instead in code, by
+  `recordSNMPDevice`'s own `ipAddress AND networkFingerprint` fetch.
+- **Known Networks UI**: a separate window (`KnownNetworksView`, opened
+  via a "Networks…" footer button), not a section in the main popover/
+  window — chosen specifically to avoid costing Events/SNMP Devices/DHCP
+  History more vertical space for a list that's only relevant
+  occasionally, the same tension every other section here has already
+  been trimmed for.
+- **Delete cascades**: `SnapshotStore.deleteNetwork` removes every
+  `AppEventRecord`/`DHCPLeaseRecord`/`SNMPDeviceRecord` tagged with that
+  network's fingerprint, not just the `KnownNetwork` row — a genuine
+  forget, not a list-only removal that leaves the data orphaned behind a
+  fingerprint nothing references anymore.
+- **Reset on topology change**: `NetworkIdentityViewModel.reset()`,
+  called at the top of `NMSApp`'s `onChangePersisted` before the LAN scan
+  that will re-recognize the new network, clears
+  `currentNetworkFingerprint` to `nil` immediately. Without this, the gap
+  between a topology change and re-recognition would tag anything
+  recorded during it with the *previous* network's fingerprint — a
+  narrower version of the same cross-network leakage this whole feature
+  exists to prevent.
+
+Still unbuilt: reconciliation/merge (2-of-3 voting), VRRP-aware identity,
+and any special handling for `DiscoveredDeviceRecord`. All three remain
+exactly where the open questions above left them.
+
+### A populated store fixture, for the next bug like this one
+
+The ordering-problem regression above was only caught by manually
+watching live log output during interactive testing — there was no
+automated way to exercise "recognition happens against a store that
+already has real history" without either mutating the actual production
+store or building that history up from scratch inside a test.
+`script/scenarios.sh` already solves the *adjacent* problem (a scratch
+store via the `NMSStorePath` debug override, `~/Library/Preferences/
+Thistle.NMS.plist`), but every one of its scenarios starts from nothing —
+there was no equivalent for scenarios that specifically need
+pre-existing state.
+
+`script/save-fixture.sh` snapshots the real store into
+`script/fixtures/populated.store`: copies the base file plus its WAL and
+shared-memory index to a scratch location (never touching the real store
+in place), checkpoints the copy there to fold the WAL into one clean
+file, then saves just that file. Deliberately gitignored — the real
+store contains actual personal network data (MAC addresses, device
+hostnames, router info), and this repo is public. A future test that
+needs a realistic pre-existing store copies this fixture into its own
+scratch location and points `NMSStorePath` at the copy, the same
+mechanism `scenarios.sh` already uses, so the fixture itself is never
+mutated by the tests that use it.
+
+Current fixture is thin (1 `KnownNetwork`, 1 `DHCPLeaseRecord`, 0 SNMP
+devices/events) — this session's own testing deleted the real store
+twice for schema-migration and cross-network-leakage verification, so
+there wasn't much left to capture. Re-running the script after normal
+use accumulates more real history will produce a richer one.
 
 ## Deferred Wi-Fi/link telemetry
 
