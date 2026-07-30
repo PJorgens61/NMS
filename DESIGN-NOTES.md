@@ -2944,6 +2944,46 @@ about whether to combine the status-page check with the `lsof`
 signal — this is a second, independent data point in favor of
 combining rather than treating them as redundant.
 
+### Can network activity be attributed to a specific tab? No — checked directly, not assumed
+
+Came up while thinking through the priority-tracking idea above: if
+tab-open-frequency risks over-weighting stale tabs left open for
+days, could actual network activity per tab do better — is this tab
+still *live*, not just open? Checked rather than assumed, since it
+matters which answer is true.
+
+Brave's process tree right now has roughly 20 separate renderer
+processes, one per tab/site (confirmed via `ps`). But every
+connection `lsof -i` reports is attributed to a single shared helper
+process — none of the individual renderer PIDs carry any network
+connections at all. This isn't a missing capability to work around;
+it's how Chromium's architecture actually works — all real network
+I/O is centralized in one shared network-service process regardless
+of how many renderer processes exist for tab isolation. The
+OS-visible process boundary and the tab boundary don't line up for
+network traffic, so no amount of `lsof`/`ps` cleverness gets from
+"this connection" to "this tab." Confirmed for Brave (Chromium); not
+checked for Safari, whose WebKit process model may differ.
+
+The only place that association genuinely exists is inside the
+browser itself — a browser extension using `chrome.webRequest`
+(which does expose a `tabId` per request) or Chromium's internal
+`net-export`/DevTools Protocol logging. That's a materially heavier
+design than anything else here: a separate installable artifact,
+browser-specific (wouldn't cover Safari the same way), and it would
+need its own channel back to the native app (native messaging or a
+local socket) — a new category of complexity, not a refinement of
+the AppleScript approach. Not pursued further for now.
+
+Practical consequence for the stale-tab problem: since
+network-correlation is a dead end at the OS level, **which tab is
+currently frontmost/active** (AppleScript can get this directly —
+`active tab of front window`) is the honest ceiling of what's
+available without taking on a browser extension. Weaker than true
+per-tab activity data, but a real, achievable recency signal — better
+than raw open-frequency alone, and doesn't require anything beyond
+what the rest of this section already proposes.
+
 ### Open questions before implementing
 
 - Which services actually get a built-in entry vs. requiring the user
