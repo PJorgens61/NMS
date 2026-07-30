@@ -194,15 +194,22 @@ struct ContentView: View {
             // (nothing called its `scan()`) and, even if it had been,
             // found nothing SNMP's own subnet sweep didn't already cover.
 
-            Divider()
+            // Window-only, same reasoning as the Wi-Fi section above: the
+            // popover's fixed-height budget is the constraint this app has
+            // fought hardest, and DHCP History is scrollable history, not
+            // read-at-a-glance current state — exactly the kind of section
+            // that's cheap to lose from the popover (it's still one click
+            // away via Open in Window) but expensive to keep paying for in
+            // every popover-height trim. `dhcpHistoryList` itself still
+            // reads `isInWindow` for its own scroll-box sizing, unchanged.
+            if isInWindow {
+                Divider()
 
-            // Moved below Events/SNMP Devices (was directly under the
-            // tile grid) — pushed to the lowest content section, on
-            // request, ahead of just the Refresh/Quit footer.
-            Text("DHCP History")
-                .font(.headline)
+                Text("DHCP History")
+                    .font(.headline)
 
-            dhcpHistoryList
+                dhcpHistoryList
+            }
 
             Divider()
 
