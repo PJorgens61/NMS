@@ -32,22 +32,50 @@ Check items off or delete them as they land; add new ones as they come up.
 
   Empty output means clean.
 
-- [ ] **Known Networks still opens behind other windows, sometimes.**
-  Note this is *not* a missing `openWindowInFront` call — that landed in
-  `0f8f80e` and all three footer buttons use it. So the remaining case is
-  narrower, and worth pinning down before changing anything:
-  - Does it happen only when the window is **already open** (just buried)?
-    `openWindow(id:)` on an existing window doesn't necessarily order it
-    front, and `NSApp.activate` raises the app's *key* window, which may
-    be a different one.
-  - Or on first open too, in which case the likely cause is ordering —
-    `NSApp.activate` runs synchronously, before SwiftUI has actually
-    created the window, so there's nothing to raise yet.
+- [ ] **No window comes to the front on the MacBook** — Open in Window,
+  Preferences and Known Networks all fail there, while all three work on
+  the iMac from the same build. That it's *all three* is the important
+  part: this isn't a per-window bug, the whole `openWindowInFront`
+  mechanism is inert on that machine, so look for a machine-level cause
+  before touching per-window logic.
 
-  Fix probably needs the window itself ordered front once it exists
-  (`NSApplication.shared.windows` lookup by identifier, then
-  `makeKeyAndOrderFront`), rather than relying on app activation alone.
-  Reproduce first — an intermittent one is easy to "fix" without evidence.
+  **Leading suspect: macOS tightened focus-stealing.**
+  `NSApp.activate(ignoringOtherApps: true)` has been deprecated since
+  macOS 14, and later versions increasingly decline to let a background
+  app pull itself forward. The iMac runs 15.7.7; if the MacBook is on a
+  newer major version, that alone would explain a clean split between two
+  machines running identical code. **Get the MacBook's `sw_vers` first —
+  that single fact probably settles it.** If confirmed, the fix is the
+  modern activation path (`NSApp.activate()` with no arguments, or
+  `NSRunningApplication.current.activate(options:)`) rather than more
+  window ordering.
+
+  Background: foregrounding was fixed twice already. `0f8f80e` added
+  `NSApp.activate`; `1ca9dc8` deferred a run loop turn and then ordered
+  the specific window front by identifier, which fixed both windows on
+  the iMac (verified from the state log, not by eye).
+
+  **Start with the log rather than the code** — `openWindowInFront`
+  already records what it matched:
+
+  ```bash
+  grep openWindowInFront ~/Library/Logs/NMS/ui-state.log
+  ```
+
+  - `nms-window → nms-window` means the window was found and
+    `makeKeyOrderFront` ran, so the failure is *after* that — something
+    is re-ordering above it, or the app never became active. Suspect
+    Stage Manager, multiple displays, or a different Space, none of
+    which the iMac has in the same configuration.
+  - `NO WINDOW MATCHED` means SwiftUI hadn't created the window yet when
+    the deferred block ran — one run loop turn is enough on the iMac but
+    not on the slower/busier machine. That would make the current fix
+    timing-dependent, and it should instead retry or hook window
+    creation rather than assume a single turn is enough.
+
+  Worth noting the two machines differ in more than speed: the MacBook
+  is Apple Silicon and the iMac is Intel, so this may also be a macOS
+  version difference rather than a race.
 
 - [ ] **Estimate and document NMS's system requirements.** Needed now
   that other people are installing it — "will this bog down my Mac?" is a
