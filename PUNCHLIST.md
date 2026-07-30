@@ -49,24 +49,6 @@ Check items off or delete them as they land; add new ones as they come up.
   `makeKeyAndOrderFront`), rather than relying on app activation alone.
   Reproduce first — an intermittent one is easy to "fix" without evidence.
 
-- [ ] **Investigate whether a network label can be silently cleared.**
-  Observed once: a label set to `foo bar` read back as `NULL` a few
-  minutes later. Ruled out at the time — the `KnownNetwork` row was *not*
-  recreated (same `Z_PK`, same `firstSeenAt`, `timesSeen` still
-  incrementing), so only an explicit `setLabel` could have written NULL.
-  Never established whether it was cleared by hand while testing or
-  cleared itself.
-
-  Suspect if it's real: `KnownNetworksView.commitLabel` fires on focus
-  loss whenever a draft exists, so if SwiftUI ever writes an empty string
-  into the row's `TextField` binding during a `List` rebuild (which
-  `refreshKnownNetworks()` causes by reassigning the array), that creates
-  an empty draft and blanks the label on the next focus change.
-
-  Cheapest first step is making it answerable rather than guessing: log
-  label writes to `UIStateLogger`, then check the log next time it
-  happens.
-
 - [ ] **"Generate Report" button on Network Review.** Reuse
   `ScreenshotService`'s `ImageRenderer` against the Review content rather
   than the live popover — it captures exactly what a technician is
