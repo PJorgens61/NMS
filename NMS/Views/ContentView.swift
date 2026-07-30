@@ -1439,17 +1439,50 @@ struct ContentView: View {
         info.routerAddress ?? "—"
     }
 
-    /// `openWindow(id:)` alone doesn't bring the window to the front —
-    /// NMS runs as `.accessory` (no Dock icon, no standard app-switcher
-    /// entry; see `AppDelegate`), and macOS doesn't activate an accessory
-    /// app just because one of its windows was asked to open. Without
-    /// this, the new window could appear behind whatever app already had
-    /// focus. Explicit activation is the standard fix for this exact
-    /// class of app. Used by all three window-opening buttons in the
-    /// footer (Open in Window, Networks…, Preferences…).
+    /// Opens a window scene *and* actually puts it in front. Used by all
+    /// three footer buttons (Open in Window, Networks…, Preferences…).
+    ///
+    /// Three separate things conspire here, which is why the first
+    /// attempt — a bare `NSApp.activate` immediately after `openWindow` —
+    /// worked often enough to look fixed, then didn't:
+    ///
+    /// 1. NMS runs as `.accessory` (no Dock icon, no app-switcher entry;
+    ///    see `AppDelegate`), so macOS won't activate it just because one
+    ///    of its windows opened. That needs an explicit `activate`.
+    /// 2. Both calls used to run synchronously inside the button action,
+    ///    while the `MenuBarExtra` popover is still dismissing — the
+    ///    window may not exist yet to raise, and the dismissal takes
+    ///    focus back afterwards regardless. Deferring one run loop turn
+    ///    lets the popover finish and the window get created first.
+    /// 3. `activate` raises whichever window is *key*. For a window
+    ///    that's already open but buried — the case this was reported
+    ///    for, since Known Networks stays open across popover
+    ///    dismissals — that's frequently some other window, so the app
+    ///    came forward and the requested window stayed behind.
+    ///
+    /// So the specific window is ordered front by name rather than
+    /// trusting activation to pick the right one.
+    ///
+    /// SwiftUI sets `NSWindow.identifier` to the scene id **verbatim** —
+    /// verified from the state log, which is why the match is logged at
+    /// all: it was written expecting a decorated identifier
+    /// (`SwiftUI.Window-...-id-known-networks` or similar) and the log
+    /// showed a plain `known-networks → known-networks`. `contains`
+    /// rather than `==` is kept anyway, since it costs nothing and still
+    /// matches if a future SwiftUI does decorate it. The log line stays
+    /// for the same reason: if a match is ever missed, it says
+    /// `NO WINDOW MATCHED` instead of the window silently misbehaving.
     private func openWindowInFront(_ id: String) {
         openWindow(id: id)
-        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            let match = NSApp.windows.first { $0.identifier?.rawValue.contains(id) == true }
+            match?.makeKeyAndOrderFront(nil)
+            UIStateLogger.log(
+                "ContentView.openWindowInFront",
+                "\(id) → \(match?.identifier?.rawValue ?? "NO WINDOW MATCHED")"
+            )
+        }
     }
 
     /// IP address and subnet mask combined into one CIDR-notation row
