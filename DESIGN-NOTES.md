@@ -3030,6 +3030,53 @@ Net: a real, verifiable macOS capability, but strictly worse than the
 tab-scan approach already proposed on every axis that matters here —
 more privileged, less attributable, noisier. Not worth building.
 
+### Bookmarks and history — one usable the same way as tabs, one rejected like Keychain
+
+Checked directly, and the two need different treatment, not the same
+one.
+
+**Bookmarks (Chromium/Brave): fully readable, no special permission
+at all.** A plain JSON file under the user's own `~/Library/
+Application Support/...`, owned by the user, no TCC gate. Verified by
+actually parsing it: 2,267 real bookmarks read back successfully, no
+prompt, no Full Disk Access.
+
+**History (Chromium/Brave): not TCC-blocked, but unreliable in
+practice while the browser is running.** The file itself is readable,
+but querying the live SQLite database returned `database is locked` —
+Brave holds a lock on it whenever it's open, which is essentially
+always for a browser in active use. Working around that means copying
+the file first and querying the copy, not querying in place.
+
+**Safari: both blocked outright.** `ls` on Safari's data directory
+(legacy path and the modern sandboxed-container path) returned
+"Operation not permitted" — real TCC protection, stronger than
+Chromium's plain-file approach. Reaching Safari's data at all would
+need Full Disk Access, the same broad grant already ruled out for
+Keychain above.
+
+Recommended treatment, and they diverge:
+
+- **Bookmarks**: viable as a discovery source, same rules as the tab
+  scan above — filter against the known SaaS domain list immediately,
+  never persist or display the rest. Worth weighing that a bookmark
+  is a weaker recency signal than an open tab (bookmarked once, years
+  ago, proves nothing about current use) even though it's a more
+  deliberate one ("I cared about this" vs. "I happen to have this
+  open").
+- **History**: reject on the same grounds as Keychain/cookies above,
+  not treated as "the tab scan, but bigger." It isn't credential
+  material, but it is a comprehensive log of everywhere the user has
+  ever browsed, and the copy-the-file workaround needed to dodge the
+  lock makes "the app briefly holds the whole thing" concrete rather
+  than theoretical. It would genuinely solve the frequency/recency
+  problem better than anything else considered — Chromium's schema
+  already tracks `visit_count` and `last_visit_time` per URL, so no
+  new sampling system would be needed — but that convenience isn't
+  worth what it costs. If ever revisited, it needs its own explicit,
+  separate consent, not bundled into "the tab-scan feature" as if
+  it's the same ask.
+
 ### Open questions before implementing
 
 - Which services actually get a built-in entry vs. requiring the user
