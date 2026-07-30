@@ -9,6 +9,16 @@ import SwiftUI
 /// occasionally.
 struct KnownNetworksView: View {
     @ObservedObject var networkIdentity: NetworkIdentityViewModel
+    let snapshotStore: SnapshotStore
+
+    /// The network currently shown in the Review sheet — `nil` when
+    /// closed. A `.sheet(item:)` rather than a new `Window` scene:
+    /// Known Networks is already a separate, resizable window, and a new
+    /// Scene for a single on-demand view is exactly the kind of
+    /// conditional-Scene machinery that has twice crashed this project's
+    /// compiler (see DESIGN-NOTES.md's "Feature flags" section) — a sheet
+    /// sidesteps that class of bug entirely.
+    @State private var reviewingNetwork: KnownNetwork?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -33,6 +43,9 @@ struct KnownNetworksView: View {
         }
         .frame(minWidth: 420, minHeight: 240)
         .onAppear { networkIdentity.refreshKnownNetworks() }
+        .sheet(item: $reviewingNetwork) { network in
+            NetworkReviewView(network: network, snapshotStore: snapshotStore)
+        }
     }
 
     @ViewBuilder
@@ -54,6 +67,14 @@ struct KnownNetworksView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
+            Button {
+                reviewingNetwork = network
+            } label: {
+                Image(systemName: "doc.text.magnifyingglass")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Review \(network.label ?? network.routerMAC)")
+            .accessibilityHint("Opens a read-only view of this network's recorded events, SNMP devices, DHCP history, and Wi-Fi telemetry")
             Button(role: .destructive) {
                 networkIdentity.deleteNetwork(network)
             } label: {

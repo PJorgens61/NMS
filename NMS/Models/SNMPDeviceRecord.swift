@@ -41,6 +41,30 @@ final class SNMPDeviceRecord {
     /// meaning.
     var networkFingerprint: String?
 
+    /// The name worth showing: hostname when the device reports one,
+    /// otherwise the address. Mirrors `SNMPDevice.displayName` — this
+    /// record has no live reachability/alias data to also show (that's
+    /// `SNMPViewModel`'s territory), so Network Review, the one place
+    /// this is read for display, shows just the name.
+    var displayName: String {
+        guard let sysName, !sysName.isEmpty else { return ipAddress }
+        return sysName
+    }
+
+    /// Mirrors `SNMPDevice.uptimeDescription` — same coarse-on-purpose
+    /// rendering, duplicated here rather than shared because the two
+    /// types otherwise have no relationship a shared protocol would be
+    /// worth introducing for.
+    var uptimeDescription: String {
+        let totalSeconds = Int(TimeInterval(uptimeTicks) / 100)
+        let days = totalSeconds / 86_400
+        let hours = (totalSeconds % 86_400) / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        if days > 0 { return "up \(days)d \(hours)h" }
+        if hours > 0 { return "up \(hours)h \(minutes)m" }
+        return "up \(minutes)m"
+    }
+
     init(from device: SNMPDevice, firstSeenAt: Date = Date(), networkFingerprint: String? = nil) {
         ipAddress = device.ipAddress
         sysDescr = device.sysDescr

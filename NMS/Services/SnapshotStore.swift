@@ -373,6 +373,22 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    /// Same as `fetchDHCPLeaseHistory`, but for an explicitly named
+    /// network rather than whichever one is current — used by Network
+    /// Review to read a *past* network's history. Deliberately does not
+    /// read or touch `currentNetworkFingerprint`: reassigning that global
+    /// to browse another network would mistag whatever background writes
+    /// (SNMP poll, DHCP check, Wi-Fi sample) land while the review window
+    /// is open. See DESIGN-NOTES.md's "Network Review" section.
+    func fetchDHCPLeaseHistory(for fingerprint: String, limit: Int = 100) -> [DHCPLeaseRecord] {
+        var descriptor = FetchDescriptor<DHCPLeaseRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     /// Persists a new row only if the transaction ID actually changed —
     /// same transaction always means the same lease content by protocol
     /// definition, so this alone is a sufficient (and cheaper) change
@@ -443,6 +459,18 @@ final class SnapshotStore {
     /// history never shows here.
     func fetchWiFiSampleHistory(limit: Int = 30) -> [WiFiSampleRecord] {
         let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<WiFiSampleRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.sampledAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Explicit-fingerprint sibling of `fetchWiFiSampleHistory`, for
+    /// Network Review — see `fetchDHCPLeaseHistory(for:limit:)`'s doc
+    /// comment for why this never touches `currentNetworkFingerprint`.
+    func fetchWiFiSampleHistory(for fingerprint: String, limit: Int = 30) -> [WiFiSampleRecord] {
         var descriptor = FetchDescriptor<WiFiSampleRecord>(
             predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.sampledAt, order: .reverse)]
@@ -556,6 +584,18 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    /// Explicit-fingerprint sibling of `fetchSNMPDevices`, for Network
+    /// Review — see `fetchDHCPLeaseHistory(for:limit:)`'s doc comment for
+    /// why this never touches `currentNetworkFingerprint`.
+    func fetchSNMPDevices(for fingerprint: String, limit: Int = 100) -> [SNMPDeviceRecord] {
+        var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.lastSeenAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     /// Wipes persisted SNMP device state **for the current network only**.
     /// Used by `SNMPViewModel.scan()` so a manual sweep is a genuine
     /// clear-and-rediscover, not just a fresh in-memory list layered on
@@ -637,6 +677,18 @@ final class SnapshotStore {
     /// never show here.
     func fetchRecentEvents(limit: Int = 200) -> [AppEventRecord] {
         let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<AppEventRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.occurredAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    /// Explicit-fingerprint sibling of `fetchRecentEvents`, for Network
+    /// Review — see `fetchDHCPLeaseHistory(for:limit:)`'s doc comment for
+    /// why this never touches `currentNetworkFingerprint`.
+    func fetchRecentEvents(for fingerprint: String, limit: Int = 200) -> [AppEventRecord] {
         var descriptor = FetchDescriptor<AppEventRecord>(
             predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.occurredAt, order: .reverse)]

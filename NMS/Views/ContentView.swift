@@ -861,7 +861,7 @@ struct ContentView: View {
         ForEach(dhcpLease.history) { record in
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text(dhcpPrimaryDetail(record))
+                    Text(record.primaryDetail)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
@@ -869,7 +869,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 .font(.system(size: 12))
-                Text(dhcpSecondaryDetail(record))
+                Text(record.secondaryDetail)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -879,7 +879,7 @@ struct ContentView: View {
                     // genuinely opaque parts — bcast/gw/dns need no
                     // gloss for this app's audience, while T1/T2 and a
                     // bare hex transaction ID do.
-                    .appKitToolTip(Self.dhcpLeaseHelp, enabled: !isCapturingScreenshot)
+                    .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: !isCapturingScreenshot)
             }
         }
     }
@@ -1074,45 +1074,10 @@ struct ContentView: View {
 
     /// First line: server and assigned address/CIDR — the two fields
     /// that identify *this* lease at a glance, alongside the timestamp.
-    private func dhcpPrimaryDetail(_ record: DHCPLeaseRecord) -> String {
-        var address = record.assignedAddress
-        if let mask = record.subnetMask, let prefix = SubnetCalculator.prefixLength(subnetMask: mask) {
-            address += "/\(prefix)"
-        }
-        return "\(record.serverIdentifier) · \(address)"
-    }
-
-    /// Written for this app's stated audience — a network engineer, not
-    /// a software developer — so it skips what that reader already knows
-    /// (broadcast, gateway, DNS, search domain all read themselves) and
-    /// covers only what the line genuinely doesn't explain: which of
-    /// T1/T2 is which, and what the trailing hex value even is.
-    private static let dhcpLeaseHelp = """
-        T1 is the renewal timer (half the lease by default), T2 the \
-        rebinding timer (87.5%). The trailing hex value is the DHCP \
-        transaction ID — a new one means a genuinely new lease, renewal \
-        or rebind, which is what this history keys on.
-        """
-
-    /// Second line: every other field `DHCPLeaseService` parses —
-    /// deliberately not a curated subset, since the point of this list is
-    /// seeing everything about a lease, not a guess at what's most
-    /// interesting. `.lineLimit(1)` truncation is still the fallback for
-    /// the rare case of several DNS servers or an unusually long domain,
-    /// same convention used everywhere else in this popover — it isn't a
-    /// promise every field always fits without it.
-    private func dhcpSecondaryDetail(_ record: DHCPLeaseRecord) -> String {
-        var parts: [String] = []
-        if let broadcast = record.broadcastAddress { parts.append("bcast \(broadcast)") }
-        if let router = record.router { parts.append("gw \(router)") }
-        if !record.dnsServers.isEmpty { parts.append("dns \(record.dnsServers.joined(separator: ","))") }
-        if let domain = record.domainName, !domain.isEmpty { parts.append(domain) }
-        parts.append("lease \(DHCPLeaseInfo.durationText(record.leaseSeconds))")
-        parts.append("T1 \(DHCPLeaseInfo.durationText(record.t1Seconds))")
-        parts.append("T2 \(DHCPLeaseInfo.durationText(record.t2Seconds))")
-        parts.append(record.transactionID)
-        return parts.joined(separator: " · ")
-    }
+    // dhcpPrimaryDetail/dhcpSecondaryDetail/dhcpLeaseHelp moved to
+    // `DHCPLeaseRecord.primaryDetail`/`.secondaryDetail`/`.transactionHelpText`
+    // so Network Review can render the same lease-history line without
+    // duplicating the subnet-mask/T1/T2/transaction-ID formatting.
 
     /// Community strings are shared read-only passwords, not per-user
     /// secrets, and "public" is the near-universal default — so they're

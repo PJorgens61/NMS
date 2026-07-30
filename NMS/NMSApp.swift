@@ -45,6 +45,11 @@ struct NMSApp: App {
     /// `storeURL()` a second time, which would log a duplicate `App.store`
     /// line at every launch.
     private let storeURL: URL
+    /// Kept alongside the view models it backs rather than left as an
+    /// `init()`-local, since `KnownNetworksView`'s Review sheet needs it
+    /// directly (via explicit-fingerprint fetches) rather than through a
+    /// specific view model — see `NetworkReviewViewModel`.
+    private let snapshotStore: SnapshotStore
 
     init() {
         let (container, resolvedStoreURL) = Self.makeModelContainer()
@@ -67,6 +72,7 @@ struct NMSApp: App {
         // would happen during.
         UIStateLogger.startMainThreadHeartbeat()
         let store = SnapshotStore(context: container.mainContext)
+        snapshotStore = store
         let networkMonitor = NetworkMonitorViewModel(snapshotStore: store)
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
@@ -453,7 +459,7 @@ struct NMSApp: App {
         // A separate window rather than a popover section — see
         // `KnownNetworksView`'s doc comment.
         Window("Known Networks", id: "known-networks") {
-            KnownNetworksView(networkIdentity: networkIdentity)
+            KnownNetworksView(networkIdentity: networkIdentity, snapshotStore: snapshotStore)
         }
         .defaultSize(width: 460, height: 320)
 

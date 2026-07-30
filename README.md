@@ -172,11 +172,9 @@ waiting out even the 5s interval.
 ### Info
 
 Network name and type, IP address in CIDR notation, router and DNS
-server addresses (router shown with its MAC fingerprint once known, e.g.
-`10.0.0.1 (bc:b9:...)`, so a router swap or VRRP failover at the same IP
-is visible), current public IP, and — on Wi-Fi — the BSSID. A "Known
-network" / "New network (seen N×)" line tracks how often this app has
-recognized the current network before — identified by gateway MAC
+server addresses, current public IP, and — on Wi-Fi — the BSSID. A
+"Known network" / "New network (seen N×)" line tracks how often this app
+has recognized the current network before — identified by gateway MAC
 *and* subnet, so a main LAN and a guest VLAN on the same router (which
 share a MAC) still count as distinct networks.
 
@@ -184,7 +182,11 @@ Events, SNMP Devices, and DHCP History are all scoped to whichever
 network is current — visiting another network never mixes its data into
 your own history. **Networks…** in the footer opens a list of every
 network this Mac has connected to, with a way to forget one (and every
-event/lease/device it was the source of) entirely.
+event/lease/device it was the source of) entirely, or **Review** one to
+see its recorded Events/SNMP Devices/DHCP History/Wi-Fi telemetry
+read-only — no Scan or Refresh, since you aren't actually connected to
+it. Useful for a field technician revisiting a site who wants to see
+what this Mac last saw there.
 
 ### Path to Internet
 
@@ -433,6 +435,7 @@ NMS/
 │   │   ├── NetworkIdentityViewModel.swift     # Recognizes/labels the current network
 │   │   ├── NetworkMonitorViewModel.swift      # Bridges SystemConfigurationService -> SwiftUI
 │   │   ├── NetworkQualityViewModel.swift      # Bridges both speed-test sources -> SwiftUI
+│   │   ├── NetworkReviewViewModel.swift       # One-shot, read-only load of a past network's history
 │   │   ├── PublicIPViewModel.swift            # Bridges PublicIPService -> SwiftUI
 │   │   ├── SNMPViewModel.swift                # SNMP discovery, polling, restart/upgrade events
 │   │   ├── ScreenshotViewModel.swift          # Screenshot + store-dump + live-height capture action
@@ -440,7 +443,8 @@ NMS/
 │   │   └── WiFiSSIDViewModel.swift            # Bridges WiFiSSIDService -> SwiftUI
 │   └── Views/
 │       ├── ContentView.swift                  # Menu bar popover UI
-│       ├── KnownNetworksView.swift            # Known-networks list window, with delete
+│       ├── KnownNetworksView.swift            # Known-networks list window, with delete + Review
+│       ├── NetworkReviewView.swift            # Read-only Events/SNMP/DHCP/Wi-Fi view of a past network
 │       ├── NoBounceScrollView.swift           # AppKit-backed non-bouncing scroll container
 │       ├── PreferencesView.swift              # Experimental-feature toggles window
 │       ├── Sparkline.swift                    # Hand-drawn Canvas latency sparkline

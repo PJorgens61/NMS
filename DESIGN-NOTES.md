@@ -30,6 +30,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Business SaaS monitoring](#business-saas-monitoring)
 - [Feature flags, now that friends are installing this too](#feature-flags-now-that-friends-are-installing-this-too)
 - [A message bus for cross-view-model events? Considered, rejected](#a-message-bus-for-cross-view-model-events-considered-rejected)
+- [Network Review: a read-only look at a past network](#network-review-a-read-only-look-at-a-past-network)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -3571,3 +3572,89 @@ edge). This addressed "this function is long to read" directly, without
 giving up "a missing edge is visible by inspection" — the property
 that's actually caught three real bugs here. Verified: build clean,
 38/38 unit tests, 11/11 scenarios, all unchanged from before the split.
+
+## Network Review: a read-only look at a past network
+
+Raised directly: a field service technician revisiting a site would
+benefit from reviewing what this Mac recorded on a *previous* visit —
+Events, SNMP Devices, DHCP History, Wi-Fi telemetry — without needing to
+actually be on that network right now. Two shapes were discussed: an
+auto-generated screenshot/report per visit, or a live read-only window
+for a chosen past `KnownNetwork`. Built the second first, as the more
+general capability — a report generator can reuse it later (see the end
+of this section).
+
+**The one real risk, identified before writing any code:** every fetch
+in `SnapshotStore` (`fetchRecentEvents`, `fetchSNMPDevices`,
+`fetchDHCPLeaseHistory`, `fetchWiFiSampleHistory`) reads the single
+global `currentNetworkFingerprint`, and every write path tags new rows
+with that same global. If Review had temporarily reassigned it to browse
+a past network, any concurrent background write — an SNMP poll, a DHCP
+check, a Wi-Fi sample — landing while the review window was open would
+get mistagged onto the wrong network's history. Silently, and only
+noticeable much later as a network's history containing a few rows that
+don't belong to it.
+
+**Fix: explicit-fingerprint sibling overloads, not global reassignment.**
+`SnapshotStore` gained `fetchRecentEvents(for:limit:)`,
+`fetchSNMPDevices(for:limit:)`, `fetchDHCPLeaseHistory(for:limit:)`, and
+`fetchWiFiSampleHistory(for:limit:)` — same predicate/sort/limit shape as
+their existing counterparts, but filtering on a fingerprint passed in
+directly rather than the live global. `currentNetworkFingerprint` itself
+is never read or written anywhere in the Review path. Small duplication
+(four short functions, each a few lines), bought in exchange for total
+isolation from the one property every background poller also depends on.
+
+**`NetworkReviewViewModel`** is the one view model in this app that never
+polls and never writes: constructed with a specific `KnownNetwork`, its
+`load()` fetches all four record types once via the explicit-fingerprint
+overloads into plain `@Published` arrays. No timer, no `onEventLogged`
+hook, no scan trigger — the data is exactly what was last recorded on
+that network, not a live view of it.
+
+**`NetworkReviewView`** renders those four sections read-only: no Scan,
+no Refresh — those verbs only mean something while actually connected to
+the network in question. SNMP device rows read `SNMPDeviceRecord`
+directly rather than the live `SNMPDevice` struct `ContentView` uses, so
+`SNMPDeviceRecord` gained its own `displayName`/`uptimeDescription`
+computed properties (mirroring `SNMPDevice`'s, duplicated rather than
+shared since the two types have no other relationship worth a protocol
+for). DHCP formatting (`primaryDetail`/`secondaryDetail`, the
+subnet-mask-to-prefix and T1/T2/transaction-ID logic) was *moved* out of
+`ContentView` and onto `DHCPLeaseRecord` itself instead of duplicated —
+unlike the SNMP case, this logic is non-trivial enough that duplicating
+it risked drift between the popover and Review showing different text
+for the same lease.
+
+**Reached via a `.sheet(item:)` from `KnownNetworksView`, not a new
+`Window` scene.** A new Scene for a single on-demand view is exactly the
+conditional-Scene-builder machinery that's crashed this project's
+compiler twice already (see "Feature flags, now that friends are
+installing this too", above) — a sheet over the already-resizable Known
+Networks window needed no new Scene wiring and sidesteps that class of
+bug entirely. Each row in `KnownNetworksView` gained a "Review" button
+(a magnifying-glass icon) next to the existing trash icon.
+
+**No feature flag.** Unlike SNMP Devices (an always-visible addition to
+the main popover, gated because it's active network probing on a fresh
+install), Review only surfaces behind an explicit click in a window
+that's already opt-in to reach. That's the `isInWindow`-gating category,
+not the feature-flag one — this isn't a maturity/invasiveness call, it's
+just another sheet.
+
+**Verified:** build clean. Confirmed the read path against the real
+on-disk store directly (`sqlite3` against `default.store`): the one known
+network in the store (`bc:b9:23:81:a6:d4|10.0.0.0/24`) has 85 events, 6
+SNMP devices, 34 DHCP leases, and 11 Wi-Fi samples tagged with its
+fingerprint — exactly what the new `for fingerprint:` queries filter on.
+Actually exercising the Review sheet's UI (clicking the menu bar icon,
+then Networks…, then Review) needs `osascript`/System Events UI
+automation, which isn't Accessibility-authorized for this shell — that
+step is still open; the app itself is confirmed running without a crash
+on the new build.
+
+**Relationship to the deferred auto-report idea:** once Review exists, a
+"Generate Report" button on it, reusing `ScreenshotService`'s
+`ImageRenderer` against the Review content instead of the live popover,
+is a small follow-on — it would capture exactly what the technician is
+already looking at, with no separate auto-capture pipeline needed.

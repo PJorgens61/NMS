@@ -47,6 +47,46 @@ final class DHCPLeaseRecord {
         self.firstObservedAt = firstObservedAt
     }
 
+    /// "server · address[/prefix]" — moved here from `ContentView` so
+    /// Network Review can render the same line for a past network's
+    /// history without duplicating the subnet-mask-to-prefix logic.
+    var primaryDetail: String {
+        var address = assignedAddress
+        if let subnetMask, let prefix = SubnetCalculator.prefixLength(subnetMask: subnetMask) {
+            address += "/\(prefix)"
+        }
+        return "\(serverIdentifier) · \(address)"
+    }
+
+    /// Every other field `DHCPLeaseService` parses, joined into one line —
+    /// deliberately not a curated subset, since the point is seeing
+    /// everything about a lease, not a guess at what's most interesting.
+    /// Moved here alongside `primaryDetail` for the same reason.
+    var secondaryDetail: String {
+        var parts: [String] = []
+        if let broadcastAddress { parts.append("bcast \(broadcastAddress)") }
+        if let router { parts.append("gw \(router)") }
+        if !dnsServers.isEmpty { parts.append("dns \(dnsServers.joined(separator: ","))") }
+        if let domainName, !domainName.isEmpty { parts.append(domainName) }
+        parts.append("lease \(DHCPLeaseInfo.durationText(leaseSeconds))")
+        parts.append("T1 \(DHCPLeaseInfo.durationText(t1Seconds))")
+        parts.append("T2 \(DHCPLeaseInfo.durationText(t2Seconds))")
+        parts.append(transactionID)
+        return parts.joined(separator: " · ")
+    }
+
+    /// Written for this app's stated audience — a network engineer, not a
+    /// software developer — so it skips what that reader already knows
+    /// (broadcast, gateway, DNS, search domain all read themselves) and
+    /// covers only what `secondaryDetail` doesn't explain on its own:
+    /// which of T1/T2 is which, and what the trailing hex value even is.
+    static let transactionHelpText = """
+        T1 is the renewal timer (half the lease by default), T2 the \
+        rebinding timer (87.5%). The trailing hex value is the DHCP \
+        transaction ID — a new one means a genuinely new lease, renewal \
+        or rebind, which is what this history keys on.
+        """
+
     var info: DHCPLeaseInfo {
         DHCPLeaseInfo(
             interfaceName: interfaceName,
