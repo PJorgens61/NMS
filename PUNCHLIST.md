@@ -77,6 +77,41 @@ Check items off or delete them as they land; add new ones as they come up.
   is Apple Silicon and the iMac is Intel, so this may also be a macOS
   version difference rather than a race.
 
+- [ ] **Printer alert events aren't scoped to a network, and neither is
+  printer reachability.** Reported: printer alert entries show up
+  regardless of which network is current. Confirmed why — and it's wider
+  than just alerts.
+
+  `PrinterDiscoveryService` reads CUPS's printer queue (`lpstat`), which
+  is Mac-level configuration, not network-level — switching Wi-Fi
+  networks doesn't remove a printer from System Settings, so
+  `configuredPrinters` re-reads the *same* list every topology change.
+  That list then gets pinged every round unconditionally in
+  `buildTargets()`, on whatever network happens to be current, logging
+  `infrastructureUnreachable`/`Reachable` (or, since today, `.printerAlert`/
+  `.printerAlertCleared`) tagged with **that** network's fingerprint —
+  even if the printer is your home printer and you're now on a coffee
+  shop's Wi-Fi where it was never going to answer.
+
+  So this isn't a bug specific to today's alert feature — printer
+  *reachability* events have worked this way all along, tagged to
+  whichever network is current, unscoped by whether the printer actually
+  belongs there. Alerts just made it more visible, since a printer that
+  will obviously never answer still gets checked and still logs `Alerts:
+  none` transitions.
+
+  **Not a state-reset fix — the underlying question is scope.** Every
+  other monitored thing (SNMP devices, DHCP, Wi-Fi) is discovered *on*
+  the current network, so it's naturally scoped. Printers are discovered
+  from local config, with no network concept at all. Two real options,
+  needing a decision before code:
+  - Only ping/alert-check a configured printer while it resolves on the
+    current network (e.g. its host resolves via mDNS/DNS right now) —
+    correct, but adds real complexity to `buildTargets()`.
+  - Leave it as global-by-design (matches how it's always behaved for
+    reachability) and just say so in the README, rather than silently
+    surprising someone who assumes everything here is per-network.
+
 - [ ] **Estimate and document NMS's system requirements.** Needed now
   that other people are installing it — "will this bog down my Mac?" is a
   fair question and there's currently no answer beyond a shrug.
