@@ -268,18 +268,18 @@ struct ContentView: View {
                 // fresh install.
                 if FeatureFlags.comparisonWindow {
                     Button("Open in Window") {
-                        openWindow(id: "nms-window")
+                        openWindowInFront("nms-window")
                     }
                     .accessibilityLabel("Open in Window")
                     .accessibilityHint("Opens the same content in a resizable, scrollable window")
                 }
                 Button("Networks…") {
-                    openWindow(id: "known-networks")
+                    openWindowInFront("known-networks")
                 }
                 .accessibilityLabel("Known Networks")
                 .accessibilityHint("Opens a list of every network this Mac has connected to, with a way to forget one")
                 Button("Preferences…") {
-                    openWindow(id: "preferences")
+                    openWindowInFront("preferences")
                 }
                 .accessibilityLabel("Preferences")
                 .accessibilityHint("Opens toggles for experimental features")
@@ -1437,6 +1437,19 @@ struct ContentView: View {
     /// for.
     private func routerDisplay(_ info: NetworkInterfaceInfo) -> String {
         info.routerAddress ?? "—"
+    }
+
+    /// `openWindow(id:)` alone doesn't bring the window to the front —
+    /// NMS runs as `.accessory` (no Dock icon, no standard app-switcher
+    /// entry; see `AppDelegate`), and macOS doesn't activate an accessory
+    /// app just because one of its windows was asked to open. Without
+    /// this, the new window could appear behind whatever app already had
+    /// focus. Explicit activation is the standard fix for this exact
+    /// class of app. Used by all three window-opening buttons in the
+    /// footer (Open in Window, Networks…, Preferences…).
+    private func openWindowInFront(_ id: String) {
+        openWindow(id: id)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// IP address and subnet mask combined into one CIDR-notation row
