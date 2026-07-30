@@ -211,6 +211,24 @@ struct ContentView: View {
                 dhcpHistoryList
             }
 
+            // Window-only from the start, unlike DHCP History above (which
+            // moved here) — a fault a printer reports (out of paper, cover
+            // open, low toner) is orthogonal to whether it's reachable on
+            // the network at all, so this is new signal `Network Health`'s
+            // reachability pinging can't see, but it's still a niche
+            // per-device detail in the same category as SNMP Devices, not
+            // something a fresh install's popover budget should pay for.
+            // Hidden entirely when nothing's configured, same as the
+            // Wi-Fi section hiding on Ethernet.
+            if isInWindow && !connectivity.printerStatuses.isEmpty {
+                Divider()
+
+                Text("Printer Alerts")
+                    .font(.headline)
+
+                printerAlertRows
+            }
+
             Divider()
 
             HStack {
@@ -888,6 +906,31 @@ struct ContentView: View {
                     // bare hex transaction ID do.
                     .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: !isCapturingScreenshot)
             }
+        }
+    }
+
+    /// One row per CUPS-configured printer — a colored dot (green: no
+    /// alerts, red: `reasons` non-empty) plus the reasons themselves when
+    /// present. `PrinterDiscoveryService.PrinterAlert` has no reachability
+    /// concept of its own, so unlike `infrastructureRows` there's no
+    /// "unknown/gray" state here — CUPS always reports *something*
+    /// (`none`, if nothing's wrong).
+    private var printerAlertRows: some View {
+        ForEach(connectivity.printerStatuses) { printer in
+            HStack {
+                Circle()
+                    .fill(printer.reasons.isEmpty ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+                Text(printer.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(printer.reasons.isEmpty ? "OK" : printer.reasons.joined(separator: ", "))
+                    .foregroundStyle(printer.reasons.isEmpty ? Color.secondary : Color.red)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.system(size: 12))
         }
     }
 

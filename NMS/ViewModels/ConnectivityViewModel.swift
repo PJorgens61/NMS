@@ -8,6 +8,11 @@ final class ConnectivityViewModel: ObservableObject {
     }
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var isChecking = false
+    /// Every CUPS-configured printer's current fault state, refreshed
+    /// every round alongside `checks` — see `refreshPrinterAlerts()` for
+    /// why this needs the fast reachability cadence rather than
+    /// `configuredPrinters`' topology-change one.
+    @Published private(set) var printerStatuses: [PrinterDiscoveryService.PrinterAlert] = []
 
     private let service = ConnectivityService()
     private let dnsService = DNSResolutionService()
@@ -26,6 +31,12 @@ final class ConnectivityViewModel: ObservableObject {
     /// mid-session, so there's nothing to gain from re-reading it every
     /// 5-30s the way `buildTargets` runs.
     private var configuredPrinters: [PrinterDiscoveryService.ConfiguredPrinter] = []
+    /// Previous round's alert reasons per printer name, so a transition
+    /// (no alerts → some, or some → none) logs once instead of every round
+    /// a fault persists — same log-on-change convention every other event
+    /// here follows. Keyed the same way printer ping targets already are:
+    /// by CUPS's own printer name.
+    private var previousPrinterAlerts: [String: [String]] = [:]
     /// Set when `runChecks()` is called while a round is already in flight;
     /// the deferred round fires from `finishChecking()`. Needed because
     /// `TracerouteViewModel.onTraceCompleted` can land while the very first
@@ -286,7 +297,34 @@ final class ConnectivityViewModel: ObservableObject {
         }
     }
 
+    /// Re-reads every configured printer's CUPS-reported fault state and
+    /// logs a `.printerAlert`/`.printerAlertCleared` event on transition.
+    /// Called every round from `apply(_:)`, unlike `configuredPrinters`
+    /// (which printers exist, refreshed only on topology change) — a jam
+    /// or an open cover can happen at any moment, unrelated to the network
+    /// entirely, so this needs the same recurring cadence reachability
+    /// checks already run on, not the topology-change one discovery uses.
+    /// `lpstat -l -p` is the same cost class as the `-v` call discovery
+    /// already makes, so adding it to every round is cheap.
+    private func refreshPrinterAlerts() {
+        let current = printerService.printerAlerts()
+        printerStatuses = current
+        for printer in current {
+            let previous = previousPrinterAlerts[printer.name] ?? []
+            if !printer.reasons.isEmpty, previous.isEmpty {
+                snapshotStore.logEvent(.printerAlert, message: "\(printer.name): \(printer.reasons.joined(separator: ", "))")
+                onEventLogged?()
+            } else if printer.reasons.isEmpty, !previous.isEmpty {
+                snapshotStore.logEvent(.printerAlertCleared, message: "\(printer.name): alert cleared")
+                onEventLogged?()
+            }
+            previousPrinterAlerts[printer.name] = printer.reasons
+        }
+    }
+
     private func apply(_ results: [ConnectivityCheck]) {
+        refreshPrinterAlerts()
+
         // Logged only on change, not every round — checked here because
         // this is the one place already running every cadence regardless
         // of whether anything else changed. Exists to catch exactly the

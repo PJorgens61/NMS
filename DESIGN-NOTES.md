@@ -31,6 +31,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Feature flags, now that friends are installing this too](#feature-flags-now-that-friends-are-installing-this-too)
 - [A message bus for cross-view-model events? Considered, rejected](#a-message-bus-for-cross-view-model-events-considered-rejected)
 - [Network Review: a read-only look at a past network](#network-review-a-read-only-look-at-a-past-network)
+- [Printer fault detection (out of paper, cover open): a real dead end, on this hardware](#printer-fault-detection-out-of-paper-cover-open-a-real-dead-end-on-this-hardware)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -3658,3 +3659,72 @@ on the new build.
 `ImageRenderer` against the Review content instead of the live popover,
 is a small follow-on — it would capture exactly what the technician is
 already looking at, with no separate auto-capture pipeline needed.
+
+## Printer fault detection (out of paper, cover open): a real dead end, on this hardware
+
+Raised directly: printer monitoring already existed (`PrinterDiscoveryService`
+reading `lpstat -v`, pinged every round by `ConnectivityViewModel` — see
+"Business SaaS monitoring" and the printer-discovery work earlier in this
+project's history), but only covered *reachability*. Could it also detect
+device-level faults — out of paper, cover/drawer open, low toner — and log
+an event for each, the same way a router or SNMP device going down does?
+
+**What got built:** `PrinterDiscoveryService.printerAlerts()`, reading
+`lpstat -l -p` (verbose form of the existing `-v` call) and parsing each
+configured printer's `Alerts:` line — CUPS's own surface for the printer's
+IPP `printer-state-reasons` (`media-empty`, `cover-open`, `toner-low`,
+etc.). `ConnectivityViewModel.refreshPrinterAlerts()` re-reads this every
+round (not tied to topology-change cadence, since a fault can happen at any
+moment) and logs new `.printerAlert`/`.printerAlertCleared` events on
+transition. A window-only "Printer Alerts" tile shows each configured
+printer with a green/red dot and its current reason(s), same `isInWindow`
+gating as Wi-Fi and DHCP History.
+
+**Then tested against the real printer, drawer physically open — and it
+didn't work.** `lpstat -l -p` kept reporting `Alerts: none` and the printer
+as `idle` the entire time the drawer was open. Root cause: CUPS typically
+only refreshes a printer's `printer-state-reasons` around an active job
+being submitted/attempted, not by continuously polling an idle queue in
+the background — a fault that happens while nothing is printing can simply
+sit invisible to CUPS until the next print attempt.
+
+**So the SNMP Printer MIB (RFC 3805) was tried as an alternative** — this
+printer already answers SNMP (it's in the existing infrastructure list),
+and the standard MIB has tables specifically for this: `prtAlertTable`
+(`1.3.6.1.2.1.43.18.1.1`) and `prtCoverStatus`
+(`1.3.6.1.2.1.43.9.2.1.4`). Walked directly against the real device
+(`snmpwalk -v2c -c public`) with the drawer still open:
+
+- `prtAlertTable` had exactly one entry, and every numeric field was the
+  spec's "not applicable" sentinel — severity `255`, training level `255`,
+  group `255`, group index `255`, alert code `-1`. The only real content
+  was `prtAlertDescription = "Sleep"`. This printer's agent only ever
+  populates a coarse power-state placeholder here, never a real per-fault
+  entry.
+- `prtCoverStatus` returned `150` — not a valid value in the standard
+  enum (`1`–`7`: other/unknown/coverOpen(3)/coverClosed(4)/interlockOpen/
+  interlockClosed/notPresent). An open drawer should read `3` if this
+  device followed spec. It doesn't, so this OID isn't safely
+  interpretable as a real open/closed signal on this hardware — either
+  it's unpopulated or uses an undocumented vendor encoding.
+
+**Conclusion: this is a genuine hardware/firmware limitation, not a bug in
+either approach.** This specific printer (a Brother NC-8300h network card,
+2023 firmware) doesn't expose real-time fault detail through CUPS/IPP or
+the standard SNMP Printer MIB while idle — both were tried against the
+real device with the fault condition actually present, and both came back
+empty or meaningless. A different printer with a more complete SNMP/IPP
+implementation might make this same code produce something real; this one
+doesn't.
+
+**What's kept:** the reachability-based printer monitoring that predates
+this — a printer that goes fully unreachable still gets pinged, still
+logs `infrastructureUnreachable`/`Reachable` events, unaffected by any of
+this. The `printerAlerts()`/`refreshPrinterAlerts()`/Printer Alerts tile
+code is also kept as-is rather than reverted — it's real, correct code
+that will simply keep showing "OK" on this hardware, and would start
+showing something true the moment a printer that actually populates these
+fields is on the network. Not pursued further: printing an actual test
+job while faulted, to see if that's the one trigger CUPS/SNMP do respond
+to — floated but not tried, since the two tests already run were enough
+to call this a dead end for now rather than open-ended further probing.

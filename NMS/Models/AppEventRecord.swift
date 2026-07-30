@@ -72,6 +72,15 @@ enum AppEventKind: String, Codable {
     /// spaces is the relevant one — see `ScreenshotService`'s fixed,
     /// space-free filename format). See DESIGN-NOTES.md.
     case screenshotCaptured
+    /// A configured printer's own CUPS-reported fault state
+    /// (`printer-state-reasons` — out of paper, cover open, toner low,
+    /// etc.) went from clear to non-empty. Distinct from
+    /// `infrastructureUnreachable`: a printer can report this while still
+    /// fully reachable on the network — this is about the physical
+    /// device's state, not connectivity. See
+    /// `PrinterDiscoveryService.printerAlerts()`.
+    case printerAlert
+    case printerAlertCleared
 
     enum Polarity {
         case positive, negative, neutral
@@ -84,10 +93,11 @@ enum AppEventKind: String, Codable {
     var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
-             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered:
+             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered, .printerAlertCleared:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
-             .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue:
+             .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue,
+             .printerAlert:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
              .screenshotCaptured:
