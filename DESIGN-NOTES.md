@@ -3511,12 +3511,14 @@ complexity a bus is for.
 
 ### If the actual problem is readability, not coupling
 
-Splitting `wireDependencies` into a few smaller private functions,
-grouped by the same categories the existing `// MARK:` comments already
-use (topology-change fan-out, derived-state dependencies, reachability
-transitions, event-log refresh) — each still fully explicit, each still
-called from one place in `init()` — would address "this function is
-long to read" directly, without giving up "a missing edge is visible by
-inspection," which is the property that's actually caught three real
-bugs here. Not yet done; noted as the lower-risk alternative if the
-function's length becomes a real problem rather than a hypothetical one.
+**Done**: `wireDependencies` is now four smaller private functions —
+`wireTopologyChangeFanOut`, `wireDerivedStateDependencies`,
+`wireReachabilityTransitions`, `wireEventLogRefresh` — matching the same
+categories the `// MARK:` comments already grouped it by. Each is still
+fully explicit and still called from exactly one place in `init()` (via
+`wireDependencies` itself, now just the four calls in sequence, with the
+per-edge reasoning living in whichever of the four functions owns that
+edge). This addressed "this function is long to read" directly, without
+giving up "a missing edge is visible by inspection" — the property
+that's actually caught three real bugs here. Verified: build clean,
+38/38 unit tests, 11/11 scenarios, all unchanged from before the split.

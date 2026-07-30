@@ -129,27 +129,38 @@ struct NMSApp: App {
         wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
     }
 
-    /// Every cross-view-model connection in the app, in one place.
+    /// Every cross-view-model connection in the app, split into four
+    /// smaller functions below — one per `// MARK:` category this single
+    /// function used to hold inline. Only two view models consume other
+    /// view models' state — `ConnectivityViewModel` (reads
+    /// `networkMonitor`, `traceroute`, `publicIP`, `snmp`) and
+    /// `SNMPViewModel` (reads `networkMonitor`, `lanDiscovery`,
+    /// `traceroute`) — so the whole dependency matrix is roughly eight
+    /// edges and small enough to audit by reading these four functions,
+    /// still called from exactly one place (`init()`).
     ///
-    /// Grouped here deliberately rather than scattered through `init()`.
-    /// Only two view models consume other view models' state —
-    /// `ConnectivityViewModel` (reads `networkMonitor`, `traceroute`,
-    /// `publicIP`, `snmp`) and `SNMPViewModel` (reads `networkMonitor`,
-    /// `lanDiscovery`, `traceroute`) — so the whole
-    /// dependency matrix is roughly eight edges and small enough to audit by
-    /// reading one function.
+    /// That matters because of a bug class this app has now hit three
+    /// times. Every one of those reads is optional-chained with a silent
+    /// fallback (`snmp?.devices ?? []`, `traceroute?.monitoredHop?.address`),
+    /// so a dependency that isn't ready yet doesn't error — it quietly
+    /// yields an incomplete result that then sits cached until some
+    /// *timer* recomputes it. The ISP Edge Router row vanished for 30s
+    /// that way, and the SNMP MAC merge for 60s. The fix in both cases
+    /// was to make the recompute trigger belong to the dependency rather
+    /// than the clock, which is what `wireDerivedStateDependencies` below
+    /// does. An edge missing from that function is the shape this bug
+    /// takes, so it should be possible to spot one by inspection instead
+    /// of by user report.
     ///
-    /// That matters because of a bug class this app has now hit three times.
-    /// Every one of those reads is optional-chained with a silent fallback
-    /// (`snmp?.devices ?? []`, `traceroute?.monitoredHop?.address`), so a
-    /// dependency that isn't ready yet doesn't error — it quietly yields an
-    /// incomplete result that then sits cached until some *timer* recomputes
-    /// it. The ISP Edge Router row vanished for 30s that way, and the SNMP
-    /// MAC merge for 60s. The fix in both cases was to make the recompute
-    /// trigger belong to the dependency rather than the clock, which is what
-    /// the "derived state" section below wires. An edge missing from that
-    /// section is the shape this bug takes, so it should be possible to spot
-    /// one by inspection instead of by user report.
+    /// **Splitting these out was considered against a message-bus/pub-sub
+    /// alternative and rejected in favor of this — see DESIGN-NOTES.md's
+    /// "A message bus for cross-view-model events? Considered, rejected."**
+    /// The problem being solved here is genuinely just "one function got
+    /// long to read," not "these are too coupled" — pub-sub would trade
+    /// away the exact property (a missing edge is visible by reading the
+    /// wiring) that's caught three real bugs, in exchange for solving a
+    /// readability problem four smaller functions already solve without
+    /// that cost.
     private static func wireDependencies(
         networkMonitor: NetworkMonitorViewModel,
         lanDiscovery: LANDiscoveryViewModel,
@@ -164,9 +175,55 @@ struct NMSApp: App {
         snmp: SNMPViewModel,
         networkQuality: NetworkQualityViewModel
     ) {
-        // MARK: Topology change fan-out
-        // A change to the Mac's own interface/IP/router invalidates nearly
-        // everything, so it re-runs nearly everything.
+        wireTopologyChangeFanOut(
+            networkMonitor: networkMonitor,
+            lanDiscovery: lanDiscovery,
+            connectivity: connectivity,
+            networkIdentity: networkIdentity,
+            publicIP: publicIP,
+            dhcpLease: dhcpLease,
+            wifiSSID: wifiSSID,
+            traceroute: traceroute
+        )
+        wireDerivedStateDependencies(
+            networkMonitor: networkMonitor,
+            lanDiscovery: lanDiscovery,
+            connectivity: connectivity,
+            networkIdentity: networkIdentity,
+            publicIP: publicIP,
+            traceroute: traceroute,
+            snmp: snmp
+        )
+        wireReachabilityTransitions(
+            connectivity: connectivity,
+            publicIP: publicIP,
+            traceroute: traceroute,
+            networkQuality: networkQuality
+        )
+        wireEventLogRefresh(
+            networkMonitor: networkMonitor,
+            connectivity: connectivity,
+            publicIP: publicIP,
+            dhcpLease: dhcpLease,
+            screenshot: screenshot,
+            wifiSSID: wifiSSID,
+            eventLog: eventLog,
+            snmp: snmp
+        )
+    }
+
+    /// A change to the Mac's own interface/IP/router invalidates nearly
+    /// everything, so it re-runs nearly everything.
+    private static func wireTopologyChangeFanOut(
+        networkMonitor: NetworkMonitorViewModel,
+        lanDiscovery: LANDiscoveryViewModel,
+        connectivity: ConnectivityViewModel,
+        networkIdentity: NetworkIdentityViewModel,
+        publicIP: PublicIPViewModel,
+        dhcpLease: DHCPLeaseViewModel,
+        wifiSSID: WiFiSSIDViewModel,
+        traceroute: TracerouteViewModel
+    ) {
         networkMonitor.onChangePersisted = { snapshot in
             // Clears recognition and the store's current-network
             // fingerprint immediately, before the LAN scan below can
@@ -204,12 +261,20 @@ struct NMSApp: App {
             // to 30s until the next periodic round.
             connectivity.runChecks()
         }
+    }
 
-        // MARK: Derived-state dependencies
-        // The edges that exist specifically so a consumer re-derives when its
-        // dependency resolves, instead of waiting for a timer. Each one here
-        // corresponds to a real bug that shipped without it.
-
+    /// The edges that exist specifically so a consumer re-derives when its
+    /// dependency resolves, instead of waiting for a timer. Each one here
+    /// corresponds to a real bug that shipped without it.
+    private static func wireDerivedStateDependencies(
+        networkMonitor: NetworkMonitorViewModel,
+        lanDiscovery: LANDiscoveryViewModel,
+        connectivity: ConnectivityViewModel,
+        networkIdentity: NetworkIdentityViewModel,
+        publicIP: PublicIPViewModel,
+        traceroute: TracerouteViewModel,
+        snmp: SNMPViewModel
+    ) {
         // `ConnectivityViewModel.buildTargets` reads
         // `traceroute.monitoredHop` to decide whether to include the ISP Edge
         // Router target. `traceroute.run()` is async, so the first check round
@@ -254,12 +319,18 @@ struct NMSApp: App {
         // noticing the fetch had resolved. This closes the last of
         // `ConnectivityViewModel`'s four dependencies.
         publicIP.onCurrentIPChanged = { connectivity.runChecks() }
+    }
 
-        // MARK: Reachability transitions
-        // An upstream failure (e.g. a switch between the local router and the
-        // ISP) doesn't touch the Mac's own interface/IP/router, so
-        // `onChangePersisted` never fires for it — the raw IP check failing is
-        // the earliest signal something broke upstream.
+    /// An upstream failure (e.g. a switch between the local router and the
+    /// ISP) doesn't touch the Mac's own interface/IP/router, so
+    /// `onChangePersisted` never fires for it — the raw IP check failing is
+    /// the earliest signal something broke upstream.
+    private static func wireReachabilityTransitions(
+        connectivity: ConnectivityViewModel,
+        publicIP: PublicIPViewModel,
+        traceroute: TracerouteViewModel,
+        networkQuality: NetworkQualityViewModel
+    ) {
         connectivity.onInternetUnreachable = { traceroute.run() }
         // The recovery counterpart. The trace fired above runs while the path
         // is still down, so it fails and clears the monitored hop, removing
@@ -281,10 +352,20 @@ struct NMSApp: App {
             // without the user asking for it.
             networkQuality.clearStaleErrorOnRecovery()
         }
+    }
 
-        // MARK: Event log refresh
-        // Every producer that can write an `AppEventRecord` tells the log view
-        // to re-read.
+    /// Every producer that can write an `AppEventRecord` tells the log view
+    /// to re-read.
+    private static func wireEventLogRefresh(
+        networkMonitor: NetworkMonitorViewModel,
+        connectivity: ConnectivityViewModel,
+        publicIP: PublicIPViewModel,
+        dhcpLease: DHCPLeaseViewModel,
+        screenshot: ScreenshotViewModel,
+        wifiSSID: WiFiSSIDViewModel,
+        eventLog: EventLogViewModel,
+        snmp: SNMPViewModel
+    ) {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
         publicIP.onEventLogged = { eventLog.refresh() }
