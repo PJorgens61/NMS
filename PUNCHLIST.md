@@ -128,14 +128,17 @@ from this list. This one remains, since it's an idea, not a defect):
   telemetry work; deliberately out of scope then, no plan yet. Revisit if
   it becomes relevant.
 
-- [ ] **Decide whether to keep the printer alerts feature.** It's built,
-  correct, and will report "OK" forever on the current Brother printer,
-  which exposes nothing useful through either CUPS/IPP or the standard
-  SNMP Printer MIB while idle (both verified against the real device with
-  a drawer physically open — see DESIGN-NOTES.md's "Printer fault
-  detection" section). Keep it for hardware that does populate those
-  fields, or pull it and stop running `lpstat` every check round for no
-  signal.
+- [x] ~~Decide whether to keep the printer alerts feature.~~ **Decided:
+  keep.** Reasoning: the ~91ms-avg `lpstat -l -p` cost every round is
+  marginal next to what's already accepted elsewhere (the SNMP sweep's
+  up to 32 concurrent `snmpget`s), the UI is window-only so it costs no
+  popover space, and it's forward-compatible for free — works the
+  moment better-behaved printer hardware is on the network, no code
+  changes needed. Known, accepted risk: since it's never produced a
+  true positive on real hardware, the "an actual alert renders
+  correctly" path has only ever been exercised by the negative case
+  (`Alerts: none`), not confirmed against a real fault making it all
+  the way to the UI.
 
 - [ ] **Run `/code-review ultra` on the branch.** User-triggered and
   billed, so it can't be launched from a session. Worth it: a manual pass
