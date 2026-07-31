@@ -8,6 +8,42 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Split by audience: popover for business users (summary only),
+  the real window for IT users (everything).** Raised directly: liked
+  the full app window enough to wonder whether the popover and the
+  window should eventually serve two different audiences rather than
+  being "the same content, one has more room" — popover trimmed to
+  summary status indicators only, window keeps the full detail
+  (Network Health rows, Info, Path to Internet, SNMP Devices, DHCP
+  History, everything).
+
+  This is the natural conclusion of a question `DESIGN-NOTES.md`'s
+  "Business SaaS monitoring" section left half-resolved — it worked out
+  that a business user wants "can I work, what's restricted" while an
+  IT-minded read wants root cause and specificity, and left the
+  resolution at "headline color stays simple, detail lives one level
+  down via drill-down." Splitting by *surface* (popover vs. window)
+  instead of by interaction depth within one surface is a cleaner
+  version of that same resolution, not a new idea.
+
+  Real open questions before this is a plan, not just a direction:
+  - **What exactly counts as "summary"?** The popover today isn't
+    thin — it's the full 2×2 tile grid (Network Health, Info, Path to
+    Internet, Speed Test) plus Events/SNMP Devices/DHCP History.
+    Reducing it to indicators-only is a genuine content
+    redistribution, closer in scope to the popover-height-calibration
+    work already done than to a UI tweak — needs its own real
+    specification (just the top-level red/yellow/green icon? A
+    handful of key rows?).
+  - **Is there a confirmed business-user audience yet, or is this
+    designing ahead of one?** The README's "Status: early" framing is
+    explicit this is currently a personal project. Not a reason not to
+    log the direction, but worth being honest that nothing is forcing
+    this redesign right now.
+  - Does "Open in Window" become the *only* full-detail surface, or
+    does the popover keep an expand/collapse path for someone who's
+    both audiences at once (this app's actual current usage)?
+
 **From off-site testing at Martha's** (8 items originally; 3 turned out
 to be bugs and moved to `BUGS.md` — Known Networks not recognizing an
 unfamiliar network, the first-traceroute latency inflation, and the
