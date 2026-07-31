@@ -47,10 +47,9 @@ enum Surface: String, CaseIterable, Sendable {
 /// the audience-split reasoning), so `popoverBoxTotal` is `0` and this
 /// table's job for the popover specifically has shifted from "budget the
 /// trimmable space" to "confirm there's none left to budget." Kept as a
-/// table rather than deleted: window heights, thresholds, and the
-/// measured `rowHeight` constant are still real, still shared, and still
-/// worth having in one place rather than scattered back into
-/// `ContentView`.
+/// table rather than deleted: window heights and thresholds are still
+/// real, still shared, and still worth having in one place rather than
+/// scattered back into `ContentView`.
 ///
 /// **Not every section is listed.** Network Health and Info are
 /// unconditional label/value tiles with no fixed-height box, rendered on
@@ -65,13 +64,6 @@ enum SectionLayout: String, CaseIterable, Sendable {
     case snmpDevices
     case dhcpHistory
     case printerAlerts
-
-    /// The confirmed per-row height for these lists — **measured, not
-    /// estimated**. Two real desktop screenshots bracketing commit
-    /// `41e169c` showed 10 event rows in a 170pt box and 8 rows in a 136pt
-    /// box; both compute to exactly 17pt/row. Every height below that's
-    /// expressed as a row count derives from this.
-    static let rowHeight: CGFloat = 17
 
     /// Which surfaces this section renders on at all.
     ///
@@ -139,30 +131,20 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // answer `wifi` below already gives, not a new exception.
         case (.pathToInternet, _), (.speedTest, _): return nil
 
-        // 300 was already the window value from before the split; 136
-        // (8 rows) was the old popover height, trimmed from 170 (10 rows)
-        // at `41e169c` — the fix that produced `rowHeight` above. That
-        // history is why `rowHeight` is trustworthy, even though Events
-        // no longer has a popover box to apply it to.
-        case (.events, .window): return 300
-
-        // Taller than its neighbours because `sysDescr` wraps instead of
-        // truncating and needs the extra room.
-        case (.snmpDevices, .window): return 200
-
-        // Only 4 real leases exist on the development network, so this is
-        // deliberately short enough to confirm scrolling actually works
-        // rather than just having room to spare.
-        case (.dhcpHistory, .window): return 100
-
-        // 3 rows, for a section asked to "support 2 printers" — a row of
-        // headroom past the exact 2-row boundary rather than landing on
-        // it, matching the convention the Speed Test trim above set. The
-        // first cut was exactly 2 rows (34pt) and a same-day bug report
-        // flagged it as possibly too tight; only 1 real printer was
-        // available to test against, so the headroom stands in for the
-        // measurement that couldn't be taken.
-        case (.printerAlerts, .window): return Self.rowHeight * 3
+        // These four don't need to match each other — unlike
+        // `ContentView.tileHeight`'s pair, none of these sit side by side
+        // with another, so there's no bottom-edge-alignment bug motivating
+        // one shared number. What does still apply is the same lesson that
+        // fixed the top row: a box the window always scrolls doesn't need
+        // to be measured to fit any particular row count exactly (a lease
+        // count, a printer count) — that just recreates the "recalibrate
+        // every time content changes" problem for a different set of
+        // sections. Picked generously round instead, each independently,
+        // rather than trimmed to the row count on hand at the time.
+        case (.events, .window): return 350
+        case (.snmpDevices, .window): return 250
+        case (.dhcpHistory, .window): return 150
+        case (.printerAlerts, .window): return 85
 
         // Read-at-a-glance current state, not scrollable history — sizes
         // to its content, no box.

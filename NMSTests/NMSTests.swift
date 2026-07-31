@@ -1022,27 +1022,24 @@ struct SectionLayoutTests {
         #expect(SectionLayout.speedTest.boxHeight(on: .window) == nil)
     }
 
-    @Test("Printer Alerts carries a row of headroom past the 2-printer boundary")
-    func printerAlertsHasHeadroom() {
-        // A same-day bug report ("might need to be taller for 2 printers")
-        // against a box sized to exactly 2 rows, filed before a second
-        // real printer existed to test with. The headroom stands in for
-        // the measurement that couldn't be taken — pinned so it isn't
-        // "tidied" back to the exact boundary later.
-        #expect(SectionLayout.printerAlerts.boxHeight(on: .window) == SectionLayout.rowHeight * 3)
-    }
-
-    @Test("the measured row-height constant is the one the trims were derived from")
-    func rowHeightIsTheMeasuredConstant() {
-        // 17pt/row is measured, not estimated: two real desktop
-        // screenshots bracketing 41e169c showed 10 rows in 170pt and 8
-        // rows in 136pt (the popover box that trim produced, back when
-        // Events still had one). That box no longer exists post-audience-
-        // split — Events is window-only now — so there's no popover
-        // height left to check the constant against directly here;
-        // `printerAlertsHasHeadroom` above covers the one window height
-        // still derived from it (`rowHeight * 3`).
-        #expect(SectionLayout.rowHeight == 17)
+    @Test("the four independently-boxed window sections are generously sized, not row-exact")
+    func windowBoxesAreGenerousNotExact() {
+        // Replaced two precisely-measured values (a `rowHeight`-derived
+        // Printer Alerts box sized to exactly 2 printers plus one row of
+        // headroom, a DHCP History box deliberately shrunk to force
+        // scrolling against only 4 real leases) with plainer, rounder
+        // numbers — same lesson `ContentView.tileHeight` applied to the
+        // top row: a box the window always scrolls doesn't need to be
+        // measured to fit any particular row count, since scrolling
+        // absorbs whatever doesn't fit. Unlike that shared constant,
+        // these four don't need to match each other — none of them sit
+        // side by side with another, so there's no alignment bug forcing
+        // one number on all of them. This just pins "declared, present,
+        // and not accidentally reverted to zero," not any specific value.
+        for section: SectionLayout in [.events, .snmpDevices, .dhcpHistory, .printerAlerts] {
+            let height = section.boxHeight(on: .window)
+            #expect(height != nil && height! > 0, "\(section.rawValue) should declare a positive window height")
+        }
     }
 }
 

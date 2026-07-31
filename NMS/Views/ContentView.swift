@@ -517,13 +517,12 @@ struct ContentView: View {
     /// exactly at 150pt — but it made every future content change a
     /// fresh calibration problem: add a row anywhere and something either
     /// clips or needs remeasuring). Picked short enough on purpose that
-    /// every tile routinely needs its internal scroll, not just the ones
-    /// with genuinely unbounded content (Path to Internet's edge history,
-    /// Speed Test's growing run list). That makes scrolling the norm
-    /// everywhere rather than the exception on two tiles, so the exact
-    /// number here stops being load-bearing — a row added or removed from
-    /// any section's content just changes how much of it needs a scroll,
-    /// never whether it renders at all.
+    /// every tile routinely needs its internal scroll, not just the one
+    /// with genuinely unbounded content (Speed Test's growing run list).
+    /// That makes scrolling the norm everywhere rather than the exception
+    /// on one tile, so the exact number here stops being load-bearing — a
+    /// row added or removed from any section's content just changes how
+    /// much of it needs a scroll, never whether it renders at all.
     static let tileHeight: CGFloat = 180
 
     /// A bordered box with a header row (title, plus an optional trailing
@@ -623,10 +622,11 @@ struct ContentView: View {
                 // function's doc comment for why relying on automatic
                 // flexible-space distribution didn't work here.
                 // `Self.tileHeaderOverhead` is a first estimate (padding
-                // + spacing + one `.headline` line), not yet measured
-                // against a real screenshot the way `SectionLayout
-                // .rowHeight` was; worth calibrating precisely once this
-                // renders instead of staying an estimate indefinitely.
+                // + spacing + one `.headline` line), not measured against
+                // a real screenshot — worth calibrating precisely if this
+                // ever needs to be exact, though the generous, scroll-
+                // absorbs-the-rest sizing this tile already uses means it
+                // doesn't currently have to be.
                 .frame(height: max(0, effectiveHeight - Self.tileHeaderOverhead))
             } else {
                 content()
