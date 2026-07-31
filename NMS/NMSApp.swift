@@ -557,27 +557,24 @@ struct NMSApp: App {
     /// .comparisonWindow` off means an empty window that's unreachable
     /// anyway (the footer button that opens it is hidden in that case),
     /// not a real content leak.
-    /// Footer pinned outside the scroll container, unlike the popover
-    /// (`ContentView.body`, unaffected by this) — raised directly, after
-    /// having to resize the window just to reach Refresh/Screenshot/Bug
-    /// Report/Quit past a tall SNMP Devices/DHCP History/Printer Alerts
-    /// stack. `ContentView.scrollableContent`/`.footerBar` are the split
-    /// this composes; see `scrollableContent`'s doc comment for why the
-    /// split lives on `ContentView` rather than being done here.
+    /// Deliberately just `contentView(isInWindow: true)` — a single,
+    /// direct call, same shape as the popover's own. An earlier version
+    /// of this reached in and composed `ContentView.scrollableContent`/
+    /// `.footerBar` as two separate children of a `VStack` declared here
+    /// instead, to pin the footer outside the scroll container. That
+    /// broke `@State` silently: `ContentView` was never actually placed
+    /// in the tree as one identified node, only fragments of its
+    /// computed output were, so nothing tied one render's mutated state
+    /// to the next — confirmed via a live bug report filed through the
+    /// exact path this broke (Bug Report producing no visible UI in the
+    /// window, while identical code worked in the popover). The
+    /// pinned-footer behavior itself is still here — moved into
+    /// `ContentView.body`'s own `isInWindow` branch, where it can't
+    /// split state across two parents because there's only ever one.
     @ViewBuilder
     private var comparisonWindowContent: some View {
         if FeatureFlags.comparisonWindow {
-            let content = contentView(isInWindow: true)
-            VStack(spacing: 0) {
-                NoBounceScrollView(persistentScrollbar: true) {
-                    content.scrollableContent
-                        .padding(12)
-                }
-                Divider()
-                content.footerBar
-                    .padding(12)
-            }
-            .frame(width: 560)
+            contentView(isInWindow: true)
         } else {
             EmptyView()
         }

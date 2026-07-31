@@ -173,3 +173,41 @@ for where to save one.
 (Move an item here with **Fixed in build**, a one-line resolution note,
 and the commit hash, rather than deleting it, so there's a record of
 what broke and how it got fixed.)
+
+### Bug Report produced no visible UI in the app window
+
+- **Status**: Fixed
+- **Severity**: High — the feature was completely non-functional in the
+  window (silently did nothing), while working correctly in the
+  popover, with no error or indication anything was wrong.
+- **Found in build**: e1d5c0d
+- **Fixed in build**: e1d5c0d (same build — found and fixed within one
+  session)
+- **First reported**: field-tested and filed through the app's own Bug
+  Report button, in the window, immediately after the button shipped —
+  "bug reporting in the app window doesn't work. no orange box."
+
+Root cause: the window scene composed `ContentView.scrollableContent`
+and `.footerBar` as two separate children of a `VStack` declared in
+`NMSApp`, rather than embedding `ContentView` itself. `ContentView` was
+therefore never placed in the tree as one identified node — only
+fragments of its computed output were — so SwiftUI had no stable
+identity to persist `@State` against. `contentView(isInWindow:)`
+constructs a fresh `ContentView` (fresh default `@State`) on every
+re-render; a tap on Bug Report did set `isReportingBug = true` and did
+schedule a re-render, which then rebuilt the view from scratch and
+reset it straight back to `false` — indistinguishable from the button
+doing nothing at all.
+
+Fixed by moving the pinned-footer composition inside `ContentView.body`
+itself (an `isInWindow` branch using the same `NoBounceScrollView`
+pattern), so `ContentView` is always embedded as a single,
+stably-identified view regardless of which scene hosts it.
+`NMSApp.comparisonWindowContent` went back to a single direct
+`contentView(isInWindow: true)` call, same shape as the popover's own.
+
+Verified end-to-end: built, relaunched, clicked Bug Report in the
+window via Accessibility scripting, waited 2+ seconds (spanning at
+least one connectivity re-render) before screenshotting to confirm the
+box persists rather than just surviving one frame — then watched a real
+report get typed and submitted through it live.

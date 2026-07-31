@@ -72,45 +72,88 @@ struct ContentView: View {
     /// sparklines rather than empty boxes.
     @State private var latencyHistory: [String: [LatencySample]] = [:]
 
+    /// The window branch used to be handled by `NMSApp` splitting
+    /// `scrollableContent`/`footerBar` into two children of *its own*
+    /// `VStack`, rather than embedding `ContentView` itself. That broke
+    /// `@State` silently: `ContentView` was never actually placed in the
+    /// tree as one identified node, only fragments of its computed
+    /// output were, so SwiftUI had no stable identity to persist state
+    /// against — `contentView(isInWindow:)` constructs a fresh
+    /// `ContentView` (fresh default `@State`) on every re-render, and
+    /// nothing tied one render's mutated state to the next's. A tap on
+    /// Bug Report *did* set `isReportingBug = true`, and *did* schedule a
+    /// re-render — which then rebuilt `content` from scratch and reset it
+    /// straight back to `false`, indistinguishable from the button doing
+    /// nothing at all. Confirmed as the real cause via a live bug report
+    /// filed through this exact path in the window ("no orange box"),
+    /// while the popover — never split this way — worked correctly the
+    /// whole time.
+    ///
+    /// Fixed by keeping both branches inside this one `body`, so
+    /// `ContentView` is always embedded as a single, stably-identified
+    /// view no matter which scene hosts it — `NMSApp.comparisonWindowContent`
+    /// now just calls `contentView(isInWindow: true)` directly again, the
+    /// same shape as the popover's own call.
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            scrollableContent
-            footerBar
+        if isInWindow {
+            // Footer pinned outside the scrollable region — the window's
+            // content (SNMP Devices, DHCP History, Printer Alerts, Bug
+            // Report) can run tall enough that without this, reaching
+            // Refresh/Screenshot/Bug Report/Quit meant resizing the
+            // window or scrolling all the way down first.
+            //
+            // `NoBounceScrollView` here for the same reason it used to
+            // wrap this whole view from `NMSApp`: no outer scroll
+            // floor-clamps the window to its full content height,
+            // confirmed broken on the M1 MacBook Air specifically (see
+            // that type's own doc comment, design 1) — moved one level
+            // deeper, from wrapping `ContentView` externally to living
+            // inside its own `body`, which is what restores the state
+            // continuity described above.
+            VStack(spacing: 0) {
+                NoBounceScrollView(persistentScrollbar: true) {
+                    scrollableContent
+                        .padding(12)
+                }
+                Divider()
+                footerBar
+                    .padding(12)
+            }
+            .frame(width: 560)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                scrollableContent
+                footerBar
+            }
+            .padding(12)
+            // Widened from the original 335pt for the DHCP History section,
+            // then brought back down from a first attempt at 670pt (a single
+            // *unbroken* line of full lease detail) once that line wrapped to
+            // two instead — 670pt then just left every section with wide,
+            // pointless gaps between labels and values, confirmed directly:
+            // the widest wrapped DHCP line (bcast/gateway/DNS/domain/lease-
+            // T1-T2/xid) measured to ~440pt of actual text, against a screenshot
+            // of a real lease. 560pt covers that with headroom for a slightly
+            // longer domain or an extra DNS server, without carrying 670pt's
+            // dead space. Every section still has `.lineLimit(1)` truncation
+            // as its fallback regardless.
+            .frame(width: 560)
         }
-        .padding(12)
-        // Widened from the original 335pt for the DHCP History section,
-        // then brought back down from a first attempt at 670pt (a single
-        // *unbroken* line of full lease detail) once that line wrapped to
-        // two instead — 670pt then just left every section with wide,
-        // pointless gaps between labels and values, confirmed directly:
-        // the widest wrapped DHCP line (bcast/gateway/DNS/domain/lease-
-        // T1-T2/xid) measured to ~440pt of actual text, against a screenshot
-        // of a real lease. 560pt covers that with headroom for a slightly
-        // longer domain or an extra DNS server, without carrying 670pt's
-        // dead space. Every section still has `.lineLimit(1)` truncation
-        // as its fallback regardless.
-        .frame(width: 560)
     }
 
-    /// Everything except the footer controls. Split out from what used
-    /// to be one flat `body` so the window scene
-    /// (`NMSApp.comparisonWindowContent`) can pin `footerBar` outside the
-    /// outer scroll container while this part scrolls underneath it —
-    /// raised directly, after having to resize the window just to reach
-    /// the footer buttons past a tall SNMP Devices/DHCP History/Printer
-    /// Alerts stack.
-    ///
-    /// `body` above recombines both unchanged from before this split —
+    /// Everything except the footer controls — split out so `body` can
+    /// give the window branch a pinned footer (via an inner
+    /// `NoBounceScrollView` around just this part) while the popover
+    /// branch keeps both in one plain `VStack`, unchanged either way:
     /// `@ViewBuilder`'s tuple-view flattening means
     /// `VStack(spacing: 6) { scrollableContent; footerBar }` lays out
-    /// identically to the single VStack this used to be, so the popover
-    /// isn't affected by this refactor at all, only the window is.
-    ///
-    /// Not `private` — `NMSApp` (a different file, same module) composes
-    /// this and `footerBar` directly for the window case; still
-    /// inaccessible outside the module either way.
+    /// identically to a single flat VStack containing the same content
+    /// inline. `private` again — both branches live inside this file's
+    /// own `body` now; see `body`'s doc comment for why an earlier
+    /// version of this split reached into `NMSApp` instead, and why that
+    /// broke `@State`.
     @ViewBuilder
-    var scrollableContent: some View {
+    private var scrollableContent: some View {
             // Network Health, Info, and Path to Internet are short
             // label/value lists that looked sparse and hard to read once
             // the popover doubled in width for the DHCP History section —
@@ -277,9 +320,11 @@ struct ContentView: View {
     /// field is only reachable via a footer button, so it's pinned
     /// alongside that button in the window rather than needing a
     /// scroll back down to see what was just opened. See
-    /// `scrollableContent`'s doc comment for why this split exists.
+    /// `scrollableContent`'s doc comment for why this split exists, and
+    /// `body`'s for why both stay `private` and composed only within
+    /// this file.
     @ViewBuilder
-    var footerBar: some View {
+    private var footerBar: some View {
             bugReportRow
 
             Divider()
