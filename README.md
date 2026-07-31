@@ -38,6 +38,7 @@ rendered directly by GitHub — no separate build or deploy step, just push.
 ## Contents
 
 - [Running it](#running-it)
+- [Developing across more than one Mac](#developing-across-more-than-one-mac)
 - [The popover](#the-popover)
   - [Open in Window](#open-in-window)
   - [Network Health](#network-health)
@@ -71,6 +72,14 @@ rendered directly by GitHub — no separate build or deploy step, just push.
 
 Requires macOS 14+ (`SwiftData`; `MenuBarExtra` itself only needs 13+) and
 Xcode 15+.
+
+## Developing across more than one Mac
+
+This project is developed across two Macs, kept in sync by git alone —
+see [`DEV-SETUP.md`](DEV-SETUP.md) for first-clone setup, permissions,
+signing, why the persisted store never migrates automatically, and the
+real (non-bug) differences to expect between machines with different
+screen sizes or macOS versions.
 
 ## The popover
 
