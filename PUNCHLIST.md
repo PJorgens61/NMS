@@ -6,6 +6,168 @@ Check items off or delete them as they land; add new ones as they come up.
 
 ## Open
 
+**From off-site testing at Martha's** (8 items, investigated but not
+fixed — grounded in the actual code below, not just the symptom):
+
+- [ ] **1. Martha's Wi-Fi never showed up in Known Networks.** Likely
+  root cause: `NetworkIdentityViewModel.recognize(routerAddress:subnetMask:from:)`
+  requires the router's MAC to already be present in that *one* LAN
+  scan's ARP results (`devices.first(where: { $0.ipAddress ==
+  routerAddress })?.macAddress`) — if it's missing, the guard just
+  `return`s. No retry, no log line, nothing else re-triggers recognition
+  for the rest of the session unless another topology change happens to
+  fire a fresh scan.
+
+  That guard failing on an unfamiliar network is plausible: joining
+  fires the scan almost immediately, and if macOS's own ARP cache hasn't
+  resolved the gateway yet — a real race this codebase has hit before
+  (`SNMPViewModel.refreshARPIfMergeDataIsStale`'s doc comment describes
+  exactly this after a Wi-Fi reconnect) — the guard fails silently and
+  permanently.
+
+  Two independent fixes worth doing together: retry `recognize()` a few
+  seconds after a first failure, and log the failure so it's diagnosable
+  instead of the network landing in silent limbo. `refreshARPIfMergeDataIsStale`
+  is scoped only to already-known SNMP devices, so it doesn't cover
+  first-time recognition — this needs its own path.
+
+- [ ] **2. Network Health and Events use different names for the same
+  check.** Confirmed, not guessed — grepped both sides. Event messages
+  are built from `OverallStatus`'s label constants
+  (`"\(check.label) became unreachable"`), while `ContentView` hardcodes
+  a separate display string per row. Four of six already match by
+  coincidence (DNS, HTTP, ISP Edge Router, Public IP); two don't:
+
+  | Network Health row | Event log text |
+  |---|---|
+  | "Local Router" | "**Router** became unreachable" |
+  | "Internet Ping by address" | "**Internet** became unreachable" |
+
+  Fix is mechanical: have those two `ConnectionLayer.label`s reference
+  `OverallStatus.routerLabel`/`.internetLabel` directly instead of a
+  separately-hardcoded string, the same way the event-matching code
+  already does — so they can't drift apart again.
+
+- [ ] **3. Initial traceroute showed huge latency.** `traceroute -n -q 1
+  -w 1 -m 4` sends exactly one probe per hop with no retry, and runs
+  immediately on topology change — before a fresh Wi-Fi association has
+  settled. This is the same class of bug this app has hit before (DNS
+  answers served from a stale cache, HTTP likewise): the *first*
+  measurement after a network event isn't representative, and nothing
+  currently distrusts it.
+
+  Two options, not mutually exclusive: automatically re-run the trace a
+  few seconds after the first one on a *new* network (mirrors the
+  "re-derive when a dependency resolves" pattern already used elsewhere
+  in `NMSApp`'s wiring); or don't display/store the very first trace's
+  latency as trustworthy. A blanket `-q 2`+ would also help but costs
+  time on every trace, not just the first.
+
+- [ ] **4. Move BSSID from Info to the Wi-Fi tile.** Concrete and small.
+  Currently a conditional row in Info (`ContentView.swift:402-403`,
+  `if info.isWiFi, let bssid = wifiSSID.currentBSSID { row("BSSID",
+  bssid) }`). Move it into `wifiSection` alongside Signal/Channel/PHY
+  Rate/Security, where it's topically at home.
+
+  **One real tradeoff to flag, not do silently**: Info is visible in the
+  plain popover; `wifiSection` is window-only (gated behind the
+  comparison-window flag, same as the rest of that tile). Moving BSSID
+  there makes it strictly less discoverable by default — fine if that's
+  intended (it already fits the "niche per-device detail" bucket SNMP
+  Devices is in), but worth deciding rather than assuming.
+
+- [ ] **5. Slow recovery from a Wi-Fi down/up transition; only DNS and
+  interface events fired red, not the others — should they match?**
+  Couldn't diagnose this one — `~/Library/Logs/NMS/ui-state.log`
+  truncates on every launch, and there have been several relaunches
+  since Martha's. No data survives from the actual incident.
+
+  What's worth knowing before assuming it's a bug: `runChecks()`'s
+  "no interface at all" branch marks Internet/DNS/HTTP/PeRouter/PublicIP
+  failed *together*, in one `apply()` call — so if only DNS logged red,
+  the interface most likely never actually dropped to `nil`; the normal
+  per-target ping path ran instead, where each target has a different
+  timeout (Router 1s vs. DNS/HTTP/Internet 2s). A brief real blip
+  plausibly trips a 1s check and not a 2s one — which would make the
+  asymmetry a real report of differing network behavior, not
+  inconsistent monitoring. Equally plausible it's a genuine gap in
+  `wireReachabilityTransitions`'s recheck edges. Can't tell without a
+  log from the actual event — **capture
+  `~/Library/Logs/NMS/ui-state.log` immediately next time this happens**,
+  before it's overwritten by a relaunch, and revisit with real data.
+
+- [ ] **6. The old→new Wi-Fi transition event ends up filed under the
+  *new* network — is that a network-separation leak?** Traced the exact
+  mechanism, and it's real: in `wireTopologyChangeFanOut`,
+  `networkIdentity.reset()` (clears `currentNetworkFingerprint` to
+  `nil`) runs *before* `wifiSSID.refresh(...)` in the same closure.
+  `WiFiSSIDViewModel.sample()` → `logNetworkChangeIfNeeded` logs the
+  `"X → Y"` event synchronously right there — while the fingerprint is
+  still `nil`, since `lanDiscovery.scan()` (and therefore
+  `recognize()`) is async and hasn't resolved the new network yet.
+  `adoptUntaggedRecords` then sweeps that `nil`-tagged event into
+  whichever network resolves next: the new one.
+
+  So today: leaving "Thistle" for "Guest" logs an event that names
+  Thistle but lives under Guest's Events tab.
+
+  **Not obviously a leak in the harmful sense** — it's one event, it
+  names both networks by design, and nothing about Thistle's own history
+  is exposed to Guest. But it is genuinely ambiguous which network such
+  an event belongs to, and "lives under the destination, names the
+  origin" wasn't a deliberate choice — it's what the reset-before-log
+  ordering happens to produce. Worth a real decision: leave it (simplest,
+  arguably correct — you read it *while on* the new network), log it
+  under the *old* fingerprint by capturing it before `reset()` runs
+  (arguably more correct — the transition is what just ended), or log it
+  under both. No strong pull either way; flagging for a decision rather
+  than picking one.
+
+- [ ] **7. Detect CGNAT and report it as an event** — changes what
+  "Public IP" means (shared across other customers, not identifying just
+  this connection). Found a genuinely simple path: `IPClassifier`
+  already does exactly this shape of check for RFC 1918 and link-local
+  ranges. Add `isCGNAT(_:)` for the reserved carrier-NAT range,
+  **100.64.0.0/10** (RFC 6598), and check it against
+  `traceroute.monitoredHopAddress` once that hop is confirmed — an
+  address in that range appearing as an actual routed hop is by itself
+  unambiguous evidence of CGNAT (the range isn't publicly routable for
+  anything else), no cross-referencing against the ipify-sourced public
+  IP needed.
+
+  One real limitation: `monitoredHopAddress` is only populated once the
+  ISP edge hop has been manually confirmed ("Not confirmed" until then,
+  per the README) — so this wouldn't be an automatic day-one signal for
+  everyone, only for someone who's already set up Path to Internet.
+  Worth a new neutral `AppEventKind` (informational, like
+  `publicIPChanged`, not a failure) whose message explains *why* it
+  matters — "your public IP is now shared with other customers" reads
+  better than a bare technical label.
+
+- [ ] **8. Cross-check the router's own interfaces/routes via SNMP
+  against the current method (SCDynamicStore), and report a
+  disagreement.** Real idea, genuinely untested — same limitation as the
+  printer investigation earlier: this shell can't reach LAN devices at
+  all, so nothing here could be verified live. Needs the router to
+  expose standard IP-MIB tables (`ipRouteTable`/`ipCidrRouteTable`,
+  `ifTable`) over SNMP, which is not guaranteed — today's session already
+  found the *printer* on this same network had weak standard-MIB support
+  (`prtAlertTable` returning only sentinel values), so don't assume the
+  router will be any better without checking.
+
+  **Concrete next step, before any code**: `snmpwalk` the router
+  directly with the community strings already configured, same as was
+  done for the printer:
+
+  ```bash
+  snmpwalk -v2c -c public -t 2 -r 1 <router-ip> 1.3.6.1.2.1.4.21   # ipRouteTable
+  snmpwalk -v2c -c public -t 2 -r 1 <router-ip> 1.3.6.1.2.1.4.20   # ipAddrTable
+  ```
+
+  If those come back empty or unpopulated, this is a dead end on this
+  hardware — same as the printer's was — and worth writing up as such
+  rather than half-building it.
+
 - [ ] **Test per-network scoping and Network Review on a second network.**
   Connect to a different network (guest VLAN, another site, a tether) and
   verify:
