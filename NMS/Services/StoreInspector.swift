@@ -94,6 +94,11 @@ enum StoreInspector {
         text += section(context, "DiscoveredDeviceRecord", \DiscoveredDeviceRecord.discoveredAt, rowsPerTable) {
             "\($0.ipAddress) \($0.macAddress ?? "—") \($0.hostname ?? "—")"
         }
+        text += section(context, "WiFiSampleRecord", \WiFiSampleRecord.sampledAt, rowsPerTable) {
+            let rssi = $0.rssi.map { "\($0) dBm" } ?? "—"
+            let phy = $0.phyRateMbps.map { "\(Int($0)) Mbps" } ?? "—"
+            return "\($0.ssid ?? "—") \(rssi) ch \($0.channelNumber.map(String.init) ?? "—") \(phy)"
+        }
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let filename = "NMS-state-\(fileFormatter.string(from: Date())).txt"
