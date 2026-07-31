@@ -13,7 +13,17 @@ struct TracerouteHop: Equatable, Codable, Identifiable {
     /// `TracerouteViewModel`'s reverse-DNS enrichment can patch it in
     /// after the fact without reconstructing the whole hop.
     var hostname: String?
-    let roundTripMs: Double?
+    /// `traceroute`'s own timing initially — a single, unretried probe
+    /// (`-q 1 -w 1`), inherently noisy, and specifically unreliable right
+    /// after a topology change before a fresh Wi-Fi association has
+    /// settled (see `BUGS.md`'s "First traceroute after joining a network
+    /// reports inflated latency"). `var`, not `let`, like `hostname` above,
+    /// specifically so `TracerouteViewModel.enrichRoundTrips` can replace
+    /// it with a real, direct ping's round-trip time shortly after — the
+    /// same mechanism `ConnectivityViewModel` already trusts for the
+    /// *confirmed* ISP edge router's ongoing latency, just applied to
+    /// every hop in the path rather than only the one being monitored.
+    var roundTripMs: Double?
 
     /// `true` if this hop's address isn't really "on the internet" — RFC
     /// 1918 private space, or the carrier-grade NAT range an ISP uses

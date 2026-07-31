@@ -23,6 +23,11 @@ final class TracerouteViewModel: ObservableObject {
 
     private let service = TracerouteService()
     private let reverseDNSService = ReverseDNSService()
+    /// Pings each hop directly to get a trustworthy round-trip time — see
+    /// `enrichRoundTrips`. The same service `ConnectivityViewModel` uses
+    /// for every other ping-based check in this app, not a separate
+    /// implementation.
+    private let pingService = ConnectivityService()
     private let snapshotStore: SnapshotStore
     private var timer: Timer?
     /// Set when `run()` is called while a trace is already in flight; the
@@ -176,6 +181,7 @@ final class TracerouteViewModel: ObservableObject {
         persistMonitoredHopIfNeeded()
         logAddressingChangeIfNeeded(result)
         enrichHostnames(for: result)
+        enrichRoundTrips(for: result)
         // Last, not first: the run isn't really over until the monitored
         // hop has been persisted, and `finishRun()` can start the next
         // trace immediately.
@@ -296,6 +302,55 @@ final class TracerouteViewModel: ObservableObject {
                         self.snapshotStore.updateLatestProviderEdgeHostname(hostname, forAddress: address)
                     }
                 }
+            }
+        }
+    }
+
+    /// Pings each responsive hop directly to get a trustworthy round-trip
+    /// time, replacing `TracerouteService`'s own single, unretried probe
+    /// timing entirely — see `TracerouteHop.roundTripMs`'s doc comment for
+    /// why that measurement can't be trusted, not just right after a
+    /// topology change (`BUGS.md`'s "First traceroute after joining a
+    /// network reports inflated latency"). Uses `ConnectivityService`, the
+    /// same mechanism `ConnectivityViewModel` already trusts for the
+    /// *confirmed* ISP edge router's ongoing latency, just applied to
+    /// every hop in the path rather than only the one being monitored.
+    ///
+    /// Concurrent across hops (`ConnectivityService.check(targets:)`) —
+    /// with at most `TracerouteService`'s 4-hop cap, this costs one more
+    /// round of local/near-internet pings, not a meaningful delay. No
+    /// custom timeout: a hop deep in the ISP's own network deserves the
+    /// same WAN-round-trip tolerance as the default target
+    /// (`ConnectivityService.Target`'s 2s), the same allowance that
+    /// address would get if it were the confirmed monitored hop.
+    ///
+    /// Deliberately *after* `hops` is already published, same reasoning as
+    /// `enrichHostnames` above: the popover shows traceroute's own rough,
+    /// immediately-available timing first, then each hop's number is
+    /// replaced with a real ping's the moment it resolves, rather than
+    /// holding up the whole trace on pings that could themselves time out.
+    private func enrichRoundTrips(for hopsToEnrich: [TracerouteHop]) {
+        let entries = hopsToEnrich.compactMap { hop -> (hopNumber: Int, address: String, target: ConnectivityService.Target)? in
+            guard let address = hop.address else { return nil }
+            return (hop.hopNumber, address, ConnectivityService.Target(label: "\(hop.hopNumber)", host: address))
+        }
+        guard !entries.isEmpty else { return }
+        let service = pingService
+        Task { @MainActor [weak self] in
+            let checks = await service.check(targets: entries.map(\.target))
+            guard let self else { return }
+            for (offset, entry) in entries.enumerated() {
+                // Same staleness guard as `enrichHostnames`: only apply if
+                // this hop still shows the same address this ping was
+                // actually for — a newer trace could have already replaced
+                // `hops` with a different path by the time this ping round
+                // finishes.
+                guard
+                    let index = self.hops.firstIndex(where: { $0.hopNumber == entry.hopNumber }),
+                    self.hops[index].address == entry.address
+                else { continue }
+                let check = checks[offset]
+                self.hops[index].roundTripMs = check.success ? check.latencyMs : nil
             }
         }
     }

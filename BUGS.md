@@ -29,28 +29,6 @@ than summarized away.
 
 ## Open
 
-### First traceroute after joining a network reports inflated latency
-
-- **Status**: Open, root-caused, two fix options proposed
-- **Severity**: Medium — misleading data shown right after every new
-  network join, not a crash or data loss.
-- **Found in build**: not recorded — reported before this field existed
-- **First reported**: off-site testing at Martha's
-
-`traceroute -n -q 1 -w 1 -m 4` sends exactly one probe per hop with no
-retry, and runs immediately on topology change — before a fresh Wi-Fi
-association has settled. Same class of bug this app has hit before (DNS
-answers served from a stale cache, HTTP likewise): the *first*
-measurement after a network event isn't representative, and nothing
-currently distrusts it.
-
-**Proposed fix**, two options, not mutually exclusive: automatically
-re-run the trace a few seconds after the first one on a *new* network
-(mirrors the "re-derive when a dependency resolves" pattern already used
-elsewhere in `NMSApp`'s wiring); or don't display/store the very first
-trace's latency as trustworthy. A blanket `-q 2`+ would also help but
-costs time on every trace, not just the first.
-
 ### A network-transition event can be filed under the wrong network's Events tab
 
 - **Status**: Open, mechanism traced, needs a decision (not just a fix)
@@ -81,6 +59,42 @@ log it under the *old* fingerprint by capturing it before `reset()` runs
 under both.
 
 ## Fixed
+
+### First traceroute after joining a network reports inflated latency
+
+- **Status**: Fixed
+- **Severity**: Medium — misleading data shown right after every new
+  network join, not a crash or data loss.
+- **Found in build**: not recorded — reported before this field existed
+- **Fixed in build**: not recorded — see git log (ping-based hop RTT
+  enrichment)
+- **First reported**: off-site testing at Martha's
+
+`traceroute -n -q 1 -w 1 -m 4` sends exactly one probe per hop with no
+retry, and runs immediately on topology change — before a fresh Wi-Fi
+association has settled. Same class of bug this app has hit before (DNS
+answers served from a stale cache, HTTP likewise): the *first*
+measurement after a network event isn't representative, and nothing
+previously distrusted it.
+
+**Fixed differently from either originally-proposed option.** Both
+proposals (re-run the trace a few seconds later; don't trust the first
+trace's latency) treated the symptom as specific to the moment right
+after a topology change. The actual root cause is broader: a single,
+unretried probe (`-q 1 -w 1`) is inherently noisy timing, not just
+unreliable right after a network event. Traceroute now stays
+discovery-only (finding the path and the hop addresses); each
+responsive hop gets pinged directly right after the trace
+(`TracerouteViewModel.enrichRoundTrips`, via `ConnectivityService`, the
+same mechanism already trusted for the confirmed ISP edge router's
+ongoing latency), and that real ping RTT replaces traceroute's own
+number in place. `TracerouteHop.roundTripMs` is `var`, not `let`, for
+exactly this — the same "patch in after the fact" shape `hostname`
+already used for reverse-DNS enrichment. Verified live: hop RTTs update
+across successive pings (0.5ms router, 1.8ms ISP edge, 4.9–10.2ms third
+hop — all real, small numbers for genuinely nearby destinations),
+confirming the ping-based values are live and replacing the trace's own
+timing rather than sitting static.
 
 ### No window comes to the front on the MacBook
 
