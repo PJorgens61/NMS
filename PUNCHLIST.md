@@ -38,6 +38,30 @@ from this list. This one remains, since it's an idea, not a defect):
   hardware — same as the printer's was — and worth writing up as such
   rather than half-building it.
 
+- [ ] **Add a debug key to auto-open the real window at launch, for
+  headless/scripted verification.** Found while actually building and
+  running NMS from a session: `FailureInjector`'s `defaults write`
+  keys and `NMSPollSpeedup` already work great script-side (no GUI
+  needed at all, and the doc comments explicitly call out "a script or
+  an AI assistant driving the session" as the intended user) — but
+  *seeing* the result still means clicking the menu bar icon to open
+  the popover, and `NSStatusItem` popovers are much harder to script
+  than a real window: driving one needs Accessibility permission
+  (`System Events` control of another app's UI elements), which is a
+  different, more sensitive TCC grant than Screen Recording and, in
+  practice, needed the host app relaunched after granting before it
+  actually took effect.
+
+  A key like `NMSAutoOpenWindow -bool YES` that calls
+  `openWindowInFront("nms-window")` once at launch (mirroring the
+  existing `defaults write` pattern) would let a script get to the
+  same real, screenshot-able `NSWindow` "Open in Window" already
+  provides, using only `screencapture` — no Accessibility permission,
+  no clicking, nothing GUI-interactive at all. `StoreInspector`'s dump
+  is the text-side equivalent of this same need and already exists;
+  this would be the visual-side counterpart, closing the actual gap
+  hit today rather than a hypothetical one.
+
 - [ ] **Test per-network scoping and Network Review on a second network.**
   Connect to a different network (guest VLAN, another site, a tether) and
   verify:
