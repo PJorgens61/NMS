@@ -8,29 +8,20 @@ new ones as they come up.
 
 ## Open
 
-- [ ] **Shrink the Printer Alerts window section; confirm it handles 2
-  printers.** Checked the "2 printers" half first — it should already
-  work. `PrinterDiscoveryService.parseAlerts` loops over every
-  `printer <name> is ...` block `lpstat -l -p` reports (there's an
-  existing unit test, `multiPrinter`, pinning exactly two), and nothing
-  downstream — `ConnectivityViewModel`'s target-building, the
-  `ForEach(connectivity.printerStatuses)` row rendering — narrows to a
-  single printer anywhere. Worth an actual test with a second real
-  printer configured rather than more code, unless that test finds a
-  real gap.
-
-  "Shrink" needs a decision before it's actionable: unlike DHCP History
-  and SNMP Devices, this section (`ContentView.printerAlertRows`) has
-  no fixed-height scroll box at all — it's a plain `ForEach`, so it
-  already takes only as much room as it needs (one row per printer,
-  no padding to trim) and grows unbounded rather than being capped.
-  Two real, different things "shrink" could mean:
-  - Tighter per-row styling (smaller dot, less spacing) — a small,
-    reversible visual tweak.
-  - Add the same scrollable fixed-height box the other window-only
-    sections use, so a future long printer list doesn't just grow the
-    window indefinitely — a bigger, structural change for a case
-    (many configured printers) that doesn't exist yet.
+- [ ] **Confirm Printer Alerts' new fixed-height box actually fits 2
+  printers live.** Built (`3bea552`, `65c4c00`): `ContentView` now has a
+  `printerAlertsList` wrapping `printerAlertRows` in the same
+  `NoBounceScrollView` + fixed-height pattern DHCP History and SNMP
+  Devices use, sized at 3 x 17 = 51pt (a row of headroom past the exact
+  2-row boundary, after a same-day Bug Report — "might need to be taller
+  for 2 printers" — flagged that the first cut, sized to exactly 2 x 17
+  = 34pt, was untested against a real second printer). Still only 1 real
+  printer configured on this network, so the live fit has never actually
+  been seen. `PrinterDiscoveryService.parseAlerts`'s multi-printer
+  parsing itself is already confirmed correct (existing `multiPrinter`
+  unit test pins exactly two, and nothing downstream narrows to one) —
+  this remaining task is purely "does 51pt actually look right with 2
+  real rows," which needs a second printer to check.
 
 - [ ] **`BuildInfoService`'s hardcoded repo path breaks when more than
   one checkout exists on a machine.** Found directly: this session
