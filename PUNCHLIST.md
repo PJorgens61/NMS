@@ -123,26 +123,49 @@ fixed — grounded in the actual code below, not just the symptom):
   under both. No strong pull either way; flagging for a decision rather
   than picking one.
 
-- [ ] **7. Detect CGNAT and report it as an event** — changes what
-  "Public IP" means (shared across other customers, not identifying just
-  this connection). Found a genuinely simple path: `IPClassifier`
-  already does exactly this shape of check for RFC 1918 and link-local
-  ranges. Add `isCGNAT(_:)` for the reserved carrier-NAT range,
-  **100.64.0.0/10** (RFC 6598), and check it against
-  `traceroute.monitoredHopAddress` once that hop is confirmed — an
-  address in that range appearing as an actual routed hop is by itself
-  unambiguous evidence of CGNAT (the range isn't publicly routable for
-  anything else), no cross-referencing against the ipify-sourced public
-  IP needed.
+- [ ] **7. Detect double-NAT/CGNAT and report it as an event** — changes
+  what "Public IP" means (shared across other customers, or NAT'd twice
+  within the customer's own setup, not identifying just this
+  connection).
 
-  One real limitation: `monitoredHopAddress` is only populated once the
-  ISP edge hop has been manually confirmed ("Not confirmed" until then,
-  per the README) — so this wouldn't be an automatic day-one signal for
-  everyone, only for someone who's already set up Path to Internet.
-  Worth a new neutral `AppEventKind` (informational, like
+  **Confirmed against a real trace, and it simplified the plan.** A
+  `traceroute` run at Martha's (real Comcast connection) showed:
+
+  ```
+  1  192.168.1.1     (her own router)
+  2  10.1.10.1       (private — no reverse DNS)
+  3  96.120.90.213   (first real public Comcast address)
+  ```
+
+  Two private hops before the internet, not one — the general
+  double-NAT signature, and it didn't need a new IP range at all.
+  `TracerouteViewModel.suggestedEdgeHop` (`hops.first { $0.isLocal ==
+  false }`, backed by `IPClassifier.isRFC1918`, which already covers all
+  of `10.0.0.0/8`) already skips *both* private hops correctly and lands
+  on hop 3 — confirmed by reading the code, no fix needed for hop
+  selection. What's actually missing is that nothing *reports* the extra
+  hop; it's silently worked around rather than surfaced.
+
+  So the detection signal is simpler than originally planned: **count
+  how many leading hops have `isLocal == true` before the first `false`
+  one.** More than one means an extra NAT layer somewhere between this
+  Mac and the real internet — using data `TracerouteViewModel` already
+  computes, no new `IPClassifier` range needed. (`100.64.0.0/10`, RFC
+  6598's carrier-NAT range, is still worth adding as a *second*, more
+  specific signal — Martha's second hop didn't use it, but a compliant
+  CGNAT deployment would — just not the only one anymore.)
+
+  One real limitation either way: this only evaluates once the trace has
+  actually run and hops are available, and — for the specific "which hop
+  is the ISP edge" story — only means something once a hop is confirmed.
+  A double-NAT count doesn't need confirmation, though, just the raw hop
+  list, so it could fire earlier than `monitoredHopAddress`-based checks
+  would. Worth a new neutral `AppEventKind` (informational, like
   `publicIPChanged`, not a failure) whose message explains *why* it
-  matters — "your public IP is now shared with other customers" reads
-  better than a bare technical label.
+  matters — "your public IP is shared or NAT'd twice" reads better than
+  a bare technical label. Traceroute alone can't tell whether the extra
+  private hop is the customer's own second router or the ISP's own
+  infrastructure — the event shouldn't claim to know which.
 
 - [ ] **8. Cross-check the router's own interfaces/routes via SNMP
   against the current method (SCDynamicStore), and report a
