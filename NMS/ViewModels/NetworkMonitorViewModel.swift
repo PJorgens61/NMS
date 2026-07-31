@@ -13,7 +13,16 @@ final class NetworkMonitorViewModel: ObservableObject {
     /// read). `ConnectivityViewModel` reads this to widen its tolerance
     /// for disagreement between ICMP and DNS/HTTP checks right after a
     /// genuine transition — see `isLikelyLocalPingFailure`'s call site.
-    @Published private(set) var lastChangeAt: Date?
+    /// Logged (unlike `lastUpdated`, which would just add a line on every
+    /// routine poll) because that suppression window has already produced
+    /// one real incident — six wrongly-suppressed outage events, see
+    /// `ConnectivityViewModel.apply(_:)`'s doc comment — and verifying its
+    /// 30-second grace period from `ui-state.log` needs to see this value
+    /// directly, not infer it from `currentInterface` merely having
+    /// changed.
+    @Published private(set) var lastChangeAt: Date? {
+        didSet { UIStateLogger.log("NetworkMonitorViewModel.lastChangeAt", lastChangeAt as Any) }
+    }
 
     private let service = SystemConfigurationService()
     private let snapshotStore: SnapshotStore
