@@ -35,6 +35,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Blocking work, and the two thread pools it can starve](#blocking-work-and-the-two-thread-pools-it-can-starve)
 - [The duplicate-SNMP-row crash, and an invariant with no enforcement](#the-duplicate-snmp-row-crash-and-an-invariant-with-no-enforcement)
 - [Double-NAT / CGNAT detection, from a real trace at Martha's](#double-natcgnat-detection-from-a-real-trace-at-marthas)
+- [The cadence bug found in a screenshot: a real outage's recovery, delayed by its own heuristic](#the-cadence-bug-found-in-a-screenshot-a-real-outages-recovery-delayed-by-its-own-heuristic)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -4037,3 +4038,95 @@ End-to-end event *firing* — an actual transition between networks —
 wasn't observed live, since triggering a real network change wasn't
 available during this session; the pure detection logic is what's
 tested directly against real data instead.
+
+## The cadence bug found in a screenshot: a real outage's recovery, delayed by its own heuristic
+
+Reported directly: an upstream switch power-cycle test showed "a long
+delay" before Network Health recovered. Diagnosed from two of NMS's own
+popover screenshots (taken with the camera button, which also logs a
+`screenshotCaptured` event — that's what made them findable at all) plus
+the underlying `ConnectivityCheckRecord`/`AppEventRecord` data, not from
+a live repro.
+
+### The timeline, at full precision
+
+```
+18:23:20.655  Interface changed: Wi-Fi → Ethernet
+18:23:53.238  Router/Internet/ISP Edge/Public IP/DNS/HTTP all unreachable
+18:24:11      DNS and HTTP recover (confirmed in the raw check history —
+              success flips 0 → 1) — but no event was ever logged for it
+18:24:43.725  Router/Internet/ISP Edge/Public IP finally recover
+```
+
+Two things are visibly wrong once the timestamps are lined up: DNS/HTTP's
+real recovery at `18:24:11` never appears anywhere in the Events log
+(confirmed against the *entire* store, not just this window — genuinely
+never logged, not merely scrolled past), and the other four checks took
+32 seconds longer than they should have to have their own recovery
+detected.
+
+### Root cause: one heuristic answering two different questions
+
+`ConnectivityViewModel.isLikelyLocalPingFailure` exists to catch a real,
+previously-documented problem: a CPU-starved Mac produces fake ping
+timeouts while DNS/HTTP (which don't shell out to `ping`) prove the
+network is actually fine. Its trigger: every path-critical ping (Router/
+Public IP/ISP Edge/Internet) failing at once while DNS or HTTP succeeds.
+
+At `18:24:11`, the checks matched that exact pattern — but for a
+completely different, entirely legitimate reason: a real switch reboot,
+where DNS/HTTP's recovery path came back a few seconds before ICMP
+reachability fully stabilized. The heuristic cannot distinguish "these
+pings are fake, CPU-starved" from "these pings are real, and DNS/HTTP
+just happened to recover first" — both produce the identical signature
+it looks for, and it had no way to know which one it was looking at.
+
+`apply(_:)` used to let one boolean answer both of the following, which
+turn out to be different-stakes questions:
+
+- *Should this round's transition events be logged?* — lower stakes.
+  Suppressing one round's log line is recoverable; the same transition
+  is very likely still caught whenever `logTransitions` next runs for it.
+- *Should the poll cadence speed up?* — `anyUnhealthy` used to read
+  `!localInterference && checks.contains { ... }`, so a heuristic misfire
+  didn't just skip a log line, it **forced cadence back to the slow 30s
+  interval** — even though Router/Internet/ISP Edge/Public IP were still
+  definitively, actually down at that exact moment. The next round
+  landed 30s later instead of the 5s the fast cadence should have given,
+  which is where the measured 32-second gap to `18:24:43` comes from —
+  not the switch itself taking that long, but the app's own polling
+  slowing down mid-outage.
+
+### The fix: decouple the two questions
+
+`localInterference` still gates whether the current round's events log
+(unchanged — that trade-off, and its own accepted "if ICMP is genuinely
+blocked network-wide, this suppresses outage events indefinitely" cost,
+are both still there, still documented on `isLikelyLocalPingFailure`
+itself). Cadence no longer asks that heuristic anything. `anyUnhealthy`
+is now `Self.hasUnhealthyCriticalCheck(checks, infrastructureLabels:)` —
+a new function, extracted `nonisolated static` for the same reason
+`isLikelyLocalPingFailure` already is (testable without a whole
+`@MainActor` view model and its five dependencies), that looks only at
+what the checks currently show, nothing about why they might disagree.
+
+**Accepted cost, stated plainly rather than assumed away:** in the
+genuine-interference case (a real CPU spike, no actual network problem),
+cadence will now speed up for a few rounds until the spike passes, where
+before it wouldn't have. This app's own documented history says that
+spike resolves in about a second both times it's been observed — a few
+extra 5s-cadence rounds is cheap insurance against a 32-second-and-
+counting real delay, not a meaningful new cost.
+
+### Verified
+
+54/54 tests (5 new) — critically, one pins the exact regression: the
+*same* check pattern that `LocalInterferenceTests
+.suppressesWhenDNSSurvives` already asserts triggers
+`isLikelyLocalPingFailure` is asserted, in the same test, to *still* read
+as unhealthy via `hasUnhealthyCriticalCheck` — so the two functions can
+never be silently re-coupled without a test failing. Clean build, app
+launches and runs without issue. Not verified live end-to-end (a real
+switch reboot mid-session wasn't available while building this) — the
+fix is proven against the exact real incident data instead of a fresh
+repro.

@@ -46,26 +46,6 @@ fixed — grounded in the actual code below, not just the symptom):
   latency as trustworthy. A blanket `-q 2`+ would also help but costs
   time on every trace, not just the first.
 
-- [ ] **5. Slow recovery from a Wi-Fi down/up transition; only DNS and
-  interface events fired red, not the others — should they match?**
-  Couldn't diagnose this one — `~/Library/Logs/NMS/ui-state.log`
-  truncates on every launch, and there have been several relaunches
-  since Martha's. No data survives from the actual incident.
-
-  What's worth knowing before assuming it's a bug: `runChecks()`'s
-  "no interface at all" branch marks Internet/DNS/HTTP/PeRouter/PublicIP
-  failed *together*, in one `apply()` call — so if only DNS logged red,
-  the interface most likely never actually dropped to `nil`; the normal
-  per-target ping path ran instead, where each target has a different
-  timeout (Router 1s vs. DNS/HTTP/Internet 2s). A brief real blip
-  plausibly trips a 1s check and not a 2s one — which would make the
-  asymmetry a real report of differing network behavior, not
-  inconsistent monitoring. Equally plausible it's a genuine gap in
-  `wireReachabilityTransitions`'s recheck edges. Can't tell without a
-  log from the actual event — **capture
-  `~/Library/Logs/NMS/ui-state.log` immediately next time this happens**,
-  before it's overwritten by a relaunch, and revisit with real data.
-
 - [ ] **6. The old→new Wi-Fi transition event ends up filed under the
   *new* network — is that a network-separation leak?** Traced the exact
   mechanism, and it's real: in `wireTopologyChangeFanOut`,

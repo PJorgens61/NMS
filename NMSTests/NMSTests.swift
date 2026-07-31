@@ -329,6 +329,75 @@ struct LocalInterferenceTests {
     }
 }
 
+@Suite("ConnectivityViewModel.hasUnhealthyCriticalCheck")
+struct CadenceHealthTests {
+    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
+        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
+    }
+
+    /// The exact regression this exists for. A real switch reboot: at
+    /// 18:24:11, DNS and HTTP had genuinely recovered while
+    /// Router/Internet/ISP Edge/Public IP were still genuinely down —
+    /// this is the identical check pattern `LocalInterferenceTests
+    /// .suppressesWhenDNSSurvives` pins as triggering
+    /// `isLikelyLocalPingFailure`. The bug: `anyUnhealthy` used to be
+    /// gated by that same heuristic (`!localInterference && ...`), so
+    /// this exact round forced cadence back to 30s despite four checks
+    /// still being genuinely broken — delaying their real recovery
+    /// detection by up to 30s instead of the 5s the fast cadence should
+    /// have allowed. Pinned here as its own function, independent of
+    /// `isLikelyLocalPingFailure`, specifically so the two can never be
+    /// silently re-coupled again.
+    @Test("still unhealthy even when isLikelyLocalPingFailure would suppress the same round's events")
+    func cadenceStaysHonestDuringGenuineOutageWithAsymmetricRecovery() {
+        let checks = [
+            check(OverallStatus.routerLabel, success: false),
+            check(OverallStatus.publicIPLabel, success: false),
+            check(OverallStatus.peRouterLabel, success: false),
+            check(OverallStatus.internetLabel, success: false),
+            check(OverallStatus.dnsLabel, success: true),
+            check(OverallStatus.httpLabel, success: true)
+        ]
+        // Same input the local-interference heuristic reads as
+        // "suppress" — the whole point is that this function doesn't
+        // ask that question at all.
+        #expect(ConnectivityViewModel.isLikelyLocalPingFailure(checks))
+        #expect(ConnectivityViewModel.hasUnhealthyCriticalCheck(checks, infrastructureLabels: []))
+    }
+
+    @Test("a fully healthy round is not unhealthy")
+    func healthyRoundIsHealthy() {
+        let checks = [
+            check(OverallStatus.routerLabel, success: true),
+            check(OverallStatus.internetLabel, success: true),
+            check(OverallStatus.dnsLabel, success: true),
+            check(OverallStatus.httpLabel, success: true)
+        ]
+        #expect(!ConnectivityViewModel.hasUnhealthyCriticalCheck(checks, infrastructureLabels: []))
+    }
+
+    @Test("a failing SNMP infrastructure device counts as unhealthy")
+    func infrastructureFailureCounts() {
+        let checks = [
+            check(OverallStatus.routerLabel, success: true),
+            check("Switch", success: false)
+        ]
+        #expect(!ConnectivityViewModel.hasUnhealthyCriticalCheck(checks, infrastructureLabels: []))
+        #expect(ConnectivityViewModel.hasUnhealthyCriticalCheck(checks, infrastructureLabels: ["Switch"]))
+    }
+
+    @Test("a failing target not in either set doesn't count")
+    func unrelatedTargetDoesNotCount() {
+        let checks = [check("SomeRandomLANHost", success: false)]
+        #expect(!ConnectivityViewModel.hasUnhealthyCriticalCheck(checks, infrastructureLabels: []))
+    }
+
+    @Test("no checks at all is not unhealthy")
+    func emptyIsHealthy() {
+        #expect(!ConnectivityViewModel.hasUnhealthyCriticalCheck([], infrastructureLabels: []))
+    }
+}
+
 // MARK: - SNMP shared-MAC merging
 
 @Suite("SNMPViewModel.mergingSharedMACs")

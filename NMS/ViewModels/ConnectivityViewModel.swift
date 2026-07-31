@@ -440,9 +440,32 @@ final class ConnectivityViewModel: ObservableObject {
         // (see the comment there): those were dropped deliberately, since a
         // single sleeping/offline random host could pin this to the fast
         // interval indefinitely for something that isn't a real outage.
-        let anyUnhealthy = !localInterference && checks.contains {
-            (OverallStatus.criticalLabels.contains($0.label) || infrastructureLabels.contains($0.label)) && !$0.success
-        }
+        //
+        // Deliberately **not** gated by `localInterference` — that used to
+        // read `!localInterference && ...`, and a real incident showed why
+        // that was wrong. `isLikelyLocalPingFailure` can only ever be a
+        // guess at *why* the pings and DNS/HTTP disagree; it can't tell
+        // "these pings are fake, CPU-starved" apart from "these pings are
+        // real, and DNS/HTTP just happened to recover first" — both
+        // produce the identical pattern it looks for. Confirmed from a
+        // real switch reboot: DNS/HTTP recovered at 18:24:11 while
+        // Router/Internet/ISP Edge/Public IP were still genuinely down:
+        // real failures, not fake ones. The old code read that as
+        // interference and forced `anyUnhealthy` to `false` — which
+        // dropped the cadence back to 30s despite four checks still being
+        // actually broken, and delayed detecting their real recovery
+        // until the next slow-cadence tick, 32 seconds later than the 5s
+        // cadence should have allowed. `localInterference` still
+        // legitimately gates whether *this round's events* get logged
+        // (a lower-stakes call — the same transition is very likely
+        // caught on whichever round finally does log it), but cadence now
+        // reacts honestly to what the checks actually show, regardless of
+        // what this heuristic believes about why. Accepted cost in the
+        // genuine-interference case (CPU-starved pings, no real problem):
+        // a few extra fast-cadence rounds until the spike passes, which
+        // this app's own history shows resolves in about a second —
+        // cheap insurance against a 32-second-and-counting real delay.
+        let anyUnhealthy = Self.hasUnhealthyCriticalCheck(checks, infrastructureLabels: infrastructureLabels)
         // On the very first sign of trouble, don't even wait out the fast
         // interval — every target is already checked together in one round,
         // so "speed up detection" means re-running that whole round right
@@ -530,6 +553,22 @@ final class ConnectivityViewModel: ObservableObject {
 
         return checks.contains {
             ($0.label == OverallStatus.dnsLabel || $0.label == OverallStatus.httpLabel) && $0.success
+        }
+    }
+
+    /// Whether any critical (Router/Internet/DNS/HTTP/ISP Edge Router/
+    /// Public IP) or SNMP-confirmed infrastructure check is currently
+    /// failing — the poll-cadence decision (`apply(_:)`'s `anyUnhealthy`).
+    /// Deliberately independent of `isLikelyLocalPingFailure`: see the
+    /// comment at that call site for why coupling the two produced a real
+    /// bug (a genuine outage's cadence dropping back to slow because one
+    /// round's disagreement pattern happened to also match the
+    /// interference heuristic). `nonisolated static` for the same reason
+    /// `isLikelyLocalPingFailure` is — testable without a whole
+    /// `@MainActor` view model.
+    nonisolated static func hasUnhealthyCriticalCheck(_ checks: [ConnectivityCheck], infrastructureLabels: Set<String>) -> Bool {
+        checks.contains {
+            (OverallStatus.criticalLabels.contains($0.label) || infrastructureLabels.contains($0.label)) && !$0.success
         }
     }
 
