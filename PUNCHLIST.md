@@ -2,76 +2,17 @@
 
 Open items, tracked here so they survive between sessions. Not a spec —
 see `DESIGN-NOTES.md` for the reasoning behind anything non-obvious.
-Check items off or delete them as they land; add new ones as they come up.
+Actual defects live in `BUGS.md` instead — this file is ideas, testing
+tasks, and decisions. Check items off or delete them as they land; add
+new ones as they come up.
 
 ## Open
 
-**From off-site testing at Martha's** (8 items, investigated but not
-fixed — grounded in the actual code below, not just the symptom):
-
-- [ ] **1. Martha's Wi-Fi never showed up in Known Networks.** Likely
-  root cause: `NetworkIdentityViewModel.recognize(routerAddress:subnetMask:from:)`
-  requires the router's MAC to already be present in that *one* LAN
-  scan's ARP results (`devices.first(where: { $0.ipAddress ==
-  routerAddress })?.macAddress`) — if it's missing, the guard just
-  `return`s. No retry, no log line, nothing else re-triggers recognition
-  for the rest of the session unless another topology change happens to
-  fire a fresh scan.
-
-  That guard failing on an unfamiliar network is plausible: joining
-  fires the scan almost immediately, and if macOS's own ARP cache hasn't
-  resolved the gateway yet — a real race this codebase has hit before
-  (`SNMPViewModel.refreshARPIfMergeDataIsStale`'s doc comment describes
-  exactly this after a Wi-Fi reconnect) — the guard fails silently and
-  permanently.
-
-  Two independent fixes worth doing together: retry `recognize()` a few
-  seconds after a first failure, and log the failure so it's diagnosable
-  instead of the network landing in silent limbo. `refreshARPIfMergeDataIsStale`
-  is scoped only to already-known SNMP devices, so it doesn't cover
-  first-time recognition — this needs its own path.
-
-- [ ] **3. Initial traceroute showed huge latency.** `traceroute -n -q 1
-  -w 1 -m 4` sends exactly one probe per hop with no retry, and runs
-  immediately on topology change — before a fresh Wi-Fi association has
-  settled. This is the same class of bug this app has hit before (DNS
-  answers served from a stale cache, HTTP likewise): the *first*
-  measurement after a network event isn't representative, and nothing
-  currently distrusts it.
-
-  Two options, not mutually exclusive: automatically re-run the trace a
-  few seconds after the first one on a *new* network (mirrors the
-  "re-derive when a dependency resolves" pattern already used elsewhere
-  in `NMSApp`'s wiring); or don't display/store the very first trace's
-  latency as trustworthy. A blanket `-q 2`+ would also help but costs
-  time on every trace, not just the first.
-
-- [ ] **6. The old→new Wi-Fi transition event ends up filed under the
-  *new* network — is that a network-separation leak?** Traced the exact
-  mechanism, and it's real: in `wireTopologyChangeFanOut`,
-  `networkIdentity.reset()` (clears `currentNetworkFingerprint` to
-  `nil`) runs *before* `wifiSSID.refresh(...)` in the same closure.
-  `WiFiSSIDViewModel.sample()` → `logNetworkChangeIfNeeded` logs the
-  `"X → Y"` event synchronously right there — while the fingerprint is
-  still `nil`, since `lanDiscovery.scan()` (and therefore
-  `recognize()`) is async and hasn't resolved the new network yet.
-  `adoptUntaggedRecords` then sweeps that `nil`-tagged event into
-  whichever network resolves next: the new one.
-
-  So today: leaving "Thistle" for "Guest" logs an event that names
-  Thistle but lives under Guest's Events tab.
-
-  **Not obviously a leak in the harmful sense** — it's one event, it
-  names both networks by design, and nothing about Thistle's own history
-  is exposed to Guest. But it is genuinely ambiguous which network such
-  an event belongs to, and "lives under the destination, names the
-  origin" wasn't a deliberate choice — it's what the reset-before-log
-  ordering happens to produce. Worth a real decision: leave it (simplest,
-  arguably correct — you read it *while on* the new network), log it
-  under the *old* fingerprint by capturing it before `reset()` runs
-  (arguably more correct — the transition is what just ended), or log it
-  under both. No strong pull either way; flagging for a decision rather
-  than picking one.
+**From off-site testing at Martha's** (8 items originally; 3 turned out
+to be bugs and moved to `BUGS.md` — Known Networks not recognizing an
+unfamiliar network, the first-traceroute latency inflation, and the
+Wi-Fi transition event misfiling. 4 more were already fixed and dropped
+from this list. This one remains, since it's an idea, not a defect):
 
 - [ ] **8. Cross-check the router's own interfaces/routes via SNMP
   against the current method (SCDynamicStore), and report a
@@ -122,51 +63,6 @@ fixed — grounded in the actual code below, not just the symptom):
   ```
 
   Empty output means clean.
-
-- [ ] **No window comes to the front on the MacBook** — Open in Window,
-  Preferences and Known Networks all fail there, while all three work on
-  the iMac from the same build. That it's *all three* is the important
-  part: this isn't a per-window bug, the whole `openWindowInFront`
-  mechanism is inert on that machine, so look for a machine-level cause
-  before touching per-window logic.
-
-  **Leading suspect: macOS tightened focus-stealing.**
-  `NSApp.activate(ignoringOtherApps: true)` has been deprecated since
-  macOS 14, and later versions increasingly decline to let a background
-  app pull itself forward. The iMac runs 15.7.7; if the MacBook is on a
-  newer major version, that alone would explain a clean split between two
-  machines running identical code. **Get the MacBook's `sw_vers` first —
-  that single fact probably settles it.** If confirmed, the fix is the
-  modern activation path (`NSApp.activate()` with no arguments, or
-  `NSRunningApplication.current.activate(options:)`) rather than more
-  window ordering.
-
-  Background: foregrounding was fixed twice already. `0f8f80e` added
-  `NSApp.activate`; `1ca9dc8` deferred a run loop turn and then ordered
-  the specific window front by identifier, which fixed both windows on
-  the iMac (verified from the state log, not by eye).
-
-  **Start with the log rather than the code** — `openWindowInFront`
-  already records what it matched:
-
-  ```bash
-  grep openWindowInFront ~/Library/Logs/NMS/ui-state.log
-  ```
-
-  - `nms-window → nms-window` means the window was found and
-    `makeKeyOrderFront` ran, so the failure is *after* that — something
-    is re-ordering above it, or the app never became active. Suspect
-    Stage Manager, multiple displays, or a different Space, none of
-    which the iMac has in the same configuration.
-  - `NO WINDOW MATCHED` means SwiftUI hadn't created the window yet when
-    the deferred block ran — one run loop turn is enough on the iMac but
-    not on the slower/busier machine. That would make the current fix
-    timing-dependent, and it should instead retry or hook window
-    creation rather than assume a single turn is enough.
-
-  Worth noting the two machines differ in more than speed: the MacBook
-  is Apple Silicon and the iMac is Intel, so this may also be a macOS
-  version difference rather than a race.
 
 - [ ] **Estimate and document NMS's system requirements.** Needed now
   that other people are installing it — "will this bog down my Mac?" is a
