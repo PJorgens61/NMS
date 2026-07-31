@@ -80,6 +80,8 @@ log it under the *old* fingerprint by capturing it before `reset()` runs
 (arguably more correct — the transition is what just ended), or log it
 under both.
 
+## Fixed
+
 ### No window comes to the front on the MacBook
 
 - **Status**: Fixed, confirmed on the MacBook — see below for a second,
@@ -155,8 +157,6 @@ loop turn, to `MenuBarLabel`'s `.task`. Verified visually after
 rebuilding: the window is now genuinely frontmost immediately at
 launch, confirmed against a live screenshot, not just the resulting log
 line (`MenuBarLabel.autoOpenWindow | nms-window → nms-window`).
-
-## Fixed
 
 ### "Stamp build info" wrote nothing on the MacBook — footer showed "Build unknown"
 
