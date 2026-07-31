@@ -1720,6 +1720,22 @@ struct ContentView: View {
     /// So the specific window is ordered front by name rather than
     /// trusting activation to pick the right one.
     ///
+    /// **A fourth thing, found later, on a different machine.**
+    /// `NSApp.activate(ignoringOtherApps:)` has been deprecated since
+    /// macOS 14, and confirmed (not just suspected) to actually stop
+    /// working somewhere after that: reproduced live on a MacBook running
+    /// macOS 26.5.2, `openWindowInFront`'s own log line showed a clean
+    /// window match (`known-networks → known-networks`, `makeKeyAndOrderFront`
+    /// ran) — ruling out points 2 and 3 above entirely — yet the window
+    /// still never came to front; a different app stayed frontmost. The
+    /// window was correctly made key *within this app's own window
+    /// list*, but the application itself never actually activated, so
+    /// another app's windows kept rendering on top of it regardless. See
+    /// `BUGS.md`'s "No window comes to the front on the MacBook" for the
+    /// full diagnosis this was built from — this app's deployment target
+    /// is already macOS 14+, so the modern, no-parameter
+    /// `NSApplication.activate()` needs no availability guard.
+    ///
     /// SwiftUI sets `NSWindow.identifier` to the scene id **verbatim** —
     /// verified from the state log, which is why the match is logged at
     /// all: it was written expecting a decorated identifier
@@ -1732,7 +1748,7 @@ struct ContentView: View {
     private func openWindowInFront(_ id: String) {
         openWindow(id: id)
         DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             let match = NSApp.windows.first { $0.identifier?.rawValue.contains(id) == true }
             match?.makeKeyAndOrderFront(nil)
             UIStateLogger.log(

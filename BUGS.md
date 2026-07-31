@@ -82,7 +82,12 @@ under both.
 
 ### No window comes to the front on the MacBook
 
-- **Status**: Open, root cause confirmed, fix not yet written
+- **Status**: Open, fix built, **needs confirmation on the MacBook** —
+  the iMac's own macOS (15.7.7) is old enough that the deprecated API
+  still worked there, so there's no before/after to observe on this
+  machine at all. Please pull, rebuild, and retest Known Networks on
+  the MacBook, and post the result to
+  [issue #6](https://github.com/PJorgens61/NMS/issues/6).
 - **Severity**: High — three separate entry points (Open in Window,
   Preferences, Known Networks) completely broken on this machine, while
   all three work on the iMac from the same build.
@@ -116,12 +121,16 @@ own window.
 
 `NSApp.activate(ignoringOtherApps: true)` has been deprecated since
 macOS 14, and later versions increasingly decline to let a background
-app pull itself forward this way — exactly this. **Fix**: the modern
-activation path, `NSApplication.shared.activate()` (no
-`ignoringOtherApps` parameter) or `NSRunningApplication.current.activate(options:)`,
-in `ContentView.openWindowInFront`, replacing the deprecated call rather
-than adding more window-ordering logic — the window-matching half
-already works correctly and needs no changes.
+app pull itself forward this way — exactly this. **Fixed**: swapped to
+the modern, no-parameter `NSApp.activate()` in
+`ContentView.openWindowInFront` — the window-matching half already
+worked correctly and needed no changes. Deployment target is already
+macOS 14+, so no availability guard needed.
+
+Built, tested (64/64), relaunched on the iMac without issue — but
+that's not a real test of the fix itself, since 15.7.7 never exhibited
+the bug in the first place. This needs the MacBook to actually confirm
+it.
 
 Background: foregrounding was fixed twice already for the iMac.
 `0f8f80e` added `NSApp.activate`; `1ca9dc8` deferred a run loop turn and
