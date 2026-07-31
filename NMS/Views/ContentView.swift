@@ -201,85 +201,32 @@ struct ContentView: View {
     /// broke `@State`.
     @ViewBuilder
     private var scrollableContent: some View {
-            // Network Health, Info, and Path to Internet are short
-            // label/value lists that looked sparse and hard to read once
-            // the popover doubled in width for the DHCP History section —
-            // wide gaps between a label and its value with nothing else
-            // to fill the space. Tiled side by side instead, each sized to
-            // its own half, not the whole popover.
+            // Network Health, Info, Path to Internet, and Speed Test are
+            // all fixed to `ContentView.tileHeight` (see that constant's
+            // doc comment for the three earlier, more intricate alignment
+            // mechanisms this replaced — a dynamically-synced `Grid` row
+            // for one pair, deliberately independent sizing for the
+            // other). Every tile now sizes the same simple way, so a
+            // plain `HStack` of two tiles is enough for *either* row —
+            // no `Grid` needed, since nothing is being dynamically
+            // measured or synced anymore, just declared equal.
             //
-            // Network Health and Info share a `Grid` row, which
-            // synchronizes cell heights within that row natively — so
-            // their tile borders always line up, in one deterministic
-            // layout pass, regardless of which has more rows of content.
-            //
-            // That row-sync is exactly what a `LazyVGrid` was tried and
-            // rejected for once already, for a *different* pair: with all
-            // four tiles in one grid, Path to Internet (short) and Speed
-            // Test (its row-mate, and by far the tallest tile once it has
-            // real history) were forced to the same row height, leaving a
-            // real, confirmed-by-a-live-screenshot gap of dead space below
-            // Path to Internet's shorter box. `Grid` has the identical
-            // per-row sync behavior — the difference here is which pair
-            // it's applied to. Network Health and Info have no unbounded
-            // grower between them (both are short, bounded label/value
-            // lists), so syncing them is exactly the fix, not a repeat of
-            // that bug.
-            //
-            // A first attempt at this fix (see `git blame` /
-            // `PUNCHLIST.md`'s "Split by audience" entry) used a
-            // `GeometryReader`/`PreferenceKey`/`@State` round-trip instead
-            // of `Grid`, and looked correct in the live popover — but
-            // `ScreenshotService.capture`'s `ImageRenderer` renders once,
-            // synchronously, with no run-loop turn for that round-trip's
-            // state update to land before the image is captured. Every
-            // Bug Report and Screenshot therefore still showed the
-            // *unsynced* heights, confirmed by measuring a real captured
-            // PNG's border pixels directly rather than eyeballing it. This
-            // is the same class of quirk as `ImageRenderer`'s three others
-            // documented on `ScreenshotService` (`ScrollView` content not
-            // rendering, bordered buttons breaking, no implicit
-            // background) — a fourth case of "looks right live, wrong in
-            // a one-shot capture." `Grid` sidesteps the whole class: it
-            // needs no second pass, so there's no window for a
-            // single-shot renderer to miss.
-            //
-            // Path to Internet and Speed Test, below, keep the "two
-            // independent columns" structure this comment used to
-            // describe for all four tiles: row-grid total height is
-            // `max(NetworkHealth, Info) + max(Path, Speed)`, while
-            // column-stack total is `max(NetworkHealth+Path,
-            // Info+Speed)` — the sum-of-maxes is always ≥ the max-of-sums
-            // for non-negative sizes, so keeping *that* pair unsynced and
-            // column-stacked is a guaranteed improvement over syncing
-            // them, never a regression. Swapping Info and Path to
-            // Internet was also tried directly (measured via
-            // `ContentView.liveHeight`, not just reasoned about):
-            // {NetworkHealth+Info} / {Path+Speed} measured 850pt, 4pt
-            // *taller* than this arrangement's 846pt, and visually just
-            // moved the same-size imbalance to the other column instead
-            // of reducing it.
-            //
-            // Both tiles below are window-only as of the audience split
-            // (see `SectionLayout.surfaces`) and always appear together,
-            // so there's no partial-row case to handle — on the popover
-            // this whole `HStack` renders with both conditions false and
-            // contributes nothing.
+            // Both tiles in the second row are window-only as of the
+            // audience split (see `SectionLayout.surfaces`) and always
+            // appear together, so there's no partial-row case to handle —
+            // on the popover, `pathAndSpeedRow`'s `HStack` renders with
+            // both conditions false and contributes nothing.
             VStack(spacing: 12) {
-                Grid(alignment: .topLeading, horizontalSpacing: 12) {
-                    GridRow {
-                        tile(title: "Network Health", fillHeight: true) {
-                            connectionHealthSection
-                        }
-                        tile(title: "Info", fillHeight: true) {
-                            infoSection
-                        }
+                HStack(alignment: .top, spacing: 12) {
+                    tile(title: "Network Health", fixedHeight: Self.tileHeight) {
+                        connectionHealthSection
+                    }
+                    tile(title: "Info", fixedHeight: Self.tileHeight) {
+                        infoSection
                     }
                 }
                 // Path to Internet + Speed Test — see
-                // `ContentView+Window.swift`'s `pathAndSpeedRow` for the
-                // content itself and why it's kept unsynced from the Grid
-                // row above.
+                // `ContentView+Window.swift`'s `pathAndSpeedRow`.
                 pathAndSpeedRow
             }
 
@@ -553,6 +500,32 @@ struct ContentView: View {
             }
     }
 
+    /// The one fixed height all four top tiles (Network Health, Info,
+    /// Path to Internet, Speed Test) share — replaces three earlier,
+    /// increasingly bespoke attempts at making these tiles line up:
+    /// `Grid`/`GridRow` row-syncing for one pair, deliberately independent
+    /// sizing for the other, a `SectionLayout`-declared height per section,
+    /// and (briefly) a `GeometryReader`/`PreferenceKey` round-trip. Every
+    /// one of those existed to reconcile tiles whose *natural* content
+    /// heights genuinely differ. Declaring one shared height and scrolling
+    /// whatever doesn't fit sidesteps the reconciliation problem instead
+    /// of solving it more cleverly — raised directly, after three rounds
+    /// of Bug Reports on this exact alignment.
+    ///
+    /// Deliberately *not* sized to fit any one tile's full natural
+    /// content (that was the first attempt — fit Network Health's 7 rows
+    /// exactly at 150pt — but it made every future content change a
+    /// fresh calibration problem: add a row anywhere and something either
+    /// clips or needs remeasuring). Picked short enough on purpose that
+    /// every tile routinely needs its internal scroll, not just the ones
+    /// with genuinely unbounded content (Path to Internet's edge history,
+    /// Speed Test's growing run list). That makes scrolling the norm
+    /// everywhere rather than the exception on two tiles, so the exact
+    /// number here stops being load-bearing — a row added or removed from
+    /// any section's content just changes how much of it needs a scroll,
+    /// never whether it renders at all.
+    static let tileHeight: CGFloat = 180
+
     /// A bordered box with a header row (title, plus an optional trailing
     /// accessory like "Trace Now") — the visual unit tiles in the grid
     /// above are built from. A plain `Divider()` no longer reads as a
@@ -562,43 +535,76 @@ struct ContentView: View {
     // `pathAndSpeedRow`, and Swift's `private` doesn't cross files even
     // between extensions of the same type.
     @ViewBuilder
-    func tile(title: String, fillHeight: Bool = false, @ViewBuilder content: () -> some View) -> some View {
-        tile(title: title, fillHeight: fillHeight, trailing: { EmptyView() }, content: content)
+    func tile(title: String, fixedHeight: CGFloat? = nil, @ViewBuilder content: () -> some View) -> some View {
+        tile(title: title, fixedHeight: fixedHeight, trailing: { EmptyView() }, content: content)
     }
 
-    /// `fillHeight` only matters inside a `Grid`. A `GridRow` synchronizes
-    /// each cell's *layout slot* to the row's tallest cell, but a shorter
-    /// cell's own drawn background/border doesn't stretch to fill that
-    /// slot on its own — confirmed directly, the hard way: a first pass
-    /// at the Network Health/Info alignment fix put both tiles in a
-    /// `GridRow` and stopped there, verified only by eye against a small
-    /// screenshot. A same-day *second* Bug Report on the same two tiles
-    /// ("bottom edge of tiles not aligned") turned out to be right — a
-    /// pixel-level measurement of the captured PNG showed a real ~20-40pt
-    /// gap that eyeballing a thumbnail had missed both times. `Grid` was
-    /// already correctly equalizing the row's reserved height (confirmed
-    /// by the divider below sitting in the right place); what was missing
-    /// was telling the shorter tile's own `VStack` to actually consume
-    /// the extra height it was offered, via `maxHeight: .infinity` on the
-    /// same frame this already stretches horizontally, rather than
-    /// sizing tightly to its own content and leaving Grid's extra space
-    /// blank *outside* the border.
+    /// `fixedHeight` fixes the *whole tile* to that height and makes
+    /// `content()` scroll internally to fit whatever's left after the
+    /// header row and padding — so content shorter than the tile just
+    /// leaves blank space below it, and content taller than the tile
+    /// scrolls instead of growing the box. One mechanism, applied
+    /// uniformly, rather than syncing some tiles' heights to each other's
+    /// content dynamically (the three earlier, more intricate attempts
+    /// `ContentView.tileHeight`'s doc comment describes).
     ///
-    /// Only Network Health and Info opt in. Path to Internet and Speed
-    /// Test render in a plain `HStack`, not a `Grid` — `maxHeight:
-    /// .infinity` there would have nothing bounding it to a shared row
-    /// height and would instead expand to fill whatever space the
-    /// popover/window happens to offer, which is exactly the "Speed
-    /// Test's height forces its row-mate" failure mode already rejected
-    /// once (see `ContentView+Window.swift`'s `pathAndSpeedRow`, and its
-    /// "Independent columns" reasoning).
+    /// **First version of this was broken, confirmed by a live
+    /// screenshot**: every tile collapsed to just its header row, content
+    /// invisible. Two independent mistakes, not one:
+    /// 1. The outer `.frame(maxHeight: fixedHeight)` only *caps* height —
+    ///    it doesn't force a smaller natural size to grow to fill it. A
+    ///    `maxHeight` alone left the tile at whatever tiny size its
+    ///    (empty-looking) content produced.
+    /// 2. The inner `NoBounceScrollView` got `.frame(maxHeight: .infinity)`,
+    ///    on the assumption a `VStack` would automatically hand it
+    ///    "whatever's left" the way it does a native `ScrollView`. It
+    ///    doesn't: `NoBounceScrollView` is an `NSViewRepresentable`, not a
+    ///    flexible SwiftUI container, and every *other* use of it in this
+    ///    file already gives it an explicit `.frame(height:)` — this
+    ///    should have followed that precedent instead of assuming
+    ///    automatic space distribution would apply to a custom view too.
+    ///
+    /// Fixed by making both heights explicit rather than relying on
+    /// flexible-layout distribution: `minHeight == maxHeight` forces the
+    /// outer tile to exactly `fixedHeight` (a cap alone can't shrink
+    /// below content, but it also can't grow to it — matching both
+    /// bounds is what actually fixes a size), and the inner scroll area
+    /// gets a computed, explicit height (`fixedHeight` minus the header
+    /// row and padding) rather than an unenforced "fill available space."
+    ///
+    /// `nil` (the default) keeps the old behavior: the tile sizes to its
+    /// own content, no scrolling, no fixed height — still used by nothing
+    /// today now that all four top tiles pass `ContentView.tileHeight`,
+    /// but kept as the default rather than removed, since a future tile
+    /// that genuinely wants to just size to its content shouldn't have to
+    /// fake a height to get that.
+    ///
+    /// **A second bug, caught by an actual Bug Report capture, not by
+    /// inspection.** The first version of this ignored
+    /// `isCapturingScreenshot` entirely, so every capture of a
+    /// `fixedHeight` tile rendered the tile's whole content area as a
+    /// solid yellow "prohibited" glyph instead of real content —
+    /// `ImageRenderer` can't render `NoBounceScrollView`'s
+    /// `NSViewRepresentable` off-screen any better than a plain
+    /// `ScrollView` (see `ScreenshotService`'s own doc comment, quirk 1),
+    /// and this is the exact "the capture branch is easy to forget, and
+    /// forgetting it fails silently" bug class `scrollBox` was built to
+    /// close off — reopened here because this function duplicates
+    /// `scrollBox`'s scrolling logic instead of routing through it.
+    /// Fixed by treating `fixedHeight` as inert during a capture, same as
+    /// `scrollBox` already does: the tile renders as a plain, unclipped
+    /// `VStack` showing everything, at whatever height that needs, rather
+    /// than trying to force a `NoBounceScrollView` capture to work.
     @ViewBuilder
     func tile(
         title: String,
-        fillHeight: Bool = false,
+        fixedHeight: CGFloat? = nil,
         @ViewBuilder trailing: () -> some View,
         @ViewBuilder content: () -> some View
     ) -> some View {
+        // `nil` during a capture regardless of what was passed in — see
+        // this function's doc comment for the Bug Report that found why.
+        let effectiveHeight = isCapturingScreenshot ? nil : fixedHeight
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
@@ -606,15 +612,46 @@ struct ContentView: View {
                 Spacer()
                 trailing()
             }
-            content()
+            if let effectiveHeight {
+                NoBounceScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        content()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // An explicit number, not `.infinity` — see this
+                // function's doc comment for why relying on automatic
+                // flexible-space distribution didn't work here.
+                // `Self.tileHeaderOverhead` is a first estimate (padding
+                // + spacing + one `.headline` line), not yet measured
+                // against a real screenshot the way `SectionLayout
+                // .rowHeight` was; worth calibrating precisely once this
+                // renders instead of staying an estimate indefinitely.
+                .frame(height: max(0, effectiveHeight - Self.tileHeaderOverhead))
+            } else {
+                content()
+            }
         }
         .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
+        // `minHeight` and `maxHeight` both set to `effectiveHeight` forces
+        // an exact size — `maxHeight` alone is only a cap, and doesn't
+        // make a smaller natural size grow to fill it (the first bug this
+        // function's doc comment describes). Both `nil` when
+        // `effectiveHeight` is `nil` (including during a capture) is
+        // still "no height constraint at all, size to content."
+        .frame(maxWidth: .infinity, minHeight: effectiveHeight, maxHeight: effectiveHeight, alignment: .topLeading)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.secondary.opacity(0.25))
         )
     }
+
+    /// First estimate for `tile(fixedHeight:)`'s header+padding overhead
+    /// (10pt padding × 2, 6pt `VStack` spacing, one `.headline` line) —
+    /// not yet measured against a real render. Update this once a
+    /// screenshot shows exactly how much of `tileHeight` the header
+    /// actually consumes.
+    private static let tileHeaderOverhead: CGFloat = 45
 
     /// The one place a fixed-height, independently-scrolling history box
     /// gets built — Events, SNMP Devices, DHCP History, Speed Test and

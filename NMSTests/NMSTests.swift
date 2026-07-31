@@ -1010,18 +1010,16 @@ struct SectionLayoutTests {
         }
     }
 
-    @Test("Path to Internet and Speed Test share the same declared window height")
-    func tileGridPartnersMatchWindowHeight() {
-        // A real Bug Report, in two rounds: first the two tiles' bottom
-        // edges didn't match because the window force-boxed one but not
-        // the other; reverting that still didn't fix it, because Speed
-        // Test's real history almost always exceeds its row threshold
-        // while Path to Internet's structurally doesn't. The actual fix
-        // was giving Path to Internet its own real, growing content
-        // (`TracerouteViewModel.edgeHistory`) and declaring a matching
-        // height here — not a derived/measured value, an explicit
-        // decision that these two should look the same size.
-        #expect(SectionLayout.pathToInternet.boxHeight(on: .window) == SectionLayout.speedTest.boxHeight(on: .window))
+    @Test("Path to Internet and Speed Test both opt out of SectionLayout's own box height")
+    func tileGridPartnersSkipDeclaredHeight() {
+        // Superseded by `ContentView.tileHeight`: Path to Internet, Speed
+        // Test, Network Health, and Info now all share one literal
+        // constant passed directly to `tile(fixedHeight:)`, so matching
+        // height is guaranteed by construction rather than by declaring
+        // two equal values here. These two return `nil` from this table
+        // entirely — see `SectionLayout.boxHeight(on:)`'s doc comment.
+        #expect(SectionLayout.pathToInternet.boxHeight(on: .window) == nil)
+        #expect(SectionLayout.speedTest.boxHeight(on: .window) == nil)
     }
 
     @Test("Printer Alerts carries a row of headroom past the 2-printer boundary")

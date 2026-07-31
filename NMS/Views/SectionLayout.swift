@@ -128,22 +128,16 @@ enum SectionLayout: String, CaseIterable, Sendable {
     func boxHeight(on surface: Surface) -> CGFloat? {
         guard appears(on: surface) else { return nil }
         switch (self, surface) {
-        // Matched to Speed Test's, deliberately — these two sit side by
-        // side in the same tile-grid row, and with both now boxing
-        // unconditionally in the window (see `scrollThreshold`'s doc
-        // comment), a mismatched pair of declared heights would just be a
-        // new, more permanent version of the same misaligned-bottom-edge
-        // Bug Report this was tuned to fix. Not derived from either
-        // tile's content — "reasonable sizes, the window scrolls past
-        // whatever doesn't fit" was the explicit call here, same as
-        // Speed Test's own value below.
-        case (.pathToInternet, .window): return 140
-
-        // Predates the audience split, from when this still had to fit a
-        // popover (trimmed against the M1 Air constraint, 90 → 56pt
-        // there) — the window value was already more generous and never
-        // needed to change on its own account.
-        case (.speedTest, .window): return 140
+        // No longer boxed via `scrollBox`/this table at all — Network
+        // Health, Info, Path to Internet, and Speed Test now all share
+        // one fixed height declared once, `ContentView.tileHeight`, with
+        // `tile(fixedHeight:)` handling the internal scrolling directly.
+        // That single mechanism replaced this table's per-pair-matched
+        // 140/140 values (see `ContentView.tileHeight`'s doc comment for
+        // the three earlier, more intricate attempts this consolidated),
+        // so returning `nil` here is the same "no box declared here"
+        // answer `wifi` below already gives, not a new exception.
+        case (.pathToInternet, _), (.speedTest, _): return nil
 
         // 300 was already the window value from before the split; 136
         // (8 rows) was the old popover height, trimmed from 170 (10 rows)
@@ -179,9 +173,9 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // never reaches the switch) — spelled out rather than defaulted
         // so adding a surface to `surfaces` without adding its height
         // fails to compile instead of silently rendering an unboxed
-        // section.
-        case (.pathToInternet, _), (.speedTest, _), (.events, _),
-             (.snmpDevices, _), (.dhcpHistory, _), (.printerAlerts, _):
+        // section. `pathToInternet`/`speedTest` aren't repeated here —
+        // they already match every surface via the first case above.
+        case (.events, _), (.snmpDevices, _), (.dhcpHistory, _), (.printerAlerts, _):
             return nil
         }
     }

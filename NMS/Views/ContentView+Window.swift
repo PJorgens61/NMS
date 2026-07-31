@@ -33,23 +33,19 @@ extension ContentView {
     /// both `[.window]`), so there's no partial-row case — on the popover
     /// this whole `HStack` is simply never called.
     ///
-    /// Deliberately *not* synced to a shared row height the way Network
-    /// Health/Info are (`ContentView.scrollableContent`'s `Grid` row):
-    /// row-grid total height is `max(NetworkHealth, Info) + max(Path,
-    /// Speed)`, while column-stack total is `max(NetworkHealth+Path,
-    /// Info+Speed)` — the sum-of-maxes is always ≥ the max-of-sums for
-    /// non-negative sizes, so keeping this pair unsynced and
-    /// column-stacked is a guaranteed improvement over syncing them,
-    /// never a regression. Swapping Info and Path to Internet was also
-    /// tried directly (measured via `ContentView.liveHeight`, not just
-    /// reasoned about): {NetworkHealth+Info} / {Path+Speed} measured
-    /// 850pt, 4pt *taller* than this arrangement's 846pt, and visually
-    /// just moved the same-size imbalance to the other column instead of
-    /// reducing it.
+    /// Fixed to `ContentView.tileHeight`, same as Network Health/Info —
+    /// no longer deliberately independent. That independence used to be
+    /// load-bearing: syncing this pair's height risked the "Speed Test's
+    /// unbounded history forces Path to Internet's box to match it"
+    /// failure mode a `LazyVGrid` was rejected for once already. A fixed
+    /// height with internal scrolling (`tile(fixedHeight:)`) removes that
+    /// risk at the root — Speed Test's history now scrolls *within* its
+    /// own fixed box instead of growing it, so there's no longer anything
+    /// for Path to Internet to be forced to match.
     var pathAndSpeedRow: some View {
         HStack(alignment: .top, spacing: 12) {
             if SectionLayout.pathToInternet.appears(on: surface) {
-                tile(title: "Path to Internet", trailing: {
+                tile(title: "Path to Internet", fixedHeight: ContentView.tileHeight, trailing: {
                     Button("Trace Now") {
                         traceroute.run()
                     }
@@ -61,7 +57,7 @@ extension ContentView {
                 }
             }
             if SectionLayout.speedTest.appears(on: surface) {
-                tile(title: "Speed Test", trailing: {
+                tile(title: "Speed Test", fixedHeight: ContentView.tileHeight, trailing: {
                     Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
                         networkQuality.run()
                     }
@@ -79,16 +75,19 @@ extension ContentView {
     /// there's a real path) the shared hop-list/edge-history box.
     ///
     /// Split into two named pieces — this dispatcher, `currentPathStatus`,
-    /// and `pathHistoryBox` — for readability: this tile does two
+    /// and `pathHistoryRows` — for readability: this tile does two
     /// genuinely different jobs (report what the *latest* trace found;
-    /// show real history over time) sharing one box, and naming them
-    /// separately makes that split visible instead of one long function
-    /// doing both.
+    /// show real history over time), and naming them separately makes
+    /// that split visible instead of one long function doing both. Both
+    /// are flat content now, not their own scroll box — the outer
+    /// `tile(fixedHeight:)` call this feeds already wraps all of it in
+    /// one `NoBounceScrollView` (see `ContentView.tileHeight`), so a
+    /// second, inner scroll box here would just nest redundantly.
     @ViewBuilder
     var tracerouteSection: some View {
         currentPathStatus
         if viewModel.currentInterface != nil, !traceroute.hops.isEmpty {
-            pathHistoryBox
+            pathHistoryRows
         }
     }
 
@@ -157,25 +156,23 @@ extension ContentView {
             }
     }
 
-    /// The current hop list plus real edge-address history, sharing one
-    /// scrollable box — mirrors Speed Test's own tile, where the run
-    /// history *is* the content, not an addition below some separate
-    /// "current state" display. Gives Path to Internet real,
-    /// naturally-growing content instead of the same 1-2 confirmed hops
-    /// on every launch, which is what let its declared height match Speed
-    /// Test's instead of needing an exception (see
-    /// `SectionLayout.scrollThreshold`'s doc comment for the two rejected
-    /// attempts before this one).
-    private var pathHistoryBox: some View {
-        scrollBox(.pathToInternet, rowCount: displayedHops.count + traceroute.edgeHistory.count) {
-            hopRows
-            if !traceroute.edgeHistory.isEmpty {
-                Divider()
-                Text("Provider Edge History")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                edgeHistoryRows
-            }
+    /// The current hop list plus real edge-address history — mirrors
+    /// Speed Test's own tile, where the run history *is* the content, not
+    /// an addition below some separate "current state" display. Gives
+    /// Path to Internet real, naturally-growing content instead of the
+    /// same 1-2 confirmed hops on every launch, which is what let it
+    /// share `ContentView.tileHeight` with Speed Test instead of needing
+    /// its own exception (see that constant's doc comment for the earlier
+    /// attempts this replaced).
+    @ViewBuilder
+    private var pathHistoryRows: some View {
+        hopRows
+        if !traceroute.edgeHistory.isEmpty {
+            Divider()
+            Text("Provider Edge History")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            edgeHistoryRows
         }
     }
 
@@ -322,9 +319,11 @@ extension ContentView {
     /// Every real speed-test run, newest first — a genuine time series
     /// (see `NetworkQualityResult`), not a change-log, so unlike DHCP
     /// History every run gets a row regardless of whether the numbers
-    /// differ from the last one. Same size-to-fit-else-scroll threshold
-    /// as `dhcpHistoryList`: a fixed-height `ScrollView` only earns its
-    /// keep once there are actually more rows than comfortably fit.
+    /// differ from the last one. Flat content, not its own scroll box —
+    /// the outer `tile(fixedHeight:)` call this feeds already wraps all
+    /// of `speedTestTileContent` in one `NoBounceScrollView` (see
+    /// `ContentView.tileHeight`), so a second, inner box here would just
+    /// nest redundantly.
     @ViewBuilder
     private var speedTestList: some View {
         if networkQuality.recentRuns.isEmpty {
@@ -332,9 +331,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
         } else {
-            scrollBox(.speedTest, rowCount: networkQuality.recentRuns.count) {
-                speedTestRows
-            }
+            speedTestRows
         }
     }
 
