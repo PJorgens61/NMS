@@ -7,6 +7,13 @@ final class NetworkMonitorViewModel: ObservableObject {
         didSet { UIStateLogger.log("NetworkMonitorViewModel.currentInterface", currentInterface as Any) }
     }
     @Published private(set) var lastUpdated: Date?
+    /// When the interface last *actually changed* — `nil` until the first
+    /// real change, and untouched by a `refresh()`/observer callback that
+    /// finds nothing different (unlike `lastUpdated`, which moves on every
+    /// read). `ConnectivityViewModel` reads this to widen its tolerance
+    /// for disagreement between ICMP and DNS/HTTP checks right after a
+    /// genuine transition — see `isLikelyLocalPingFailure`'s call site.
+    @Published private(set) var lastChangeAt: Date?
 
     private let service = SystemConfigurationService()
     private let snapshotStore: SnapshotStore
@@ -74,6 +81,7 @@ final class NetworkMonitorViewModel: ObservableObject {
         currentInterface = updated
         lastUpdated = Date()
         guard didChange else { return }
+        lastChangeAt = lastUpdated
 
         if let updated {
             let snapshot = snapshotStore.save(updated)

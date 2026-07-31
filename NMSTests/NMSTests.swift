@@ -398,6 +398,136 @@ struct CadenceHealthTests {
     }
 }
 
+@Suite("ConnectivityViewModel.isWithinTopologyChangeWindow")
+struct TopologyChangeWindowTests {
+    private let now = Date()
+
+    @Test("just inside the window counts")
+    func justInside() {
+        #expect(ConnectivityViewModel.isWithinTopologyChangeWindow(
+            now: now, lastChangeAt: now.addingTimeInterval(-29), window: 30
+        ))
+    }
+
+    /// The boundary itself is exclusive — pinned so the `<` in the
+    /// implementation isn't quietly flipped to `<=` later.
+    @Test("exactly the window is NOT inside")
+    func exactlyOutside() {
+        #expect(!ConnectivityViewModel.isWithinTopologyChangeWindow(
+            now: now, lastChangeAt: now.addingTimeInterval(-30), window: 30
+        ))
+    }
+
+    @Test("no lastChangeAt at all is never within the window")
+    func neverChanged() {
+        #expect(!ConnectivityViewModel.isWithinTopologyChangeWindow(now: now, lastChangeAt: nil, window: 30))
+    }
+}
+
+@Suite("ConnectivityViewModel.shouldSuppressAsLocalInterference")
+struct SuppressionGraceperiodTests {
+    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
+        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
+    }
+    private let now = Date()
+
+    /// The exact regression this exists for. A real Wi-Fi network switch
+    /// (Thistle → ThistleGuest): one round showed DNS still resolving
+    /// (a leftover/faster lookup) while Router/Internet/ISP Edge/Public
+    /// IP — pinging the *old* network's addresses — genuinely failed.
+    /// That's the identical pattern `isLikelyLocalPingFailure` reads as
+    /// CPU-starved fake pings, and it suppressed six real
+    /// "became unreachable" events. `lastChangeAt` a moment ago is the
+    /// evidence that tells the two apart.
+    @Test("a real topology change moments ago overrides the interference heuristic")
+    func recentChangeOverridesSuppression() {
+        let checks = [
+            check(OverallStatus.routerLabel, success: false),
+            check(OverallStatus.internetLabel, success: false),
+            check(OverallStatus.peRouterLabel, success: false),
+            check(OverallStatus.publicIPLabel, success: false),
+            check(OverallStatus.dnsLabel, success: true)
+        ]
+        // Confirms the setup actually matches the heuristic's trigger —
+        // otherwise this test would pass for the wrong reason.
+        #expect(ConnectivityViewModel.isLikelyLocalPingFailure(checks))
+        #expect(!ConnectivityViewModel.shouldSuppressAsLocalInterference(
+            checks, now: now, lastChangeAt: now.addingTimeInterval(-1), gracePeriod: 30
+        ))
+    }
+
+    @Test("the same pattern with no recent change still suppresses, unchanged from before")
+    func noRecentChangeStillSuppresses() {
+        let checks = [
+            check(OverallStatus.routerLabel, success: false),
+            check(OverallStatus.internetLabel, success: false),
+            check(OverallStatus.peRouterLabel, success: false),
+            check(OverallStatus.publicIPLabel, success: false),
+            check(OverallStatus.dnsLabel, success: true)
+        ]
+        #expect(ConnectivityViewModel.shouldSuppressAsLocalInterference(
+            checks, now: now, lastChangeAt: nil, gracePeriod: 30
+        ))
+        #expect(ConnectivityViewModel.shouldSuppressAsLocalInterference(
+            checks, now: now, lastChangeAt: now.addingTimeInterval(-45), gracePeriod: 30
+        ))
+    }
+
+    @Test("a real total outage is never suppressed, recent change or not")
+    func realOutageNeverSuppressed() {
+        let checks = [
+            check(OverallStatus.routerLabel, success: false),
+            check(OverallStatus.internetLabel, success: false),
+            check(OverallStatus.dnsLabel, success: false),
+            check(OverallStatus.httpLabel, success: false)
+        ]
+        #expect(!ConnectivityViewModel.shouldSuppressAsLocalInterference(
+            checks, now: now, lastChangeAt: now.addingTimeInterval(-1), gracePeriod: 30
+        ))
+    }
+}
+
+@Suite("ConnectivityViewModel.wasFailingPreviously")
+struct WasFailingPreviouslyTests {
+    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
+        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
+    }
+
+    @Test("a matching prior success means it wasn't failing")
+    func priorSuccess() {
+        let previous = [check("Router", success: true)]
+        #expect(ConnectivityViewModel.wasFailingPreviously("Router", previous: previous) == false)
+    }
+
+    @Test("a matching prior failure means it was failing")
+    func priorFailure() {
+        let previous = [check("Router", success: false)]
+        #expect(ConnectivityViewModel.wasFailingPreviously("Router", previous: previous) == true)
+    }
+
+    /// The exact regression this exists for. A printer unreachable on a
+    /// guest network the entire time — but absent from one round's target
+    /// list (the `runChecks()` "no interface" fallback omits
+    /// infrastructure entirely) reappeared afterward and, under the old
+    /// `?? false` default, read as *freshly* broken. `nil` here is what
+    /// lets `logTransitions` skip a label with no real prior verdict
+    /// instead of assuming it had been fine.
+    @Test("a label absent from a non-empty previous round is unknown, not assumed healthy")
+    func absentFromNonEmptyPreviousIsUnknown() {
+        let previous = [check("DNS", success: false), check("Internet", success: false)]
+        #expect(ConnectivityViewModel.wasFailingPreviously("brotherlaserprinter", previous: previous) == nil)
+    }
+
+    /// The one case that still defaults to `false` rather than `nil` —
+    /// nothing has ever been checked yet (app launch), and a bad first
+    /// observation should still be reported, not silently absorbed as
+    /// the baseline.
+    @Test("an empty previous round (nothing checked yet) defaults to not-failing")
+    func emptyPreviousDefaultsToNotFailing() {
+        #expect(ConnectivityViewModel.wasFailingPreviously("Router", previous: []) == false)
+    }
+}
+
 // MARK: - SNMP shared-MAC merging
 
 @Suite("SNMPViewModel.mergingSharedMACs")

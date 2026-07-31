@@ -36,6 +36,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [The duplicate-SNMP-row crash, and an invariant with no enforcement](#the-duplicate-snmp-row-crash-and-an-invariant-with-no-enforcement)
 - [Double-NAT / CGNAT detection, from a real trace at Martha's](#double-natcgnat-detection-from-a-real-trace-at-marthas)
 - [The cadence bug found in a screenshot: a real outage's recovery, delayed by its own heuristic](#the-cadence-bug-found-in-a-screenshot-a-real-outages-recovery-delayed-by-its-own-heuristic)
+- [Two more bugs from the same class, found in a second real transition](#two-more-bugs-from-the-same-class-found-in-a-second-real-transition)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -4130,3 +4131,83 @@ launches and runs without issue. Not verified live end-to-end (a real
 switch reboot mid-session wasn't available while building this) — the
 fix is proven against the exact real incident data instead of a fresh
 repro.
+
+## Two more bugs from the same class, found in a second real transition
+
+Two more of NMS's own screenshots (again found via their
+`screenshotCaptured` events), this time from a real Wi-Fi network switch
+— Thistle → ThistleGuest — showed the identical asymmetric-events
+symptom the cadence bug above was fixed from, on a fresh build that
+already had that fix. So this was something else. Reconstructed from the
+raw `ConnectivityCheckRecord` history at full precision (not just the
+rendered Events list), which turned out to hold two distinct, previously
+undiagnosed bugs.
+
+The key to reading the raw data correctly: checks in the same round
+don't share one timestamp. Each is stamped independently at its own
+start (`async let pings`/`dns`/`http` all launch together, but resolve
+and get stamped microseconds to tens of milliseconds apart) — a naive
+grouping by "rows with close timestamps" undercounts what's actually one
+round as two.
+
+### Bug A: the *start* of a real outage, suppressed by the same heuristic — again
+
+One full round, ~100ms after the interface changed: DNS succeeded (a
+leftover/faster lookup) while Router, Internet, ISP Edge Router, Public
+IP, HTTP, and the printer all genuinely failed — pinging the *old*
+network's now-wrong addresses. That's the exact signature
+`isLikelyLocalPingFailure` was built to catch, for a completely
+different, legitimate reason this time: not CPU starvation, a real
+transition in progress. It suppressed all six "became unreachable"
+events for that round outright.
+
+The cadence fix above deliberately left this suppression path alone —
+scoped narrowly to the cadence coupling. This is the cost of that
+narrower scope showing up for real: the heuristic's blind spot isn't
+specific to cadence, it's inherent to the heuristic itself, and it can
+eat real events too.
+
+**Fix:** `NetworkMonitorViewModel` gained `lastChangeAt`, set only on a
+genuine `didChange`, not on every `refresh()`/observer callback that
+finds nothing different. `ConnectivityViewModel.shouldSuppressAsLocalInterference`
+sets `isLikelyLocalPingFailure`'s verdict aside for a 30s grace period
+after a real topology change — independent, real evidence (an actual
+interface change happened) that a CPU spike from an unrelated cause
+never has. 30s is a deliberate guess at realistic settling time (DHCP
+renewal, ARP re-resolution), not just the sub-second window the one
+observed incident needed.
+
+### Bug B: a target reappearing after an absence reads as a fresh failure
+
+The very next round hit `runChecks()`'s "no interface" fallback path,
+which only ever checks Internet/DNS/HTTP/PeRouter/PublicIP — Router and
+every infrastructure target (including the printer) simply aren't in
+that round's array. `logTransitions`'s `wasFailing` used to default to
+`false` (`?? false`) whenever a label wasn't found in the previous
+round — meaning "absent" read identically to "confirmed healthy." When
+the interface came back and the printer's target reappeared, still
+genuinely unreachable (wrong subnet on a guest network — the printer
+lives on Thistle, not ThistleGuest), that default made it read as a
+*fresh* failure, logging "brotherlaserprinter became unreachable" for a
+device that had been unreachable the entire time.
+
+**Fix:** `wasFailingPreviously` returns `Bool?`, not `Bool` —
+`nil` specifically for "this label wasn't in the previous round's data
+at all," which `logTransitions` now skips rather than guesses on. The
+one case that still defaults to `false` (not `nil`) is a genuinely empty
+previous round — app launch, nothing checked yet — since every other
+reachability check in this app already reports a bad *first*
+observation rather than treating launch as a silent baseline.
+
+### Verified
+
+64/64 tests (10 new). Two are the direct regressions: the exact real
+check pattern from the Thistle→ThistleGuest transition, confirmed to
+still trigger `isLikelyLocalPingFailure` on its own, but *not* to
+suppress once combined with a recent `lastChangeAt`; and the exact
+absent-printer scenario, confirmed to return `nil` rather than silently
+defaulting to "was healthy." Clean build, app relaunches and runs
+without issue. As with the cadence fix, not verified against a fresh
+live repro — a second real network switch mid-session wasn't available
+while building this; both fixes are proven against the real incident
+data captured in each of the four screenshots across the two incidents.

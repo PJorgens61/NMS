@@ -69,6 +69,14 @@ final class ConnectivityViewModel: ObservableObject {
     /// Still cheap enough at this cadence: one ping, one DNS query, one
     /// HTTP fetch, all short-timeout.
     private static let fastCheckInterval: TimeInterval = 5
+    /// How long after a real topology change `isLikelyLocalPingFailure`'s
+    /// suppression is set aside — see its call site in `apply(_:)`. Chosen
+    /// to cover a network transition's realistic settling time (DHCP
+    /// renewal, ARP re-resolution), not just the single round observed in
+    /// the real incident this was built from — that round landed well
+    /// under a second after the change, but a slower network could
+    /// plausibly still be settling several rounds in.
+    private static let topologyChangeGracePeriod: TimeInterval = 30
     private static let internetHost = "1.1.1.1"
     /// Caps how many infrastructure devices get pinged per round, so a
     /// network with a lot of managed gear doesn't turn every 5s round into
@@ -412,7 +420,27 @@ final class ConnectivityViewModel: ObservableObject {
         // that looks like local interference doesn't get to write
         // outage events or accelerate the cadence. See
         // `isLikelyLocalPingFailure`.
-        let localInterference = Self.isLikelyLocalPingFailure(checks)
+        //
+        // **Except right after a real topology change.** Confirmed from
+        // a real incident: switching Wi-Fi networks produced a round
+        // where ICMP pings targeting the *old* network's addresses
+        // failed while DNS happened to still resolve (a leftover/faster
+        // lookup) — the identical signature `isLikelyLocalPingFailure`
+        // was built to catch, but for a completely different, genuine
+        // reason. That suppressed six real "became unreachable" events
+        // outright. The heuristic can't tell "fake pings, CPU-starved"
+        // apart from "real pings, mid-transition" — both look the same
+        // to it — so this widens its blind spot deliberately for the
+        // one window where the second case is actually likely:
+        // `NetworkMonitorViewModel.lastChangeAt` is real, independent
+        // evidence that something genuinely changed, which a CPU spike
+        // from an unrelated Xcode build never has.
+        let localInterference = Self.shouldSuppressAsLocalInterference(
+            checks,
+            now: Date(),
+            lastChangeAt: networkMonitor?.lastChangeAt,
+            gracePeriod: Self.topologyChangeGracePeriod
+        )
         if localInterference {
             // The load figure is corroboration, never the trigger — a
             // busy Mac is not evidence the network is fine. It's here so
@@ -572,6 +600,53 @@ final class ConnectivityViewModel: ObservableObject {
         }
     }
 
+    /// Whether `now` falls within `window` of `lastChangeAt` — `false`
+    /// when there's no `lastChangeAt` at all (nothing has changed yet
+    /// this session). Its own function, not inlined at the call site, so
+    /// the boundary condition (exactly `window` old counts as *outside*
+    /// it, not in) is pinned by a test rather than left to whichever
+    /// comparison operator got typed.
+    nonisolated static func isWithinTopologyChangeWindow(now: Date, lastChangeAt: Date?, window: TimeInterval) -> Bool {
+        guard let lastChangeAt else { return false }
+        return now.timeIntervalSince(lastChangeAt) < window
+    }
+
+    /// `isLikelyLocalPingFailure`'s own verdict, set aside for
+    /// `gracePeriod` after a real topology change — see `apply(_:)`'s
+    /// call site for why the two must be combined rather than trusting
+    /// the heuristic alone.
+    nonisolated static func shouldSuppressAsLocalInterference(
+        _ checks: [ConnectivityCheck],
+        now: Date,
+        lastChangeAt: Date?,
+        gracePeriod: TimeInterval
+    ) -> Bool {
+        guard isLikelyLocalPingFailure(checks) else { return false }
+        return !isWithinTopologyChangeWindow(now: now, lastChangeAt: lastChangeAt, window: gracePeriod)
+    }
+
+    /// Whether `label` was already known to be failing, based on the
+    /// previous round — `nil`, not `false`, when there's no verdict to
+    /// base that on. See `logTransitions`'s call site for the real bug
+    /// this distinction fixes: a target absent from the previous round
+    /// (not "known healthy", just never checked that round) must not be
+    /// assumed to have been fine, or its continued failure reads as a
+    /// fresh one the moment it reappears.
+    ///
+    /// `previous.isEmpty` is the one case that still defaults to `false`
+    /// rather than `nil` — genuinely nothing has ever been checked yet
+    /// (app launch), and every other reachability check in this app
+    /// already reports a bad *first* observation rather than treating
+    /// launch as a silent baseline (e.g. a router that's down when NMS
+    /// starts is worth reporting, not absorbed as "how things have
+    /// always been").
+    nonisolated static func wasFailingPreviously(_ label: String, previous: [ConnectivityCheck]) -> Bool? {
+        guard let match = previous.first(where: { $0.label == label }) else {
+            return previous.isEmpty ? false : nil
+        }
+        return !match.success
+    }
+
     /// The single place a round ends, so a deferred recheck can't be missed
     /// on either completion path (the empty-targets early exit and the
     /// normal ping-results path both call this). Recursion is bounded to
@@ -605,7 +680,19 @@ final class ConnectivityViewModel: ObservableObject {
             default: continue
             }
 
-            let wasFailing = previous.first { $0.label == check.label }?.success == false
+            // `nil` (not `false`) when `check.label` simply wasn't part of
+            // the previous round — most often because that round hit
+            // `runChecks()`'s "no interface" fallback, which only checks
+            // Internet/DNS/HTTP/PeRouter/PublicIP and omits Router and
+            // every infrastructure target outright. The old code treated
+            // an absent label the same as "was healthy" (`?? false`),
+            // which produced a real, confirmed false event: a printer
+            // that had been unreachable the whole time (wrong subnet,
+            // guest network) read as *freshly* broken every time it
+            // reappeared in the target list after such a gap. Skipping on
+            // `nil` costs nothing real — the label was absent, so nothing
+            // about it could have been reported as changing anyway.
+            guard let wasFailing = Self.wasFailingPreviously(check.label, previous: previous) else { continue }
 
             if !check.success, !wasFailing {
                 // No target/IP in the message — the label alone (Router,
