@@ -8,6 +8,33 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **`BuildInfoService`'s hardcoded repo path breaks when more than
+  one checkout exists on a machine.** Found directly: this session
+  worked from a second clone (`~/NMS`) alongside a pre-existing one at
+  the hardcoded path (`~/Developer/NMS`) that had gone stale, 14
+  commits behind origin. The binary being built and run was always
+  correct — only the diagnostic label was wrong, silently — every
+  build all session reported `e1d5c0d` (whatever commit
+  `~/Developer/NMS` happened to be frozen at) regardless of what was
+  actually compiled from `~/NMS`. That undermines the one thing this
+  label exists for: `BUGS.md`'s "Found in build" field assumes it
+  distinguishes one real build from another, and for this whole
+  session it didn't.
+
+  The type's own doc comment already names the assumption this
+  breaks: "this project only ever runs on the machine it was built on
+  moments earlier via Cmd+R" — true for a single Xcode checkout, false
+  the moment a second clone (or a CI-style headless build like this
+  session's `xcodebuild -derivedDataPath /tmp/...`) enters the
+  picture. Worth a real decision, not just a path fix (the path is
+  already back in sync — see `DESIGN-NOTES.md` if this gets a fuller
+  writeup): keep the hardcoded-path approach (simplest, but the same
+  silent-staleness risk returns if the two checkouts ever diverge
+  again) versus deriving the path from the running binary's own
+  location, or dropping the design's original assumption and adding
+  the build-time Run Script stamp the doc comment already considered
+  and passed on.
+
 - [x] ~~Remove SNMP Devices from the popover; keep it window-only.~~
   **Done.** `ContentView`'s SNMP Devices block now reads
   `if FeatureFlags.snmpDevices && isInWindow`, same pattern as Wi-Fi/
