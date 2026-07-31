@@ -23,32 +23,44 @@ new ones as they come up.
   this remaining task is purely "does 51pt actually look right with 2
   real rows," which needs a second printer to check.
 
-- [ ] **`BuildInfoService`'s hardcoded repo path breaks when more than
-  one checkout exists on a machine.** Found directly: this session
-  worked from a second clone (`~/NMS`) alongside a pre-existing one at
-  the hardcoded path (`~/Developer/NMS`) that had gone stale, 14
-  commits behind origin. The binary being built and run was always
-  correct — only the diagnostic label was wrong, silently — every
-  build all session reported `e1d5c0d` (whatever commit
-  `~/Developer/NMS` happened to be frozen at) regardless of what was
-  actually compiled from `~/NMS`. That undermines the one thing this
-  label exists for: `BUGS.md`'s "Found in build" field assumes it
-  distinguishes one real build from another, and for this whole
-  session it didn't.
+- [x] ~~`BuildInfoService`'s hardcoded repo path breaks when more than
+  one checkout exists on a machine.~~ **Done — took the third option
+  (`4104b24`).** The item below already framed the choice: keep the
+  hardcoded path, derive it from the running binary, or "dropping the
+  design's original assumption and adding the build-time Run Script
+  stamp the doc comment already considered and passed on." The stamp
+  won, after the same class of bug recurred in a much more expensive
+  form.
 
-  The type's own doc comment already names the assumption this
-  breaks: "this project only ever runs on the machine it was built on
-  moments earlier via Cmd+R" — true for a single Xcode checkout, false
-  the moment a second clone (or a CI-style headless build like this
-  session's `xcodebuild -derivedDataPath /tmp/...`) enters the
-  picture. Worth a real decision, not just a path fix (the path is
-  already back in sync — see `DESIGN-NOTES.md` if this gets a fuller
-  writeup): keep the hardcoded-path approach (simplest, but the same
-  silent-staleness risk returns if the two checkouts ever diverge
-  again) versus deriving the path from the running binary's own
-  location, or dropping the design's original assumption and adding
-  the build-time Run Script stamp the doc comment already considered
-  and passed on.
+  What forced it: a binary built 2026-07-29 12:26 ran for two days
+  reporting `dead27c+dirty`, a commit made well after it, across
+  several bug reports. Same silent-staleness mechanism as the
+  two-checkouts case originally recorded here, but this time it also
+  hid a High-severity data bug — that stale binary predated `e2f9ba2`'s
+  schema change, so it was the only reason the store still opened, and
+  the misreported hash is what made the resulting failure look
+  impossible for as long as it did. See `BUGS.md`, "The persistent
+  store fails to open."
+
+  A "Stamp build info" run-script phase now writes the hash, subject
+  and dirty flag into the built `Info.plist`, and `BuildInfoService`
+  reads those instead of running `git` at launch. A stamp can't drift:
+  it's written by the build that produced the binary, or it's absent
+  (and absent stays graceful — `nil`, shown as "unknown"). Verified by
+  committing without rebuilding: the unrebuilt binary kept reporting
+  its own older hash instead of the new `HEAD`, which is exactly what
+  the old code got wrong. Also fixes the original two-checkouts case
+  for free — the stamp depends on no path at all — and drops a process
+  spawn at launch.
+
+  **One tradeoff worth knowing**: this needs
+  `ENABLE_USER_SCRIPT_SANDBOXING = NO`, scoped to the NMS app target
+  only (project default and both test targets stay `YES`). Confirmed
+  necessary rather than assumed, by reading the generated `.sb`
+  profile: it denies `file-read*` across all of `SRCROOT` including
+  `.git`, granting only individually declared input files — and
+  `git status --porcelain` can't work that way, since it stats the
+  entire worktree.
 
 - [x] ~~Remove SNMP Devices from the popover; keep it window-only.~~
   **Done.** `ContentView`'s SNMP Devices block now reads
