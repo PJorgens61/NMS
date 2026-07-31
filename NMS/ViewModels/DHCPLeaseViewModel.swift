@@ -58,6 +58,21 @@ final class DHCPLeaseViewModel: ObservableObject {
         timer?.invalidate()
     }
 
+    /// Re-reads the stored history for whatever network is now current.
+    ///
+    /// The fetch in `init` above runs before the first LAN scan has
+    /// identified the network, so it queries with no fingerprint set and
+    /// returns nothing; the only other refresh happens when a lease
+    /// actually *changes*, which on a stable network can be a day away
+    /// (`leaseSeconds` is typically 86400). Without this, real history
+    /// stayed invisible for that whole time. Wired to
+    /// `NetworkIdentityViewModel.onNetworkRecognized` — see that property
+    /// for why this class of bug only became visible once the store
+    /// started opening again.
+    func reloadHistory() {
+        history = snapshotStore.fetchDHCPLeaseHistory()
+    }
+
     /// `ipconfig` blocks like the `ping`/`snmpget`/`arp` shell-outs
     /// elsewhere in this app, so it runs off the main thread even though
     /// it's local-only and normally fast.

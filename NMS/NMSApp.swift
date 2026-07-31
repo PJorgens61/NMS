@@ -288,7 +288,7 @@ struct NMSApp: App {
             traceroute: traceroute,
             networkQuality: networkQuality
         )
-        wireEventLogRefresh(
+        wireHistoryRefresh(
             networkMonitor: networkMonitor,
             connectivity: connectivity,
             publicIP: publicIP,
@@ -296,6 +296,7 @@ struct NMSApp: App {
             screenshot: screenshot,
             wifiSSID: wifiSSID,
             eventLog: eventLog,
+            networkIdentity: networkIdentity,
             snmp: snmp,
             traceroute: traceroute
         )
@@ -468,8 +469,9 @@ struct NMSApp: App {
     }
 
     /// Every producer that can write an `AppEventRecord` tells the log view
-    /// to re-read.
-    private static func wireEventLogRefresh(
+    /// to re-read — plus the one thing that makes *already-stored* history
+    /// readable at all.
+    private static func wireHistoryRefresh(
         networkMonitor: NetworkMonitorViewModel,
         connectivity: ConnectivityViewModel,
         publicIP: PublicIPViewModel,
@@ -477,6 +479,7 @@ struct NMSApp: App {
         screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
         eventLog: EventLogViewModel,
+        networkIdentity: NetworkIdentityViewModel,
         snmp: SNMPViewModel,
         traceroute: TracerouteViewModel
     ) {
@@ -488,6 +491,23 @@ struct NMSApp: App {
         wifiSSID.onEventLogged = { eventLog.refresh() }
         snmp.onEventLogged = { eventLog.refresh() }
         traceroute.onEventLogged = { eventLog.refresh() }
+
+        // Everything above fires on *new* data. This one covers stored
+        // data that was already there: both view models fetch once in
+        // `init`, before the first LAN scan has resolved which network
+        // this is, so both come back empty and — until now — nothing
+        // re-ran them. Events only re-read when a new event is logged,
+        // and events are logged on change, so a healthy network could sit
+        // showing "No events yet" over a full history indefinitely; DHCP
+        // history only re-read when a lease changed, typically a day out.
+        //
+        // SNMP needs no equivalent here: `rebuildDeviceList()` is already
+        // called from `lanDiscovery.onScanCompleted`, the same scan whose
+        // completion drives recognition in the first place.
+        networkIdentity.onNetworkRecognized = {
+            eventLog.refresh()
+            dhcpLease.reloadHistory()
+        }
     }
 
     /// The at-a-glance severity: interface down and router/internet/DNS/HTTP
@@ -720,6 +740,22 @@ struct NMSApp: App {
     /// `StoreSizeService` already reports that case as `nil` (the base
     /// file genuinely doesn't exist there) rather than a misleading zero,
     /// so no special-casing is needed here for it.
+    /// Non-nil when the on-disk store could not be opened and the app is
+    /// running against a throwaway in-memory container instead — i.e.
+    /// every persisted history is empty and nothing written this session
+    /// will survive quitting.
+    ///
+    /// Exists because the failure used to be invisible. The fallback's
+    /// only signal was a `print()`, which reaches stdout and nowhere else
+    /// — not `UIStateLogger`, so not `ui-state.log`, not a state dump, and
+    /// not a bug report. An empty Events list renders the friendly
+    /// "No events yet — everything's healthy" copy, so a store that
+    /// wouldn't open looked exactly like a quiet, well-behaved network.
+    /// That went unnoticed for two days across several bug reports; see
+    /// `BUGS.md`. Serving an empty database in place of the real one is
+    /// worth saying out loud.
+    private(set) static var storeFallbackReason: String?
+
     private static func makeModelContainer() -> (ModelContainer, URL) {
         let schema = Schema([
             NetworkSnapshot.self,
@@ -739,6 +775,17 @@ struct NMSApp: App {
             let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
             return (container, storeURL)
         } catch {
+            // Deliberately recorded three ways, because the single
+            // `print()` this used to be reached none of the places anyone
+            // actually looks. `UIStateLogger` puts it in `ui-state.log`
+            // and therefore in every state dump and bug report; the
+            // static above drives a visible banner in the popover.
+            let reason = (error as NSError).localizedDescription
+            Self.storeFallbackReason = reason
+            UIStateLogger.log(
+                "App.storeFallback",
+                "could not open \(storeURL.path) — running in memory, all history is unavailable and nothing will persist: \(reason)"
+            )
             print("NMS: failed to open persistent store (\(error)); falling back to in-memory store")
             let container = try! ModelContainer(
                 for: schema,

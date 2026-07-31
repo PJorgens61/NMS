@@ -496,6 +496,25 @@ struct ContentView: View {
                     .lineLimit(2)
                     .accessibilityLabel("Debug overrides active: \(overrides)")
             }
+
+            // Red, not orange, and unconditional in every build — unlike
+            // the debug banner above, this reports real data loss in
+            // progress: no saved history is visible and nothing from this
+            // session will survive quitting. It went unnoticed for two
+            // days precisely because the symptom (an empty Events list)
+            // renders as reassuring copy, so this says the opposite
+            // plainly. See `NMSApp.storeFallbackReason`.
+            if NMSApp.storeFallbackReason != nil {
+                Text("⚠ Database unavailable — history is hidden and nothing is being saved")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+                    .accessibilityLabel("Database unavailable. Saved history cannot be read and new data is not being saved.")
+                    .appKitToolTip(
+                        NMSApp.storeFallbackReason ?? "",
+                        enabled: !isCapturingScreenshot
+                    )
+            }
     }
 
     /// A bordered box with a header row (title, plus an optional trailing

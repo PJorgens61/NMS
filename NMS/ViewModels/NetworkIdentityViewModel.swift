@@ -26,6 +26,26 @@ final class NetworkIdentityViewModel: ObservableObject {
     /// retry forever).
     var onRecognitionPending: (() -> Void)?
 
+    /// Fired once the current network is known and
+    /// `SnapshotStore.currentNetworkFingerprint` has been set — i.e. the
+    /// moment the per-network queries can finally return anything.
+    ///
+    /// Everything scoped per network is fetched once at launch, from
+    /// `init`, which runs *before* the first LAN scan has resolved the
+    /// router's MAC. Those fetches therefore run with no current
+    /// fingerprint and come back empty, and until this existed nothing
+    /// re-ran them: `EventLogViewModel.refresh()` was wired only to
+    /// `onEventLogged`, so a full history stayed invisible until the app
+    /// happened to log a brand-new event of its own. On a healthy network
+    /// that can be a long wait — events are logged on *change*, and
+    /// nothing changing is the normal case.
+    ///
+    /// Latent all along, but only observable once the store started
+    /// opening again (see `BUGS.md`): while every record was untagged, the
+    /// launch-time fetch matched them anyway, so the missing refresh had
+    /// nothing to reveal.
+    var onNetworkRecognized: (() -> Void)?
+
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
     }
@@ -94,6 +114,10 @@ final class NetworkIdentityViewModel: ObservableObject {
         isNewNetwork = isNew
         snapshotStore.setCurrentNetworkFingerprint(network.fingerprint)
         refreshKnownNetworks()
+        // Last, deliberately: everything above has to be in place before
+        // anything re-reads, or the refresh this triggers would run
+        // against the fingerprint that was current a moment ago.
+        onNetworkRecognized?()
     }
 
     /// Clears recognition state and the store's current-network fingerprint

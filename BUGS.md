@@ -29,65 +29,6 @@ than summarized away.
 
 ## Open
 
-### The persistent store fails to open, and every launch silently starts empty
-
-- **Status**: Open, reproduced twice, mechanism partly unexplained
-- **Severity**: High — the Events log, DHCP History and every other
-  persisted history are the app's core record, and all of them read as
-  empty on a store that demonstrably holds 230 events. Nothing on screen
-  says anything is wrong: an empty Events list renders the friendly
-  "No events yet — everything's healthy" copy, which is exactly the
-  reading a user would trust.
-- **Found in build**: `d20af0a+dirty` (also present on `dead27c+dirty`,
-  so it predates today's UI work)
-- **First reported**: found incidentally on 2026-07-31 while running the
-  test suite for an unrelated UI change — *not* reported by a user, which
-  is itself the concerning part
-
-CoreData refuses to migrate the store and `NMSApp.makeModelContainer()`
-catches it and falls back to `isStoredInMemoryOnly: true`:
-
-```
-Cannot migrate store in-place: Validation error missing attribute values
-on mandatory destination attribute
-entity=KnownNetwork, attribute=routerMAC
-```
-
-`KnownNetwork.routerMAC` and `.subnet` are non-optional `String`s added
-in `e2f9ba2`. SwiftData's lightweight migration can't add a mandatory
-attribute to a table that already has rows, and there's no
-`SchemaMigrationPlan` in the project to do it the heavy way.
-
-**What's verified.** On disk, `ZKNOWNNETWORK` has no `ZROUTERMAC` or
-`ZSUBNET`, and `ZAPPEVENTRECORD` has no `ZNETWORKFINGERPRINT` — all three
-added in `e2f9ba2`. The live app logs `EventLogViewModel.events | []`
-exactly once at startup and never again, against 230 rows in the file.
-The 11:26 bug-report screenshot from earlier the same day already showed
-"No events yet," so this is not new today. Data is **stranded, not
-destroyed** — the file is intact and every row is still readable via
-`sqlite3`.
-
-**What isn't explained yet, and shouldn't be guessed at.** The newest
-event *in the file* is 11:26:16 today, written into that same 6-column
-table. If the container had been falling back to memory since `e2f9ba2`,
-nothing from today should have reached disk at all. Either the fallback
-is intermittent, or writes reach the file by a path this investigation
-didn't find. Worth resolving before designing the fix, since "how did
-today's row get there" and "why won't it migrate" may well have the same
-answer.
-
-**Why it stayed invisible.** The fallback's only signal is a `print()` to
-stdout, which nothing captures — it isn't in `UIStateLogger`, so it never
-reaches `ui-state.log`, the state dumps, or a bug report. Whatever the
-fix, this should log through `UIStateLogger` and surface in the UI:
-silently serving an empty database in place of the real one is worse than
-refusing to start.
-
-**Blast radius.** Anyone running NMS with a store created before `e2f9ba2`
-— which includes the friends now testing it, if they were given an
-earlier build — is losing all history on every quit and has no way to
-know.
-
 ### First traceroute after joining a network reports inflated latency
 
 - **Status**: Open, root-caused, two fix options proposed
@@ -216,6 +157,113 @@ launch, confirmed against a live screenshot, not just the resulting log
 line (`MenuBarLabel.autoOpenWindow | nms-window → nms-window`).
 
 ## Fixed
+
+### The persistent store fails to open, and every launch silently starts empty
+
+- **Status**: Fixed
+- **Fixed in build**: `7d6db05`+ (see commit below)
+- **Severity**: High — the Events log, DHCP History and every other
+  persisted history are the app's core record, and all of them read as
+  empty on a store that demonstrably holds 230 events. Nothing on screen
+  says anything is wrong: an empty Events list renders the friendly
+  "No events yet — everything's healthy" copy, which is exactly the
+  reading a user would trust.
+- **Found in build**: `d20af0a+dirty` (also present on `dead27c+dirty`,
+  so it predates today's UI work)
+- **First reported**: found incidentally on 2026-07-31 while running the
+  test suite for an unrelated UI change — *not* reported by a user, which
+  is itself the concerning part
+
+CoreData refuses to migrate the store and `NMSApp.makeModelContainer()`
+catches it and falls back to `isStoredInMemoryOnly: true`:
+
+```
+Cannot migrate store in-place: Validation error missing attribute values
+on mandatory destination attribute
+entity=KnownNetwork, attribute=routerMAC
+```
+
+`KnownNetwork.routerMAC` and `.subnet` are non-optional `String`s added
+in `e2f9ba2`. SwiftData's lightweight migration can't add a mandatory
+attribute to a table that already has rows, and there's no
+`SchemaMigrationPlan` in the project to do it the heavy way.
+
+**What's verified.** On disk, `ZKNOWNNETWORK` has no `ZROUTERMAC` or
+`ZSUBNET`, and `ZAPPEVENTRECORD` has no `ZNETWORKFINGERPRINT` — all three
+added in `e2f9ba2`. The live app logs `EventLogViewModel.events | []`
+exactly once at startup and never again, against 230 rows in the file.
+The 11:26 bug-report screenshot from earlier the same day already showed
+"No events yet," so this is not new today. Data is **stranded, not
+destroyed** — the file is intact and every row is still readable via
+`sqlite3`.
+
+**The contradiction that looked impossible, resolved.** The newest event
+*in the file* was 11:26:16 that same day, written into the old 6-column
+table — which no build after `e2f9ba2` could have done. The answer was
+that **the running app was a stale binary**: `e2f9ba2` landed
+2026-07-30 11:00, and the `.app` actually running had been built
+2026-07-29 12:26, before it. That binary's model matched the on-disk
+schema exactly, so it opened the store and wrote to it happily. Only a
+freshly-built binary hits the migration failure.
+
+Two things hid this, and both are worth remembering:
+
+1. **`BuildInfoService` reads the git hash at *runtime*, from a hardcoded
+   checkout path** — so the footer showed `dead27c+dirty`, the repo's
+   current state, on a two-day-old binary. The one indicator that should
+   have caught "you're not running what you think you are" is
+   structurally incapable of it. (Already documented as a limitation in
+   that file, but the consequence hadn't been connected to this.)
+2. **Two `DerivedData` directories exist** for this project, so a
+   glob-based `open` could launch either one.
+
+**Why it stayed invisible.** The fallback's only signal was a `print()`
+to stdout, which nothing captures — not `UIStateLogger`, so not
+`ui-state.log`, not the state dumps, not a bug report. Combined with an
+empty Events list rendering as "everything's healthy," a database that
+wouldn't open looked exactly like a quiet, well-behaved network.
+
+**Blast radius.** Anyone whose store predates `e2f9ba2` and who builds
+fresh — which is everyone, on their next build — loses all visible
+history and persists nothing, with no indication.
+
+**The fix**, three parts:
+
+1. **`KnownNetwork.routerMAC`/`.subnet` are now derived from
+   `fingerprint` rather than stored beside it.** `fingerprint` is defined
+   as `routerMAC|subnet`, so the same values were being written twice and
+   the copies could in principle disagree; storing them is what created
+   two mandatory attributes lightweight migration can't add. *Dropping*
+   attributes is something it handles fine, so removing them is what let
+   the store open. Nothing queries or sorts on either — both are
+   display-only — so no predicate needed them to be real columns.
+2. **The fallback is loud now**: logged via `UIStateLogger` (so it lands
+   in `ui-state.log`, state dumps and bug reports) and surfaced as a red
+   popover banner — "Database unavailable — history is hidden and nothing
+   is being saved" — with the underlying error as its tooltip.
+3. **A latent second bug, exposed by fixing the first.** Once the store
+   opened, Events *still* showed empty. `EventLogViewModel.refresh()` and
+   `DHCPLeaseViewModel`'s history fetch both run in `init`, before the
+   first LAN scan has identified the network, so both query with no
+   fingerprint and come back empty — and nothing re-ran them. Events only
+   re-read when a *new* event is logged, and events are logged on change,
+   so a healthy network could sit showing "No events yet" over a full
+   history indefinitely; DHCP history only re-read when a lease changed,
+   typically a day out. Added
+   `NetworkIdentityViewModel.onNetworkRecognized`, wired to re-read both.
+   Latent all along, but unobservable while every record was untagged —
+   the launch-time fetch matched them anyway.
+
+**Verified against the real store**: migrates in place, 230/230 events
+preserved, `PRAGMA integrity_check` ok, all 4 `KnownNetwork` rows intact
+— including one legacy MAC-only fingerprint from before the subnet joined
+the key, which now reports an empty subnet rather than failing.
+`timesSeen` incremented 43 → 44 on the first run, confirming writes
+persist again. The log shows `EventLogViewModel.events | []` at init
+followed by the full history ~0.8s later, once recognition completes.
+77 tests in 15 suites pass, including 4 new ones pinning the fingerprint
+derivation and that legacy row.
+
 
 (Move an item here with **Fixed in build**, a one-line resolution note,
 and the commit hash, rather than deleting it, so there's a record of

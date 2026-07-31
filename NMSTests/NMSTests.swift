@@ -1006,3 +1006,58 @@ struct SectionLayoutTests {
         #expect(SectionLayout.events.boxHeight(on: .popover) == SectionLayout.rowHeight * 8)
     }
 }
+
+// MARK: - KnownNetwork fingerprint derivation
+
+/// `routerMAC` and `subnet` are derived from `fingerprint` rather than
+/// stored beside it — the change that let the store open again after two
+/// days of the app silently falling back to an in-memory container (see
+/// `BUGS.md`). These pin the round-trip and, more importantly, the
+/// real legacy row that doesn't round-trip.
+@Suite("KnownNetwork.fingerprint")
+struct KnownNetworkFingerprintTests {
+    @Test("a fingerprint round-trips back to the values it was built from")
+    func roundTrip() {
+        let fingerprint = KnownNetwork.makeFingerprint(
+            routerMAC: "bc:b9:23:81:a6:d4",
+            subnet: "10.0.0.0/24"
+        )
+        #expect(KnownNetwork.routerMAC(fromFingerprint: fingerprint) == "bc:b9:23:81:a6:d4")
+        #expect(KnownNetwork.subnet(fromFingerprint: fingerprint) == "10.0.0.0/24")
+    }
+
+    @Test("a legacy MAC-only fingerprint yields an empty subnet, not a crash")
+    func legacyMACOnlyRow() {
+        // Not hypothetical: this exact row is in the real store, written
+        // before the subnet joined the key (back when router MAC alone
+        // was the whole fingerprint). Reported as unknown rather than
+        // guessed at.
+        #expect(KnownNetwork.routerMAC(fromFingerprint: "bc:b9:23:81:a6:d4") == "bc:b9:23:81:a6:d4")
+        #expect(KnownNetwork.subnet(fromFingerprint: "bc:b9:23:81:a6:d4") == "")
+    }
+
+    @Test("a MAC's colons don't get mistaken for the separator")
+    func colonsAreNotSeparators() {
+        // The separator is deliberately `|`, which appears in neither a
+        // MAC (colons) nor a CIDR subnet (dots and a slash) — so a single
+        // split at the first occurrence is unambiguous.
+        let fingerprint = KnownNetwork.makeFingerprint(
+            routerMAC: "fc:34:97:38:c6:b0",
+            subnet: "192.168.50.0/24"
+        )
+        #expect(KnownNetwork.routerMAC(fromFingerprint: fingerprint) == "fc:34:97:38:c6:b0")
+        #expect(KnownNetwork.subnet(fromFingerprint: fingerprint) == "192.168.50.0/24")
+    }
+
+    @Test("an empty subnet still produces a separator, so it stays distinguishable")
+    func emptySubnetKeepsSeparator() {
+        // A same-MAC network with an unknown subnet must not collide with
+        // the legacy MAC-only row above — one has a trailing separator,
+        // the other has none, so their fingerprints differ and SwiftData's
+        // uniqueness constraint keeps them apart.
+        let withEmpty = KnownNetwork.makeFingerprint(routerMAC: "aa:bb:cc:dd:ee:ff", subnet: "")
+        #expect(withEmpty != "aa:bb:cc:dd:ee:ff")
+        #expect(KnownNetwork.subnet(fromFingerprint: withEmpty) == "")
+        #expect(KnownNetwork.routerMAC(fromFingerprint: withEmpty) == "aa:bb:cc:dd:ee:ff")
+    }
+}
