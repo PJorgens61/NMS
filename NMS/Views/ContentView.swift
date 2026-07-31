@@ -399,9 +399,13 @@ struct ContentView: View {
         if let info = viewModel.currentInterface {
             VStack(alignment: .leading, spacing: 2) {
                 row("Network", networkDisplay(info))
-                if info.isWiFi, let bssid = wifiSSID.currentBSSID {
-                    row("BSSID", bssid)
-                }
+                // BSSID moved to the Wi-Fi tile (window-only) — topically
+                // at home there alongside Signal/Channel/PHY Rate rather
+                // than here. Real tradeoff, not a silent one: this makes
+                // BSSID strictly less discoverable than before, since Info
+                // is popover-visible and the Wi-Fi tile isn't. Accepted —
+                // it already sits in the same "niche per-device detail"
+                // bucket SNMP Devices is in.
                 row("IP Address", ipAddressDisplay(info))
                 row("Router", routerDisplay(info))
                 row("DNS Server", info.dnsServer ?? "—")
@@ -473,6 +477,16 @@ struct ContentView: View {
             networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Down", status: .unhealthy)
         }
 
+        // Every row below reuses its matching `OverallStatus.*Label`
+        // constant for its own display text, rather than a separately
+        // hardcoded string that happens to read similarly. Two of them
+        // used to diverge for real — "Local Router" here read "Router"
+        // in the Events log, and "Internet Ping by address" read
+        // "Internet" — since `ConnectivityViewModel.logTransitions`
+        // builds every event message straight from `check.label`, which
+        // *is* one of these constants. Referencing the same constant here
+        // makes that agreement structural instead of two places that
+        // happened to match today.
         let routerCheck = connectivity.checks.first { $0.label == OverallStatus.routerLabel }
         let localRouterLayer: ConnectionLayer
         if info == nil {
@@ -480,11 +494,11 @@ struct ContentView: View {
             // router address was ever known to check, but that's a
             // certain consequence of the root cause, not genuine
             // uncertainty — cascade as unhealthy instead of `.unknown`.
-            localRouterLayer = ConnectionLayer(id: "localRouter", label: "Local Router", detail: "—", status: .unhealthy)
+            localRouterLayer = ConnectionLayer(id: "localRouter", label: OverallStatus.routerLabel, detail: "—", status: .unhealthy)
         } else {
             localRouterLayer = ConnectionLayer(
                 id: "localRouter",
-                label: "Local Router",
+                label: OverallStatus.routerLabel,
                 detail: routerCheck.map(checkDetail) ?? "Not checked",
                 status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
                 correlatedWithChange: routerCheck?.correlatedWithChange ?? false
@@ -502,16 +516,16 @@ struct ContentView: View {
         let publicIPCheck = connectivity.checks.first { $0.label == OverallStatus.publicIPLabel }
         let publicIPLayer: ConnectionLayer
         if info == nil {
-            publicIPLayer = ConnectionLayer(id: "publicIP", label: "Public IP", detail: "—", status: .unhealthy)
+            publicIPLayer = ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "—", status: .unhealthy)
         } else if publicIP.currentIP == nil {
             // Not a failure — `PublicIPViewModel`'s own (much slower,
             // 5-minute-cadence) lookup just hasn't completed yet, most
             // likely right after launch.
-            publicIPLayer = ConnectionLayer(id: "publicIP", label: "Public IP", detail: "Not checked", status: .unknown)
+            publicIPLayer = ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "Not checked", status: .unknown)
         } else {
             publicIPLayer = ConnectionLayer(
                 id: "publicIP",
-                label: "Public IP",
+                label: OverallStatus.publicIPLabel,
                 detail: publicIPCheck.map(checkDetail) ?? "Not checked",
                 status: publicIPCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
                 correlatedWithChange: publicIPCheck?.correlatedWithChange ?? false
@@ -534,16 +548,16 @@ struct ContentView: View {
             // `monitoredHop == nil` case below during a real outage and
             // showed "Not confirmed" — misleading, since that text means
             // "you haven't set this up yet," not "this is currently down."
-            peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Edge Router", detail: "—", status: .unhealthy)
+            peRouterLayer = ConnectionLayer(id: "peRouter", label: OverallStatus.peRouterLabel, detail: "—", status: .unhealthy)
         } else if traceroute.monitoredHop == nil {
             // Not a failure — you haven't confirmed which traceroute hop is
             // the ISP's edge yet (see the Path to Internet section).
-            peRouterLayer = ConnectionLayer(id: "peRouter", label: "ISP Edge Router", detail: "Not confirmed", status: .unknown)
+            peRouterLayer = ConnectionLayer(id: "peRouter", label: OverallStatus.peRouterLabel, detail: "Not confirmed", status: .unknown)
         } else {
             let peRouterCheck = connectivity.checks.first { $0.label == OverallStatus.peRouterLabel }
             peRouterLayer = ConnectionLayer(
                 id: "peRouter",
-                label: "ISP Edge Router",
+                label: OverallStatus.peRouterLabel,
                 detail: peRouterCheck.map(checkDetail) ?? "Not checked",
                 status: peRouterCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
                 correlatedWithChange: peRouterCheck?.correlatedWithChange ?? false
@@ -553,7 +567,7 @@ struct ContentView: View {
         let internetCheck = connectivity.checks.first { $0.label == OverallStatus.internetLabel }
         let internetLayer = ConnectionLayer(
             id: "internet",
-            label: "Internet Ping by address",
+            label: OverallStatus.internetLabel,
             detail: internetCheck.map(checkDetail) ?? "Not checked",
             status: internetCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
             correlatedWithChange: internetCheck?.correlatedWithChange ?? false
@@ -562,7 +576,7 @@ struct ContentView: View {
         let dnsCheck = connectivity.checks.first { $0.label == OverallStatus.dnsLabel }
         let dnsLayer = ConnectionLayer(
             id: "dns",
-            label: "DNS",
+            label: OverallStatus.dnsLabel,
             detail: dnsCheck.map(checkDetail) ?? "Not checked",
             status: dnsCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
             correlatedWithChange: dnsCheck?.correlatedWithChange ?? false
@@ -571,7 +585,7 @@ struct ContentView: View {
         let httpCheck = connectivity.checks.first { $0.label == OverallStatus.httpLabel }
         let httpLayer = ConnectionLayer(
             id: "http",
-            label: "HTTP",
+            label: OverallStatus.httpLabel,
             detail: httpCheck.map(checkDetail) ?? "Not checked",
             status: httpCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
             correlatedWithChange: httpCheck?.correlatedWithChange ?? false
@@ -940,6 +954,14 @@ struct ContentView: View {
     /// version) rather than a second, parallel mini-chart type.
     @ViewBuilder
     private var wifiSection: some View {
+        // Moved from Info — see that section's call site for the
+        // discoverability tradeoff. Shown first, before Signal: it
+        // identifies *which* access point, which is the natural thing to
+        // read before that AP's own signal/link characteristics below —
+        // same ordering Info used to have (right after Network).
+        if let bssid = wifiSSID.currentBSSID {
+            row("BSSID", bssid)
+        }
         // Not the plain `row(_:_:)` helper, so the sparkline can sit
         // inline between label and value — same layout Network Health's
         // per-layer rows already use for their own sparklines.

@@ -31,23 +31,6 @@ fixed — grounded in the actual code below, not just the symptom):
   is scoped only to already-known SNMP devices, so it doesn't cover
   first-time recognition — this needs its own path.
 
-- [ ] **2. Network Health and Events use different names for the same
-  check.** Confirmed, not guessed — grepped both sides. Event messages
-  are built from `OverallStatus`'s label constants
-  (`"\(check.label) became unreachable"`), while `ContentView` hardcodes
-  a separate display string per row. Four of six already match by
-  coincidence (DNS, HTTP, ISP Edge Router, Public IP); two don't:
-
-  | Network Health row | Event log text |
-  |---|---|
-  | "Local Router" | "**Router** became unreachable" |
-  | "Internet Ping by address" | "**Internet** became unreachable" |
-
-  Fix is mechanical: have those two `ConnectionLayer.label`s reference
-  `OverallStatus.routerLabel`/`.internetLabel` directly instead of a
-  separately-hardcoded string, the same way the event-matching code
-  already does — so they can't drift apart again.
-
 - [ ] **3. Initial traceroute showed huge latency.** `traceroute -n -q 1
   -w 1 -m 4` sends exactly one probe per hop with no retry, and runs
   immediately on topology change — before a fresh Wi-Fi association has
@@ -62,19 +45,6 @@ fixed — grounded in the actual code below, not just the symptom):
   in `NMSApp`'s wiring); or don't display/store the very first trace's
   latency as trustworthy. A blanket `-q 2`+ would also help but costs
   time on every trace, not just the first.
-
-- [ ] **4. Move BSSID from Info to the Wi-Fi tile.** Concrete and small.
-  Currently a conditional row in Info (`ContentView.swift:402-403`,
-  `if info.isWiFi, let bssid = wifiSSID.currentBSSID { row("BSSID",
-  bssid) }`). Move it into `wifiSection` alongside Signal/Channel/PHY
-  Rate/Security, where it's topically at home.
-
-  **One real tradeoff to flag, not do silently**: Info is visible in the
-  plain popover; `wifiSection` is window-only (gated behind the
-  comparison-window flag, same as the rest of that tile). Moving BSSID
-  there makes it strictly less discoverable by default — fine if that's
-  intended (it already fits the "niche per-device detail" bucket SNMP
-  Devices is in), but worth deciding rather than assuming.
 
 - [ ] **5. Slow recovery from a Wi-Fi down/up transition; only DNS and
   interface events fired red, not the others — should they match?**
