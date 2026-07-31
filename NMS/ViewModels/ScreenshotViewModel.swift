@@ -75,9 +75,20 @@ final class ScreenshotViewModel: ObservableObject {
     /// live, unmutated copy — call this before applying
     /// `isCapturingScreenshot = true` for the actual capture below, not
     /// after.
-    func measureAndLogLiveHeight(_ view: some View) {
+    /// `surface` is not decoration. This is called from `footerBar`, which
+    /// renders on *both* surfaces, so a camera click in the resizable
+    /// window measured that window and logged it under the same bare label
+    /// as a popover reading — leaving a history whose entries can't be
+    /// told apart, for a metric whose entire purpose is answering "does
+    /// the popover still fit the smallest screen." Only `.popover`
+    /// readings answer that question; a `.window` reading is a number
+    /// about a user-resizable window, which has no ceiling to breach.
+    func measureAndLogLiveHeight(_ view: some View, surface: Surface) {
         guard let height = ScreenshotService.measureHeight(view) else { return }
-        UIStateLogger.log("ContentView.liveHeight", String(format: "%.0fpt", height))
+        UIStateLogger.log(
+            "ContentView.liveHeight",
+            String(format: "%@ %.0fpt", surface.rawValue, height)
+        )
     }
 
     func capture(_ view: some View) {

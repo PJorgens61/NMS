@@ -500,9 +500,9 @@ struct NMSApp: App {
     /// Built once here rather than duplicated at each of the two call
     /// sites below — the popover and the comparison window show the exact
     /// same live view models, just hosted in a different `Scene`.
-    /// `isInWindow` is the one thing that differs: see `ContentView`'s
-    /// property of the same name for why.
-    private func contentView(isInWindow: Bool) -> ContentView {
+    /// `surface` is the one thing that differs: see `Surface` and
+    /// `SectionLayout` for what it selects.
+    private func contentView(surface: Surface) -> ContentView {
         ContentView(
             viewModel: networkMonitor,
             lanDiscovery: lanDiscovery,
@@ -518,13 +518,13 @@ struct NMSApp: App {
             snmp: snmp,
             buildInfo: buildInfo,
             storeURL: storeURL,
-            isInWindow: isInWindow
+            surface: surface
         )
     }
 
     var body: some Scene {
         MenuBarExtra {
-            contentView(isInWindow: false)
+            contentView(surface: .popover)
         } label: {
             MenuBarLabel(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color)
         }
@@ -592,7 +592,7 @@ struct NMSApp: App {
     /// .comparisonWindow` off means an empty window that's unreachable
     /// anyway (the footer button that opens it is hidden in that case),
     /// not a real content leak.
-    /// Deliberately just `contentView(isInWindow: true)` — a single,
+    /// Deliberately just `contentView(surface: .window)` — a single,
     /// direct call, same shape as the popover's own. An earlier version
     /// of this reached in and composed `ContentView.scrollableContent`/
     /// `.footerBar` as two separate children of a `VStack` declared here
@@ -604,12 +604,12 @@ struct NMSApp: App {
     /// exact path this broke (Bug Report producing no visible UI in the
     /// window, while identical code worked in the popover). The
     /// pinned-footer behavior itself is still here — moved into
-    /// `ContentView.body`'s own `isInWindow` branch, where it can't
+    /// `ContentView.body`'s own per-surface branch, where it can't
     /// split state across two parents because there's only ever one.
     @ViewBuilder
     private var comparisonWindowContent: some View {
         if FeatureFlags.comparisonWindow {
-            contentView(isInWindow: true)
+            contentView(surface: .window)
         } else {
             EmptyView()
         }

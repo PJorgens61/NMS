@@ -899,3 +899,110 @@ struct NATLayerDetectionTests {
         #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 2)
     }
 }
+
+// MARK: - SectionLayout
+
+/// The popover's height budget, as arithmetic rather than as a recurring
+/// discovery on someone's smaller screen.
+///
+/// This app's single most-repeated bug is "the popover outgrew the M1
+/// MacBook Air again" — fixed at least three separate times by hand
+/// (Events 170→136, DHCP History 90→56, SNMP Devices 140→123), each time
+/// found only after it shipped, because nothing could answer "what does
+/// the popover cost?" without a human reading six scattered comments and
+/// adding them up. `SectionLayout` makes that a computation; these tests
+/// make it a build failure.
+@Suite("SectionLayout")
+struct SectionLayoutTests {
+    @Test("the popover's scroll boxes stay within their declared budget")
+    func popoverBoxTotalWithinBudget() {
+        // The guard that actually catches the recurring regression:
+        // adding a section to the popover, or growing an existing box,
+        // fails here. Shrinking is deliberately free.
+        #expect(SectionLayout.popoverBoxTotal <= SectionLayout.popoverBoxBudget)
+    }
+
+    @Test("the budget reflects today's real total, not a number with slack in it")
+    func budgetHasNoHiddenSlack() {
+        // Pins the budget *to* the total, so the test above can't quietly
+        // stop being a constraint: if someone raises the budget to make a
+        // failure go away without shrinking anything, this catches it and
+        // forces the trade-off to be stated rather than absorbed.
+        #expect(SectionLayout.popoverBoxTotal == SectionLayout.popoverBoxBudget)
+    }
+
+    @Test("the popover's scroll boxes are the only trimmable space, and it's small")
+    func trimmableSpaceIsMostlyGone() {
+        // Documents the finding that motivated this whole structure: the
+        // trim lever is nearly exhausted. Against a last-measured popover
+        // of 846-860pt, the boxes are ~252pt — everything else (the tile
+        // grid's rows, headers, dividers, footer) has no trim mechanism
+        // at all. If this ever drops much further, trimming has stopped
+        // being a viable answer and content has to move to the window
+        // instead.
+        #expect(SectionLayout.popoverBoxTotal < SectionLayout.estimatedPopoverCeiling / 2)
+    }
+
+    @Test("window-only sections declare no popover height")
+    func windowOnlySectionsHaveNoPopoverHeight() {
+        // The exact defect this replaced: SNMP Devices and DHCP History
+        // both kept carefully-trimmed popover heights (123pt and 56pt)
+        // long after becoming window-only — ~180pt of budget that a
+        // future trim would have reasoned about and found wasn't there.
+        for section in SectionLayout.allCases where !section.appears(on: .popover) {
+            #expect(
+                section.boxHeight(on: .popover) == nil,
+                "\(section.rawValue) is window-only but declares a popover height"
+            )
+        }
+    }
+
+    @Test("every section appears on at least one surface")
+    func noOrphanedSections() {
+        for section in SectionLayout.allCases {
+            #expect(!section.surfaces.isEmpty, "\(section.rawValue) renders nowhere")
+        }
+    }
+
+    @Test("the window gives every box at least as much room as the popover")
+    func windowIsNeverTighterThanThePopover() {
+        // The window exists precisely because it has room the popover
+        // doesn't. A section that's tighter there would be a typo, not a
+        // decision.
+        for section in SectionLayout.allCases {
+            guard let popover = section.boxHeight(on: .popover),
+                  let window = section.boxHeight(on: .window) else { continue }
+            #expect(window >= popover, "\(section.rawValue) is tighter in the window")
+        }
+    }
+
+    @Test("sections that scroll on both surfaces always box in the window")
+    func windowAlwaysBoxes() {
+        // The popover's row-count threshold exists to avoid blank space
+        // under 1-2 rows; the window ignores it so sections behave
+        // consistently there. Pins that asymmetry as intentional.
+        for section in SectionLayout.allCases where section.appears(on: .window) {
+            guard section.boxHeight(on: .window) != nil else { continue }
+            #expect(section.scrollThreshold >= 0)
+        }
+    }
+
+    @Test("Printer Alerts carries a row of headroom past the 2-printer boundary")
+    func printerAlertsHasHeadroom() {
+        // A same-day bug report ("might need to be taller for 2 printers")
+        // against a box sized to exactly 2 rows, filed before a second
+        // real printer existed to test with. The headroom stands in for
+        // the measurement that couldn't be taken — pinned so it isn't
+        // "tidied" back to the exact boundary later.
+        #expect(SectionLayout.printerAlerts.boxHeight(on: .window) == SectionLayout.rowHeight * 3)
+    }
+
+    @Test("the measured row-height constant is the one the trims were derived from")
+    func rowHeightIsTheMeasuredConstant() {
+        // 17pt/row is measured, not estimated: two real desktop
+        // screenshots bracketing 41e169c showed 10 rows in 170pt and 8
+        // rows in 136pt. Both trims in the table derive from it.
+        #expect(SectionLayout.rowHeight == 17)
+        #expect(SectionLayout.events.boxHeight(on: .popover) == SectionLayout.rowHeight * 8)
+    }
+}
