@@ -9,11 +9,16 @@ import SwiftData
 /// logging every run would mean mostly-identical rows rather than a
 /// readable timeline.
 ///
-/// Existed for a while with no UI surfacing it at all — `SnapshotStore
-/// .fetchProviderEdgeHistory` was built and unused until Path to
-/// Internet needed real, naturally-growing content of its own (see
-/// `ContentView.tracerouteSection`'s edge-history addition): the exact
-/// history this type already tracked was sitting right there.
+/// Briefly had a UI (a "Provider Edge History" list under Path to
+/// Internet's hop list) — removed as a display once
+/// `ContentView.tileHeight` stopped depending on this tile having its
+/// own naturally-growing content to match Speed Test's height, and the
+/// underlying data turned out too sparse/noisy on a single-homed network
+/// to be worth showing on its own (see `PUNCHLIST.md`). The type and its
+/// recording (`SnapshotStore.recordProviderEdgeIfChanged`) stay: this is
+/// still how `TracerouteViewModel.monitoredHopAddress` survives an
+/// outage without dropping to "Not checked", and how a resolved hostname
+/// gets attached after the fact.
 @Model
 final class ProviderEdgeRecord {
     var address: String

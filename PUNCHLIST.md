@@ -8,18 +8,24 @@ new ones as they come up.
 
 ## Open
 
-- [ ] **Path to Internet's Provider Edge History may not be worth showing
-  on a single-homed network.** Raised directly, right after the feature
-  shipped (`d0c2038`): the history is real (`ProviderEdgeRecord`, one row
-  per actual ISP-edge-address change), but on an ordinary single-ISP home
-  network, that address changes rarely — the value case is clearer for a
-  multi-homed setup (failover between two ISPs/paths, or a dynamic IP
-  that rotates), where seeing the edge actually change over time is
-  genuinely diagnostic. Worth a decision once there's a real read on how
-  often this data updates in practice: keep as-is (it's also what fixed
-  the Path to Internet/Speed Test tile-height mismatch, so removing it
-  reopens that), hide it below some row-count threshold, or leave it but
-  stop leaning on it for the height fix specifically.
+- [x] ~~Path to Internet's Provider Edge History may not be worth
+  showing on a single-homed network.~~ **Removed the display.** The
+  caveat that kept this open (removing it "reopens" the Path to
+  Internet/Speed Test tile-height mismatch) stopped being true once both
+  tiles moved to one shared `ContentView.tileHeight` — matching height no
+  longer depends on either tile's actual content. With that gone, the
+  real data made the call easy: on this single-homed network, the address
+  changed twice in 3 real `ProviderEdgeRecord` rows over ~35 hours, and
+  one of those two "changes" was a flap-and-revert 3 seconds apart —
+  thin, noisy signal, not a diagnostic worth a permanent list. The
+  underlying mechanism stays (`SnapshotStore.recordProviderEdgeIfChanged`,
+  `ProviderEdgeRecord`): `TracerouteViewModel.monitoredHopAddress` still
+  depends on `latestProviderEdge()` to survive an outage without
+  dropping to "Not checked," and hostname enrichment still patches the
+  latest row. Only the UI (`ContentView+Window.swift`'s edge-history rows
+  and divider) and the display-only plumbing that fed it
+  (`TracerouteViewModel.edgeHistory`, `reloadEdgeHistory()`,
+  `SnapshotStore.fetchProviderEdgeHistory`) are gone.
 
 - [ ] **Confirm Printer Alerts' new fixed-height box actually fits 2
   printers live.** Built (`3bea552`, `65c4c00`): `ContentView` now has a

@@ -821,20 +821,6 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor))?.first
     }
 
-    /// The current network's ISP edge history — every real change, not a
-    /// per-trace log (see `ProviderEdgeRecord`). Scoped by
-    /// `currentNetworkFingerprint`: a different network's edge history
-    /// never shows here.
-    func fetchProviderEdgeHistory(limit: Int = 100) -> [ProviderEdgeRecord] {
-        let fingerprint = currentNetworkFingerprint
-        var descriptor = FetchDescriptor<ProviderEdgeRecord>(
-            predicate: #Predicate { $0.networkFingerprint == fingerprint },
-            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
-        )
-        descriptor.fetchLimit = limit
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
     /// Persists a new row only if the ISP edge router's address actually
     /// changed since the last recorded value — mirrors
     /// `recordPublicIPIfChanged`: a timeline of real changes, not a

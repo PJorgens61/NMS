@@ -72,22 +72,15 @@ extension ContentView {
     }
 
     /// Path to Internet's full content: current-trace status, then (once
-    /// there's a real path) the shared hop-list/edge-history box.
-    ///
-    /// Split into two named pieces — this dispatcher, `currentPathStatus`,
-    /// and `pathHistoryRows` — for readability: this tile does two
-    /// genuinely different jobs (report what the *latest* trace found;
-    /// show real history over time), and naming them separately makes
-    /// that split visible instead of one long function doing both. Both
-    /// are flat content now, not their own scroll box — the outer
-    /// `tile(fixedHeight:)` call this feeds already wraps all of it in
-    /// one `NoBounceScrollView` (see `ContentView.tileHeight`), so a
-    /// second, inner scroll box here would just nest redundantly.
+    /// there's a real path) the hop list. Flat content, not its own scroll
+    /// box — the outer `tile(fixedHeight:)` call this feeds already wraps
+    /// all of it in one `NoBounceScrollView` (see `ContentView.tileHeight`),
+    /// so a second, inner scroll box here would just nest redundantly.
     @ViewBuilder
     var tracerouteSection: some View {
         currentPathStatus
         if viewModel.currentInterface != nil, !traceroute.hops.isEmpty {
-            pathHistoryRows
+            hopRows
         }
     }
 
@@ -154,45 +147,6 @@ extension ContentView {
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
             }
-    }
-
-    /// The current hop list plus real edge-address history — mirrors
-    /// Speed Test's own tile, where the run history *is* the content, not
-    /// an addition below some separate "current state" display. Gives
-    /// Path to Internet real, naturally-growing content instead of the
-    /// same 1-2 confirmed hops on every launch, which is what let it
-    /// share `ContentView.tileHeight` with Speed Test instead of needing
-    /// its own exception (see that constant's doc comment for the earlier
-    /// attempts this replaced).
-    @ViewBuilder
-    private var pathHistoryRows: some View {
-        hopRows
-        if !traceroute.edgeHistory.isEmpty {
-            Divider()
-            Text("Provider Edge History")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.secondary)
-            edgeHistoryRows
-        }
-    }
-
-    /// One line per real ISP-edge-address change — see
-    /// `SnapshotStore.recordProviderEdgeIfChanged`. Single-line, unlike
-    /// DHCP History's two: address/hostname plus a date is short enough
-    /// to fit without wrapping, confirmed against this tile's width the
-    /// same way `speedTestRows`' single-line format was.
-    private var edgeHistoryRows: some View {
-        ForEach(traceroute.edgeHistory) { record in
-            HStack {
-                Text(record.hostname ?? record.address)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Text(record.observedAt, format: .dateTime.month().day().hour().minute())
-                    .foregroundStyle(.secondary)
-            }
-            .font(.system(size: 12))
-        }
     }
 
     private var hopRows: some View {

@@ -195,20 +195,13 @@ enum SectionLayout: String, CaseIterable, Sendable {
     /// visible.
     ///
     /// The window boxes regardless of this threshold for every section —
-    /// see `scrollBox`'s `wantsBox`. A brief attempt at an exception for
-    /// Path to Internet/Speed Test (a `forcesWindowBox` flag, letting them
-    /// size to content below 3 rows) is *not* what fixed the empty-box
-    /// Bug Report that prompted it: Speed Test's real history almost
-    /// always exceeds 3 rows in any ongoing use, so it kept boxing at
-    /// 140pt regardless, while Path to Internet — a network path is
-    /// structurally always short, 1-4 hops — kept rendering unboxed. The
-    /// two tiles' bottom edges stayed just as mismatched, for a different
-    /// reason. What actually fixed it: giving Path to Internet real,
-    /// naturally-growing content of its own (`TracerouteViewModel
-    /// .edgeHistory`, `ContentView.tracerouteSection`), the same kind of
-    /// content Speed Test already had, so both consistently box at a
-    /// matching declared height instead of one of them needing an
-    /// exception to the general rule.
+    /// see `scrollBox`'s `wantsBox`. `pathToInternet`/`speedTest`'s cases
+    /// below are unreachable in practice now: both tiles moved to
+    /// `tile(fixedHeight:)` (see `ContentView.tileHeight`), which never
+    /// calls `scrollBox` for them at all. Left at their old value rather
+    /// than folded into the `0` case below, since collapsing them would
+    /// read as "these behave like Events/SNMP/Printer Alerts," which
+    /// isn't true — they simply don't go through this mechanism anymore.
     var scrollThreshold: Int {
         switch self {
         case .pathToInternet, .speedTest: return 3
