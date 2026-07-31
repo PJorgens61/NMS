@@ -71,21 +71,13 @@ new ones as they come up.
   Leaning toward **keep both** — but it's your workflow being optimized
   here, not a technical necessity either way.
 
-- [ ] **"Open in Window" shouldn't appear once you're already in the
-  window.** Confirmed, not assumed: the button
-  (`ContentView.swift:405-411`) is gated only by
-  `FeatureFlags.comparisonWindow`, not by `isInWindow` — so inside the
-  resizable window itself, the footer still shows "Open in Window,"
-  and clicking it just re-triggers `openWindowInFront("nms-window")`
-  on the window you're already looking at. A real, small, confirmed
-  redundancy.
-
-  Fix is mechanical and matches an existing pattern exactly backwards:
-  every window-only *section* here (Wi-Fi, DHCP History, SNMP Devices,
-  Printer Alerts) is gated `isInWindow && ...`, since that content only
-  belongs *in* the window. This button is the opposite case — content
-  that only makes sense *outside* it — so it should read
-  `if FeatureFlags.comparisonWindow && !isInWindow`.
+- [x] ~~"Open in Window" shouldn't appear once you're already in the
+  window.~~ **Done.** Gate is now
+  `if FeatureFlags.comparisonWindow && !isInWindow`, the inverse of the
+  `isInWindow && ...` pattern every window-only section already uses.
+  Build clean, 64/64 tests, relaunched without issue. Not yet confirmed
+  by eye that the button actually disappears from the window's own
+  footer — no Accessibility permission to click through it from here.
 
 - [ ] **Add a length cap to untrusted network-derived text before it's
   persisted.** Found during a security review requested ahead of

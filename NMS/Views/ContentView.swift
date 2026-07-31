@@ -401,8 +401,16 @@ struct ContentView: View {
                 // a resizable/scrollable window (see `NMSApp`'s "nms-window"
                 // scene) — not a permanent footer addition. Gated by
                 // `FeatureFlags.comparisonWindow`, off by default for a
-                // fresh install.
-                if FeatureFlags.comparisonWindow {
+                // fresh install, *and* `!isInWindow` — this button's whole
+                // job is opening the resizable window from the popover; a
+                // fixed `FeatureFlags.comparisonWindow` gate alone left it
+                // sitting in the window's own footer too, where clicking it
+                // just re-triggered opening the window you were already
+                // looking at. The inverse of the `isInWindow &&` gate every
+                // window-only *section* here uses (Wi-Fi, DHCP History,
+                // SNMP Devices, Printer Alerts) — those only belong inside
+                // the window; this button only belongs outside it.
+                if FeatureFlags.comparisonWindow && !isInWindow {
                     Button("Open in Window") {
                         openWindowInFront("nms-window")
                     }
