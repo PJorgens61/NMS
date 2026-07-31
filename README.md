@@ -217,6 +217,15 @@ every topology change, every 10 minutes, right when internet
 reachability changes in either direction, and right after the confirmed
 hop's ISP-edge ping itself transitions.
 
+Every trace also checks for **more than one non-private hop before
+reaching the real internet** — an extra NAT layer between this Mac and
+the internet, either an extra router of your own or your ISP's own
+carrier-grade NAT (CGNAT). Logged as an Events entry only when this
+changes (not on every trace, and not on the very first one), since it
+means your public IP may be shared with other customers rather than
+identifying just this connection. Traceroute can't tell which cause it
+is — the event says so rather than guessing.
+
 ### Speed Test
 
 Two independent sources, one shared history list:

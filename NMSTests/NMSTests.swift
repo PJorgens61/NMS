@@ -124,14 +124,27 @@ struct IPClassifierTests {
         #expect(!IPClassifier.isRFC1918("172.32.0.0"))      // just above
     }
 
-    /// CGNAT is *not* RFC 1918. This app treats it as "internet", which
-    /// matters for picking the suggested ISP edge hop.
-    @Test("CGNAT and other public space are not private")
+    /// CGNAT is *not* RFC 1918 — that's `isCGNAT`'s own, separate range.
+    /// `isRFC1918` alone correctly says "not private" for it; it's
+    /// `TracerouteHop.isLocal` that combines both checks so a CGNAT hop
+    /// still isn't mistaken for "the internet" when picking the
+    /// suggested ISP edge hop — see the `TracerouteHop` suite below.
+    @Test("CGNAT and other public space are not RFC 1918")
     func publicSpace() {
         #expect(!IPClassifier.isRFC1918("100.64.0.1"))   // CGNAT, RFC 6598
         #expect(!IPClassifier.isRFC1918("8.8.8.8"))
         #expect(!IPClassifier.isRFC1918("1.1.1.1"))
         #expect(!IPClassifier.isRFC1918("192.169.1.1"))  // near-miss on 192.168
+    }
+
+    @Test("CGNAT range boundaries are exact")
+    func cgnatBoundaries() {
+        #expect(!IPClassifier.isCGNAT("100.63.255.255"))  // just below
+        #expect(IPClassifier.isCGNAT("100.64.0.0"))        // first
+        #expect(IPClassifier.isCGNAT("100.100.1.1"))       // mid-range
+        #expect(IPClassifier.isCGNAT("100.127.255.255"))   // last
+        #expect(!IPClassifier.isCGNAT("100.128.0.0"))       // just above
+        #expect(!IPClassifier.isCGNAT("10.1.10.1"))         // real trace: RFC 1918, not CGNAT-range
     }
 
     @Test("link-local (APIPA) detection is exact")
@@ -584,5 +597,106 @@ struct FormattingTests {
         #expect(DHCPLeaseInfo.durationText(3600) == "1h")
         #expect(DHCPLeaseInfo.durationText(1800) == "30m")
         #expect(DHCPLeaseInfo.durationText(60) == "1m")
+    }
+}
+
+// MARK: - TracerouteHop / TracerouteViewModel
+
+@Suite("TracerouteHop.isLocal")
+struct TracerouteHopTests {
+    private func hop(_ n: Int, _ address: String?) -> TracerouteHop {
+        TracerouteHop(hopNumber: n, address: address, hostname: nil, roundTripMs: address == nil ? nil : 10)
+    }
+
+    @Test("a non-responding hop classifies as nil, not local or internet")
+    func nonResponding() {
+        #expect(hop(1, nil).isLocal == nil)
+    }
+
+    @Test("RFC 1918 and CGNAT both count as local; a real address doesn't")
+    func classification() {
+        #expect(hop(1, "192.168.1.1").isLocal == true)
+        #expect(hop(1, "10.1.10.1").isLocal == true)
+        #expect(hop(1, "100.64.0.1").isLocal == true)      // the fix: was wrongly `false` before
+        #expect(hop(1, "96.120.90.213").isLocal == false)
+    }
+}
+
+@Suite("TracerouteViewModel.leadingNonInternetHopCount")
+struct NATLayerDetectionTests {
+    private func hop(_ n: Int, _ address: String?) -> TracerouteHop {
+        TracerouteHop(hopNumber: n, address: address, hostname: nil, roundTripMs: address == nil ? nil : 10)
+    }
+
+    /// The real trace this feature was built from — a Comcast connection
+    /// at a friend's house. Two non-internet hops (the customer's own
+    /// router, then an unresolvable 10.x address) before the first real
+    /// public one, using plain RFC 1918 space rather than the compliant
+    /// CGNAT range — which is exactly why the detection counts *any*
+    /// leading non-internet hop rather than only checking `isCGNAT`.
+    @Test("Martha's real Comcast trace: double-NAT, not compliant CGNAT")
+    func realTraceFromMarthas() {
+        let hops = [
+            hop(1, "192.168.1.1"),
+            hop(2, "10.1.10.1"),
+            hop(3, "96.120.90.213"),
+            hop(4, "96.216.8.109")
+        ]
+        #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 2)
+        #expect(!TracerouteViewModel.includesConfirmedCGNAT(hops))
+    }
+
+    @Test("a normal single-NAT home network counts exactly one")
+    func normalHomeNetwork() {
+        let hops = [
+            hop(1, "192.168.1.1"),
+            hop(2, "75.101.33.52"),
+            hop(3, "157.131.209.34")
+        ]
+        #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 1)
+    }
+
+    @Test("a compliant CGNAT hop is both counted and confidently identified")
+    func compliantCGNAT() {
+        let hops = [
+            hop(1, "192.168.1.1"),
+            hop(2, "100.64.5.1"),
+            hop(3, "8.8.8.8")
+        ]
+        #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 2)
+        #expect(TracerouteViewModel.includesConfirmedCGNAT(hops))
+    }
+
+    /// The accepted limitation, pinned: a non-responding hop stops the
+    /// count rather than being skipped over, so a real double-NAT path
+    /// can undercount if the *first* hop happens to time out. Documented
+    /// in `leadingNonInternetHopCount`'s own comment as the deliberate
+    /// "can't tell, don't act" tradeoff — this test exists so a future
+    /// change to "skip nils instead" is a conscious choice, not an
+    /// accident.
+    @Test("a non-responding leading hop stops the count rather than being skipped")
+    func nonRespondingHopStopsCounting() {
+        let hops = [
+            hop(1, nil),
+            hop(2, "10.1.10.1"),
+            hop(3, "96.120.90.213")
+        ]
+        #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 0)
+    }
+
+    @Test("an empty or fully-unresponsive trace counts zero, not a crash")
+    func emptyTrace() {
+        #expect(TracerouteViewModel.leadingNonInternetHopCount([]) == 0)
+        #expect(TracerouteViewModel.leadingNonInternetHopCount([hop(1, nil), hop(2, nil)]) == 0)
+    }
+
+    @Test("hop order in the array doesn't matter, only hopNumber order")
+    func outOfOrderInput() {
+        let hops = [
+            hop(3, "96.120.90.213"),
+            hop(1, "192.168.1.1"),
+            hop(2, "10.1.10.1")
+        ]
+        #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 2)
     }
 }

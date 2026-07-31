@@ -43,6 +43,17 @@ final class TracerouteViewModel: ObservableObject {
     /// `connectivity.runChecks()`.
     var onTraceCompleted: (() -> Void)?
 
+    /// Fired whenever an `AppEventRecord` gets logged (a NAT-layer
+    /// change), so the event log view can refresh — mirrors every other
+    /// view model's hook. The only event this view model logs.
+    var onEventLogged: (() -> Void)?
+
+    /// Whether the last trace found more than one non-internet hop before
+    /// reaching the real internet — `nil` until the first trace resolves.
+    /// `logAddressingChangeIfNeeded` compares against this to log only on
+    /// a genuine change, not on every trace.
+    private var lastKnownExtraNATState: Bool?
+
     private static let target = "1.1.1.1"
     // Traceroute is much heavier than a ping or an HTTP lookup (up to 20
     // hops, each potentially waiting out a timeout), so this runs far less
@@ -163,11 +174,82 @@ final class TracerouteViewModel: ObservableObject {
         lastRunAt = Date()
         lastError = nil
         persistMonitoredHopIfNeeded()
+        logAddressingChangeIfNeeded(result)
         enrichHostnames(for: result)
         // Last, not first: the run isn't really over until the monitored
         // hop has been persisted, and `finishRun()` can start the next
         // trace immediately.
         finishRun()
+    }
+
+    /// How many hops, starting from hop 1, are private/CGNAT before the
+    /// first hop that's genuinely on the internet. A normal single-NAT
+    /// home network has exactly one (your own router); more than one
+    /// means an extra NAT layer somewhere between this Mac and the real
+    /// internet — either the customer's own second router, or the ISP's
+    /// own carrier-grade NAT. Traceroute alone can't tell which.
+    ///
+    /// Confirmed against a real trace (Comcast, at Martha's): two
+    /// non-internet hops (the customer's own router, then a private
+    /// address with no reverse DNS) before the first genuinely public
+    /// one — that's what this is meant to catch.
+    ///
+    /// Stops at the first hop whose `isLocal` isn't `true` — including a
+    /// non-responding hop (`isLocal == nil`), which is genuinely
+    /// ambiguous rather than assumed either way. Same "can't tell, don't
+    /// act" rule this app already applies elsewhere (`SubnetCalculator`,
+    /// `SnapshotStore`'s `nil`-fingerprint handling): a hop that didn't
+    /// answer might be private or might be the real internet, and
+    /// guessing risks a wrong classification more than under-counting
+    /// does. The accepted cost: a hop-1 timeout on an otherwise-stable
+    /// double-NAT'd network could misclassify a single trace as
+    /// single-NAT — hop 1 (the local router) is the most reliable hop to
+    /// reach of any of them, so this is rare, and the next trace
+    /// self-corrects since only a genuine *change* logs anything.
+    nonisolated static func leadingNonInternetHopCount(_ hops: [TracerouteHop]) -> Int {
+        var count = 0
+        for hop in hops.sorted(by: { $0.hopNumber < $1.hopNumber }) {
+            guard hop.isLocal == true else { break }
+            count += 1
+        }
+        return count
+    }
+
+    /// Whether any hop's address falls in the CGNAT-reserved range
+    /// specifically (100.64.0.0/10), as opposed to merely being RFC 1918
+    /// private — evidence strong enough to name the cause directly
+    /// ("carrier-grade NAT") rather than the hedged general wording,
+    /// since nothing but an ISP's own infrastructure legitimately uses
+    /// that range. Martha's trace didn't hit this (Comcast used plain
+    /// 10.0.0.0/8 there), so the hedged wording is what most real traces
+    /// will actually produce.
+    nonisolated static func includesConfirmedCGNAT(_ hops: [TracerouteHop]) -> Bool {
+        hops.contains { $0.address.map(IPClassifier.isCGNAT) == true }
+    }
+
+    /// Logs `.multipleNATLayersDetected` only on a genuine change in
+    /// whether this path has an extra NAT layer — not on every trace
+    /// (this view model re-traces every 10 minutes), and not on the very
+    /// first trace this session, which has nothing to compare against.
+    /// Same reasoning as `WiFiSSIDViewModel.logNetworkChangeIfNeeded`:
+    /// every launch on an already-double-NAT'd network would otherwise
+    /// log one, and that isn't news, it's just where you already are.
+    private func logAddressingChangeIfNeeded(_ hops: [TracerouteHop]) {
+        let count = Self.leadingNonInternetHopCount(hops)
+        let isExtraNATed = count > 1
+        defer { lastKnownExtraNATState = isExtraNATed }
+        guard let previous = lastKnownExtraNATState, previous != isExtraNATed else { return }
+
+        let message: String
+        if isExtraNATed {
+            message = Self.includesConfirmedCGNAT(hops)
+                ? "Carrier-grade NAT (CGNAT) detected — \(count) hops before reaching the internet. Public IP is shared with other customers."
+                : "Multiple NAT layers detected — \(count) hops before reaching the internet. Public IP may not be unique to this connection (could be an extra router of yours, or your ISP's — can't tell which from this alone)."
+        } else {
+            message = "Back to a single NAT layer to the internet."
+        }
+        snapshotStore.logEvent(.multipleNATLayersDetected, message: message)
+        onEventLogged?()
     }
 
     /// The single place a run ends, so the deferred-rerun check can't be

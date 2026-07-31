@@ -81,6 +81,16 @@ enum AppEventKind: String, Codable {
     /// `PrinterDiscoveryService.printerAlerts()`.
     case printerAlert
     case printerAlertCleared
+    /// More than one non-internet hop precedes the real internet on the
+    /// traced path — either the customer's own router chained behind
+    /// another NAT'ing device, or the ISP's own carrier-grade NAT.
+    /// Informational, like `publicIPChanged`, not a failure: this is
+    /// about what "Public IP" means for this connection (shared with
+    /// other customers, or not directly reachable from outside), not a
+    /// health problem. One kind covers both directions, message text
+    /// differs — same shape as `interfaceChanged`. See
+    /// `TracerouteViewModel.leadingNonInternetHopCount`.
+    case multipleNATLayersDetected
 
     enum Polarity {
         case positive, negative, neutral
@@ -100,7 +110,7 @@ enum AppEventKind: String, Codable {
              .printerAlert:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
-             .screenshotCaptured:
+             .screenshotCaptured, .multipleNATLayersDetected:
             return .neutral
         }
     }

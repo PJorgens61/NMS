@@ -219,7 +219,8 @@ struct NMSApp: App {
             screenshot: screenshot,
             wifiSSID: wifiSSID,
             eventLog: eventLog,
-            snmp: snmp
+            snmp: snmp,
+            traceroute: traceroute
         )
     }
 
@@ -382,7 +383,8 @@ struct NMSApp: App {
         screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
         eventLog: EventLogViewModel,
-        snmp: SNMPViewModel
+        snmp: SNMPViewModel,
+        traceroute: TracerouteViewModel
     ) {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
@@ -391,6 +393,7 @@ struct NMSApp: App {
         screenshot.onEventLogged = { eventLog.refresh() }
         wifiSSID.onEventLogged = { eventLog.refresh() }
         snmp.onEventLogged = { eventLog.refresh() }
+        traceroute.onEventLogged = { eventLog.refresh() }
     }
 
     /// The at-a-glance severity: interface down and router/internet/DNS/HTTP

@@ -34,6 +34,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Printer fault detection (out of paper, cover open): a real dead end, on this hardware](#printer-fault-detection-out-of-paper-cover-open-a-real-dead-end-on-this-hardware)
 - [Blocking work, and the two thread pools it can starve](#blocking-work-and-the-two-thread-pools-it-can-starve)
 - [The duplicate-SNMP-row crash, and an invariant with no enforcement](#the-duplicate-snmp-row-crash-and-an-invariant-with-no-enforcement)
+- [Double-NAT / CGNAT detection, from a real trace at Martha's](#double-natcgnat-detection-from-a-real-trace-at-marthas)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -3949,3 +3950,90 @@ duplicates remaining, survivors were the fresher twins with the earliest
 five consecutive SNMP poll cycles — the exact crash site — with no crash.
 Plus two new pure regression tests pinning the pass-through contract
 between `mergingSharedMACs` and `apply` (40/40).
+
+## Double-NAT/CGNAT detection, from a real trace at Martha's
+
+Raised directly: CGNAT changes what "Public IP" means (shared across
+other customers, not identifying just this connection), and traceroute
+already has the data needed to notice it. Discussed and shaped by an
+actual `traceroute` run off-site (Comcast), not designed in the
+abstract:
+
+```
+1  192.168.1.1     (the customer's own router)
+2  10.1.10.1       (private, no reverse DNS)
+3  96.120.90.213   (first genuinely public Comcast address)
+```
+
+**Two private hops before the internet, not one.** That real data
+changed the design from what was first proposed. The original plan was
+to check `traceroute.monitoredHopAddress` against the CGNAT-reserved
+range specifically (100.64.0.0/10, RFC 6598) — but Comcast, here, used
+plain RFC 1918 space (`10.0.0.0/8`) for its own internal hop instead of
+the compliant range. That's a known, if non-compliant, practice large
+ISPs use (10.0.0.0/8 is ~16M addresses against the CGNAT range's ~4M,
+and the ISP controls both ends of the path well enough to manage the
+collision risk with a customer's own LAN itself). A detector that only
+recognized `100.64.0.0/10` would have missed the exact case it was built
+from.
+
+**A real correctness bug surfaced while implementing this, not after.**
+`TracerouteHop.isLocal` was RFC 1918-only, and `suggestedEdgeHop` picks
+`hops.first { $0.isLocal == false }` — the first hop that isn't local.
+For a carrier using the *compliant* CGNAT range, that hop would have
+been wrongly selected as "the real ISP edge," since 100.64.0.0/10 isn't
+RFC 1918 but also isn't actually the internet. Martha's trace didn't
+expose this (Comcast's hop was RFC 1918, already caught), but it would
+have misfired for anyone on standards-compliant CGNAT. Fixed by folding
+`IPClassifier.isCGNAT` into `isLocal` alongside `isRFC1918` — both mean
+"not really the internet" for the purpose of picking the edge hop.
+
+**The detection itself, `TracerouteViewModel.leadingNonInternetHopCount`:**
+count hops from hop 1, stopping at the first one whose `isLocal` isn't
+`true`. More than one means an extra NAT layer somewhere between this
+Mac and the real internet. Deliberately generic rather than
+CGNAT-range-specific, given the finding above — it catches Martha's case
+and a compliant-CGNAT case alike, using data `TracerouteViewModel`
+already computes.
+
+A second, narrower check (`includesConfirmedCGNAT`) still exists for
+message wording only: if any leading hop actually falls in
+`100.64.0.0/10`, the event names carrier-grade NAT directly ("confident"
+wording); otherwise it says "multiple NAT layers" and explicitly says it
+can't tell whether the extra hop is the customer's own second router or
+the ISP's — traceroute alone can't distinguish those two causes, and the
+event shouldn't claim to know which. Martha's own trace gets the hedged
+wording, not the confident one — a useful reminder that the "obviously
+CGNAT" case is the easier one to get right, and most real traces won't
+be that clean.
+
+**A non-responding hop stops the count rather than being skipped over**
+— the same "can't tell, don't act" rule already used elsewhere in this
+app (`SubnetCalculator`, `SnapshotStore`'s `nil`-fingerprint handling). A
+hop that didn't answer might be private or might be the real internet;
+guessing either way risks a wrong classification more than under-counting
+does. Accepted cost: a hop-1 timeout on an otherwise-stable double-NAT'd
+network could misclassify a single trace as single-NAT — hop 1 (the
+local router) is the most reliably-reached hop of any of them, so this
+is rare, and the next trace self-corrects since only a genuine *change*
+in classification logs anything.
+
+**Logged only on change, and not on the very first trace of a session**
+— same reasoning as `WiFiSSIDViewModel.logNetworkChangeIfNeeded`: every
+launch on an already-double-NAT'd network would otherwise log one, and
+that's not news, it's just where you already are. One new
+`AppEventKind`, `.multipleNATLayersDetected`, neutral polarity (this is
+information about addressing, not a health failure) — same shape as
+`interfaceChanged`: one kind, message text carries the direction.
+
+**Verified:** clean build, 49/49 tests (9 new — a `TracerouteHop.isLocal`
+suite pinning the CGNAT fix, and a `leadingNonInternetHopCount` suite
+using Martha's exact real trace data as a fixture, plus the accepted
+non-responding-hop limitation pinned as its own test so a future change
+to "skip nils instead" would be a conscious choice). Live-verified
+against this Mac's own real (single-NAT) home network: counts to 1
+correctly, logs nothing on the first trace as designed, no crash.
+End-to-end event *firing* — an actual transition between networks —
+wasn't observed live, since triggering a real network change wasn't
+available during this session; the pure detection logic is what's
+tested directly against real data instead.
