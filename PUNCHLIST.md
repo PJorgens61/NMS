@@ -404,3 +404,18 @@ don't get re-raised as new ideas.
 - **Classical dual-router VRRP identity** (two related `SNMPDeviceRecord`
   entries rather than collapsing to one). Real, but a bigger modelling
   change than the current merge; see DESIGN-NOTES.md.
+- **IPv4 Record Route (or other IP options) for explicit path recording**,
+  raised from prior experience with them on Cisco routers. Largely
+  non-functional on today's public internet: modern backbone/ISP routers
+  widely treat any packet carrying IP options as a slow-path case and
+  drop, rate-limit, or ignore them outright — long-standing practice from
+  when options-bearing packets were a common scanning/DoS vector, and
+  because fast-path forwarding hardware doesn't handle them. Even where a
+  router does cooperate, the classic 40-byte options field caps Record
+  Route at about 9 hops before running out of room. `TracerouteService`'s
+  existing TTL-increment/ICMP-Time-Exceeded technique already gets the
+  same "explicit path recording" outcome without needing any router
+  cooperation beyond generating a TTL-expiry ICMP message, which every
+  router still does regardless of how it treats IP options — so this
+  would add nothing traceroute doesn't already show, and would likely
+  work less reliably given how often options get dropped in transit.
