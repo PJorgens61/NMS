@@ -189,6 +189,20 @@ read-only — no Scan or Refresh, since you aren't actually connected to
 it. Useful for a field technician revisiting a site who wants to see
 what this Mac last saw there.
 
+**Printer monitoring is the one exception to that scoping, deliberately.**
+Every configured printer (System Settings → Printers & Scanners) is
+pinged for reachability and checked for CUPS fault alerts every round,
+on whatever network happens to be current — it is never re-discovered
+per network the way SNMP devices or DHCP leases are, because a printer
+comes from local Mac configuration, not from anything found on the LAN.
+Leave your home network and this Mac will keep trying your home printer
+and logging its up/down and alert events under whichever network you're
+actually on now. This is unlikely to change: scoping it correctly would
+mean deciding, every round, whether a configured printer actually
+belongs to the current network (e.g. by resolving its host), which is
+real added complexity for a case (a printer moving between networks
+mid-session) that's rare in practice.
+
 ### Path to Internet
 
 Traces the route to the internet (`traceroute -n -q 1 -w 1 -m 4`) and
