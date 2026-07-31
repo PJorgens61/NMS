@@ -162,36 +162,6 @@ enum SectionLayout: String, CaseIterable, Sendable {
         }
     }
 
-    /// Row count above which this section switches from a plain,
-    /// self-sizing `VStack` to its fixed-height scroll box.
-    ///
-    /// A box only earns its keep once there are more rows than fit —
-    /// below that it just adds visible blank space under the real
-    /// content. `0` means "always box once non-empty," which is the right
-    /// answer for the sections whose row counts are unbounded in practice
-    /// (events, discovered devices, configured printers) rather than
-    /// typically 1-2 (a confirmed traceroute hop, a first speed test).
-    ///
-    /// These had drifted to three different values with no single
-    /// statement of the rule; collecting them here is what made that
-    /// visible.
-    ///
-    /// The window boxes regardless of this threshold for every section —
-    /// see `scrollBox`'s `wantsBox`. `pathToInternet`/`speedTest`'s cases
-    /// below are unreachable in practice now: both tiles moved to
-    /// `tile(fixedHeight:)` (see `ContentView.tileHeight`), which never
-    /// calls `scrollBox` for them at all. Left at their old value rather
-    /// than folded into the `0` case below, since collapsing them would
-    /// read as "these behave like Events/SNMP/Printer Alerts," which
-    /// isn't true — they simply don't go through this mechanism anymore.
-    var scrollThreshold: Int {
-        switch self {
-        case .pathToInternet, .speedTest: return 3
-        case .dhcpHistory: return 2
-        case .events, .snmpDevices, .printerAlerts, .wifi: return 0
-        }
-    }
-
     /// Total fixed-height scroll-box space the popover spends, in points.
     ///
     /// **`0` as of the audience split**, and that is now the point of this

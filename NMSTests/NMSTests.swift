@@ -996,20 +996,6 @@ struct SectionLayoutTests {
         }
     }
 
-    @Test("every window section boxes regardless of the popover's row-count threshold")
-    func windowAlwaysBoxes() {
-        // The popover's row-count threshold exists to avoid blank space
-        // under 1-2 rows; the window ignores it for every section so they
-        // behave consistently there. A brief exception for Path to
-        // Internet/Speed Test was tried and reverted — see
-        // `SectionLayout.scrollThreshold`'s doc comment for why it didn't
-        // actually fix the mismatch it was built for.
-        for section in SectionLayout.allCases where section.appears(on: .window) {
-            guard section.boxHeight(on: .window) != nil else { continue }
-            #expect(section.scrollThreshold >= 0)
-        }
-    }
-
     @Test("Path to Internet and Speed Test both opt out of SectionLayout's own box height")
     func tileGridPartnersSkipDeclaredHeight() {
         // Superseded by `ContentView.tileHeight`: Path to Internet, Speed

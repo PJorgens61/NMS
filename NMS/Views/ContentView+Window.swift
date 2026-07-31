@@ -414,7 +414,7 @@ extension ContentView {
                 // popover jump.
                 .frame(height: SectionLayout.events.boxHeight(on: surface), alignment: .top)
         } else {
-            scrollBox(.events, rowCount: eventLog.events.count) {
+            scrollBox(.events) {
                 eventRows
             }
         }
@@ -477,7 +477,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
         } else {
-            scrollBox(.snmpDevices, rowCount: snmp.devices.count) {
+            scrollBox(.snmpDevices) {
                 infrastructureRows
             }
         }
@@ -649,7 +649,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
         } else {
-            scrollBox(.dhcpHistory, rowCount: dhcpLease.history.count, spacing: 4) {
+            scrollBox(.dhcpHistory, spacing: 4) {
                 dhcpHistoryRows
             }
         }
@@ -690,7 +690,7 @@ extension ContentView {
     /// on the 2-row boundary.
     @ViewBuilder
     var printerAlertsList: some View {
-        scrollBox(.printerAlerts, rowCount: connectivity.printerStatuses.count, spacing: 0) {
+        scrollBox(.printerAlerts, spacing: 0) {
             printerAlertRows
         }
     }

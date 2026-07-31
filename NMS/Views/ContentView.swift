@@ -668,26 +668,21 @@ struct ContentView: View {
     /// error. Centralising it means a new section can't forget — there's
     /// no per-section capture branch left to omit.
     ///
-    /// `rowCount` drives `SectionLayout.scrollThreshold`: below it, the
-    /// content renders as a plain self-sizing `VStack`, because a box
-    /// sized for the worst case leaves visible blank space under the 1-2
-    /// rows that are usually there. The window always boxes regardless,
-    /// so sections behave consistently there rather than silently losing
-    /// their scroll container whenever the row count happens to be low —
-    /// see `SectionLayout.scrollThreshold`'s doc comment for why Path to
-    /// Internet and Speed Test don't get an exception to this despite
-    /// their content differing a lot in how fast it grows.
+    /// Used to gate on a row-count threshold below which a box sized for
+    /// the worst case would leave visible blank space under 1-2 rows —
+    /// removed once every section that boxes at all became window-only
+    /// (see `SectionLayout.boxHeight`'s doc comment): the window always
+    /// boxes unconditionally, so that threshold check was unreachable at
+    /// every real call site and just dead weight to read past.
     // Not `private` — called from every window-only list builder in
     // `ContentView+Window.swift`.
     @ViewBuilder
     func scrollBox(
         _ section: SectionLayout,
-        rowCount: Int,
         spacing: CGFloat = 2,
         @ViewBuilder content: () -> some View
     ) -> some View {
-        let wantsBox = rowCount > section.scrollThreshold || surface == .window
-        if !isCapturingScreenshot, wantsBox, let height = section.boxHeight(on: surface) {
+        if !isCapturingScreenshot, let height = section.boxHeight(on: surface) {
             NoBounceScrollView {
                 VStack(alignment: .leading, spacing: spacing) {
                     content()

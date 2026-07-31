@@ -15,9 +15,12 @@ import SwiftUI
 /// of min/max, in exchange for that risk.
 ///
 /// Sized to roughly one line of text so it adds no vertical height to
-/// the row it joins. That matters more than it sounds — the popover
-/// fits a 13" MacBook Air exactly, and the Events list was trimmed by
-/// two rows to make it do so.
+/// the row it joins. Network Health's per-layer rows are the one place
+/// this still shares space with fixed-height popover content — every
+/// other section that once had to fight for popover room (Events
+/// included) moved window-only during the audience split, so this is
+/// now the one sparkline use where a taller drawing would still cost
+/// real popover budget.
 ///
 /// **`[Double?]`, not `[LatencySample]`** — this used to take
 /// `LatencySample` directly, but every use of a sample here was really

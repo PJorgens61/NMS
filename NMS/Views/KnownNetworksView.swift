@@ -162,12 +162,12 @@ struct KnownNetworksView: View {
     /// samples every 60s for as long as a network stays on Wi-Fi, so a
     /// genuinely Wi-Fi network wouldn't have zero samples for long.
     ///
-    /// Previously just "Unlabeled network" whenever `label` was nil —
-    /// which was *every* network, since nothing in the UI ever calls
-    /// `NetworkIdentityViewModel.setLabel`. That's a separate, still-open
-    /// gap (no UI to actually set a label) — this fallback means a nil
-    /// label no longer reads as "no information available" when the SSID
-    /// or connection type is already known.
+    /// Previously just "Unlabeled network" whenever `label` was nil,
+    /// which was *every* network before this row's `TextField` existed to
+    /// set one — this fallback means a nil label still doesn't read as
+    /// "no information available" when the SSID or connection type is
+    /// already known, for the networks a user simply hasn't bothered to
+    /// name yet.
     private func displayName(for network: KnownNetwork) -> String {
         if let label = network.label, !label.isEmpty {
             return label
