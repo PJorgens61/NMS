@@ -6,21 +6,41 @@ import Foundation
 /// source edits if Xcode isn't told to rebuild, and there's no other way
 /// to tell from the running app alone.
 ///
-/// Reads `git rev-parse --short HEAD` and the commit's subject line
-/// directly from the known checkout path at launch — a build-time stamp
-/// (an Xcode Run Script phase writing a generated Swift file) would be more
-/// correct in general, but this project only ever runs on the machine it
-/// was built on moments earlier via Cmd+R, so "current checkout state at
-/// launch" and "what got compiled" are the same thing in practice, without
-/// adding a build phase to a project that just had its build-file
-/// duplication cleaned up.
+/// Reads a stamp baked into the app bundle's `Info.plist` at build time by
+/// the "Stamp build info" run-script phase — **not** git at runtime, which
+/// is what this did before.
 ///
-/// The hardcoded path is a real, deliberate limitation: this never runs
-/// anywhere but this one checkout. If the repo ever moves, or this ships to
-/// another machine, `current()` degrades to `nil` — never a crash, and
-/// never stale data mistaken for current.
+/// **Why that changed.** Reading git at launch answers "what does the
+/// checkout say right now," which is a different question from "what was
+/// this binary built from," and the two silently diverge the moment a
+/// build goes stale — exactly the case this service exists to catch. It
+/// failed at that in the worst way: a binary built 2026-07-29 12:26 ran
+/// for two days displaying `dead27c+dirty`, a commit made well after it,
+/// across several bug reports. That stale binary predated a schema change,
+/// so it was also the only reason the store still opened — and the
+/// misreported hash is what made the resulting bug (`BUGS.md`, "The
+/// persistent store fails to open") look impossible for as long as it did.
+/// A build stamp cannot drift this way: it is written by the same build
+/// that produced the binary, or it is absent.
+///
+/// Absent is a real case and stays graceful: `nil` if the keys aren't
+/// there (a build made before this phase existed, or one where `git`
+/// wasn't available), which the popover already renders as "unknown"
+/// rather than as an error. The stamping script is likewise written to
+/// never fail a build — a missing build label is a far smaller problem
+/// than an unbuildable project.
+///
+/// One consequence worth knowing: this no longer spawns a process at
+/// launch, and no longer depends on the repo living at a hardcoded path,
+/// so it now reports correctly on any machine rather than degrading to
+/// `nil` off this one checkout.
 enum BuildInfoService {
-    private static let repoPath = NSString(string: "~/Developer/NMS").expandingTildeInPath
+    /// Written by the "Stamp build info" build phase. Kept as constants
+    /// rather than inline literals so the Swift side and that script have
+    /// one obvious place to be compared against each other.
+    private static let hashKey = "NMSGitHash"
+    private static let subjectKey = "NMSGitSubject"
+    private static let dirtyKey = "NMSGitDirty"
 
     struct Info {
         let shortHash: String
@@ -28,37 +48,23 @@ enum BuildInfoService {
         let isDirty: Bool
     }
 
-    /// `nil` if the repo isn't at the expected path, `git` isn't on the
-    /// expected path, or the working tree somehow isn't a git repo at all —
-    /// any of which should read as "unknown," not as an error worth
-    /// surfacing to the user.
+    /// `nil` when the bundle carries no stamp at all — see the type's doc
+    /// comment for when that happens and why it reads as "unknown" rather
+    /// than as an error.
     static func current() -> Info? {
-        guard let hash = run(["rev-parse", "--short", "HEAD"]) else { return nil }
-        let subject = run(["log", "-1", "--format=%s"]) ?? ""
-        let dirty = !(run(["status", "--porcelain"]) ?? "").isEmpty
-        return Info(shortHash: hash, subject: subject, isDirty: dirty)
-    }
+        guard let info = Bundle.main.infoDictionary,
+              let hash = (info[hashKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !hash.isEmpty
+        else { return nil }
 
-    private static func run(_ arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", repoPath] + arguments
+        let subject = (info[subjectKey] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Stamped as the strings "YES"/"NO" rather than a plist boolean:
+        // `plutil -replace ... -string` is what the script uses for all
+        // three keys, so they stay one consistent shape to read and to
+        // eyeball in the built plist.
+        let isDirty = (info[dirtyKey] as? String) == "YES"
 
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-
-        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (output?.isEmpty ?? true) ? nil : output
+        return Info(shortHash: hash, subject: subject, isDirty: isDirty)
     }
 }
