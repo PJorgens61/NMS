@@ -40,10 +40,21 @@ enum StoreInspector {
     /// builds and on failure. Rows per table are capped — this is meant
     /// to be read, and `ConnectivityCheckRecord` alone can hold six
     /// figures of rows (see `SnapshotStore.pruneIfNeeded`).
+    ///
+    /// `header`, when given, is written verbatim right after the
+    /// timestamp line — the bug-report path (`ScreenshotViewModel
+    /// .captureBugReport`) uses this for the user's comment, build hash,
+    /// and current severity, so the dump is self-contained (matches what
+    /// it was captured *for*) without this type needing to know anything
+    /// about builds or severity itself.
     @MainActor
-    static func dump(context: ModelContext, rowsPerTable: Int = 8) -> String? {
+    static func dump(context: ModelContext, rowsPerTable: Int = 8, header: String? = nil) -> String? {
         #if DEBUG
         var text = "NMS store dump — \(Date())\n"
+        if let header, !header.isEmpty {
+            text += header
+            if !header.hasSuffix("\n") { text += "\n" }
+        }
         text += String(repeating: "=", count: 60) + "\n"
 
         // Ordered roughly by how often each gets asked about while

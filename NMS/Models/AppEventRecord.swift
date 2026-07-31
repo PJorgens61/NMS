@@ -72,6 +72,18 @@ enum AppEventKind: String, Codable {
     /// spaces is the relevant one — see `ScreenshotService`'s fixed,
     /// space-free filename format). See DESIGN-NOTES.md.
     case screenshotCaptured
+    /// A user-triggered bug report: the same screenshot/state-dump bundle
+    /// as `screenshotCaptured`, plus a free-text comment describing what
+    /// the user actually observed — the one thing the automated capture
+    /// can't infer on its own. Deliberately a distinct kind rather than
+    /// folding into `screenshotCaptured`: the two buttons have different
+    /// purposes (fast, no-prompt capture vs. "something's wrong, here's
+    /// context"), and collapsing them would make it impossible to tell,
+    /// from the event log alone, which screenshots were ever meant to be
+    /// read as reports. `message` carries the comment itself, so this
+    /// event is directly useful in the Events list, not just a pointer to
+    /// a file — see `ScreenshotViewModel.captureBugReport`.
+    case bugReportCaptured
     /// A configured printer's own CUPS-reported fault state
     /// (`printer-state-reasons` — out of paper, cover open, toner low,
     /// etc.) went from clear to non-empty. Distinct from
@@ -110,7 +122,7 @@ enum AppEventKind: String, Codable {
              .printerAlert:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
-             .screenshotCaptured, .multipleNATLayersDetected:
+             .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected:
             return .neutral
         }
     }

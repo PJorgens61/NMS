@@ -63,6 +63,10 @@ struct ContentView: View {
 
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false
+    /// Backs the footer's "Bug Report" button — see `bugReportRow` and
+    /// `submitBugReport`.
+    @State private var bugReportDraft: String = ""
+    @State private var isReportingBug = false
     /// Keyed by `ConnectionLayer.id`. Populated by the Network Health
     /// section's `.task`; empty until then, which simply renders no
     /// sparklines rather than empty boxes.
@@ -229,6 +233,8 @@ struct ContentView: View {
                 printerAlertRows
             }
 
+            bugReportRow
+
             Divider()
 
             HStack {
@@ -261,6 +267,23 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Screenshot")
                 .accessibilityHint("Saves an image of this popover and logs an event naming the file, so it can be found without guessing")
+                // Deliberately a separate button from Screenshot above,
+                // not a prompt bolted onto it — that one's whole value is
+                // staying a fast, no-prompt capture. This one exists
+                // specifically to stop and ask "what are you seeing,"
+                // which the automated capture can't infer on its own.
+                // See `bugReportRow` for the comment field this reveals,
+                // and `ScreenshotViewModel.captureBugReport` for what it
+                // captures (same screenshot + state-dump bundle, plus the
+                // comment, build hash and current severity).
+                Button {
+                    bugReportDraft = ""
+                    isReportingBug = true
+                } label: {
+                    Image(systemName: "ladybug")
+                }
+                .accessibilityLabel("Bug Report")
+                .accessibilityHint("Saves a screenshot and state dump along with a comment describing what you're seeing")
                 // Temporary, for comparing this fixed-height popover against
                 // a resizable/scrollable window (see `NMSApp`'s "nms-window"
                 // scene) — not a permanent footer addition. Gated by
@@ -1197,6 +1220,70 @@ struct ContentView: View {
     private func commitCommunity() {
         snmp.setCommunities(communityDraft)
         isEditingCommunity = false
+    }
+
+    /// The footer's Bug Report button reveals this in place of nothing
+    /// (unlike `communityRow`, there's no persistent summary state to
+    /// show when inactive — a bug report isn't a setting) — same
+    /// TextField/Button/`onSubmit` shape as `communityRow`, one row, no
+    /// new vertical cost when inactive.
+    @ViewBuilder
+    private var bugReportRow: some View {
+        if isReportingBug {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    TextField("What are you seeing?", text: $bugReportDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                        .onSubmit { submitBugReport() }
+                    Button("Submit") { submitBugReport() }
+                        .accessibilityLabel("Submit bug report")
+                        .font(.system(size: 11))
+                    Button("Cancel") {
+                        bugReportDraft = ""
+                        isReportingBug = false
+                    }
+                    .accessibilityLabel("Cancel bug report")
+                    .font(.system(size: 11))
+                }
+                Text("Saved with a screenshot, the current build, and severity — a blank comment still saves those.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+        }
+    }
+
+    /// Severity computed the same way `NMSApp.overallStatus` does
+    /// (`OverallStatus.compute`), duplicated here rather than threading
+    /// a new parameter through `NMSApp.contentView(isInWindow:)` and its
+    /// two call sites (the popover and the comparison window). This
+    /// view model wiring has already caused three real bugs from a
+    /// dependency not being ready when first read (see `NMSApp
+    /// .wireDerivedStateDependencies`'s doc comment) — a one-line formula
+    /// repeated once is a smaller, more local cost than adding a new edge
+    /// to that graph for a debug-adjacent feature.
+    private func submitBugReport() {
+        let status = OverallStatus.compute(interfaceIsDown: viewModel.currentInterface == nil, checks: connectivity.checks)
+        let severityDescription: String
+        switch status {
+        case .normal: severityDescription = "Normal"
+        case .marginal: severityDescription = "Marginal"
+        case .critical: severityDescription = "Critical"
+        }
+
+        // Same copy-not-self pattern as the Screenshot button — see its
+        // comment for why `isCapturingScreenshot` needs a value copy.
+        var capturing = self
+        capturing.isCapturingScreenshot = true
+        screenshot.captureBugReport(
+            capturing,
+            comment: bugReportDraft,
+            buildInfo: buildInfo,
+            severityDescription: severityDescription
+        )
+        bugReportDraft = ""
+        isReportingBug = false
     }
 
     @ViewBuilder

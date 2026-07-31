@@ -85,4 +85,49 @@ final class ScreenshotViewModel: ObservableObject {
         snapshotStore.logEvent(.screenshotCaptured, message: "Screenshot saved: \(filename)")
         onEventLogged?()
     }
+
+    /// Same bundle as `capture(_:)` — same screenshot, same DEBUG-only
+    /// state dump, same shared timestamp — plus the one thing neither
+    /// artifact can supply on its own: what the user actually observed.
+    /// `comment` is the reason this is a separate button rather than a
+    /// prompt bolted onto the existing one — that button's whole value is
+    /// staying a fast, no-prompt capture; this one is deliberately "stop
+    /// and say what's wrong."
+    ///
+    /// `buildInfo`/`severityDescription` are passed in rather than
+    /// resolved here because both already exist as `ContentView`
+    /// properties (`buildInfo` directly; severity via `OverallStatus
+    /// .compute`, duplicated there rather than threaded through
+    /// `NMSApp.contentView(isInWindow:)` as a new parameter — see that
+    /// call site's comment for why touching that wiring is treated as a
+    /// bigger cost than a one-line formula repeated twice).
+    ///
+    /// Unlike `capture(_:)`'s message (just the filename — the dump has
+    /// no reader-facing content of its own to summarize), this event's
+    /// `message` carries the comment itself, so it's directly readable
+    /// from the Events list without needing to open any file at all —
+    /// `.lineLimit(1)`/`.truncationMode(.middle)` there already handle a
+    /// comment too long to fit on one line, same as every other event
+    /// row.
+    func captureBugReport(_ view: some View, comment: String, buildInfo: BuildInfoService.Info?, severityDescription: String) {
+        let renderable = view
+            .buttonStyle(.plain)
+            .background(Color(nsColor: .windowBackgroundColor))
+        guard let filename = ScreenshotService.capture(renderable) else { return }
+
+        let buildLine = buildInfo.map { "Build \($0.shortHash)\($0.isDirty ? "+dirty" : "")" } ?? "Build unknown"
+        let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let header = "\(buildLine) · \(severityDescription)\nComment: \(trimmedComment.isEmpty ? "(none)" : trimmedComment)\n"
+        if let dump = snapshotStore.dumpState(header: header) {
+            UIStateLogger.log("StoreInspector", "bug report dump saved: \(dump)")
+        }
+
+        let summary = trimmedComment.isEmpty ? "no comment" : trimmedComment
+        snapshotStore.logEvent(
+            .bugReportCaptured,
+            message: "\(buildLine) · \(severityDescription): \(summary) (\(filename))"
+        )
+        onEventLogged?()
+    }
 }

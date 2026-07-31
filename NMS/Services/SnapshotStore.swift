@@ -747,9 +747,10 @@ final class SnapshotStore {
     /// Debug-only plain-text dump of every table — see `StoreInspector`.
     /// Lives here rather than taking a `ModelContext` at the call site so
     /// `context` can stay private; this type is the only thing that owns
-    /// it.
-    func dumpState() -> String? {
-        StoreInspector.dump(context: context)
+    /// it. `header` passes through to `StoreInspector.dump` untouched —
+    /// see that parameter's doc comment.
+    func dumpState(header: String? = nil) -> String? {
+        StoreInspector.dump(context: context, header: header)
     }
 
     @discardableResult
