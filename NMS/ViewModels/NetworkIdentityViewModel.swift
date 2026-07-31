@@ -8,6 +8,23 @@ final class NetworkIdentityViewModel: ObservableObject {
     @Published private(set) var knownNetworks: [KnownNetwork] = []
 
     private let snapshotStore: SnapshotStore
+    /// Guards against retrying more than once per topology change — see
+    /// `onRecognitionPending`. Reset in `reset()`, which already runs at
+    /// the start of every topology change, before recognition is
+    /// attempted, so a later network gets its own fresh retry budget
+    /// rather than inheriting an earlier one's.
+    private var hasRequestedRetry = false
+
+    /// Fired when `recognize()` failed for the one specific, retriable
+    /// reason: the router answered (its address and subnet mask are both
+    /// known) but its MAC hasn't shown up in the ARP cache read yet — the
+    /// race documented in `BUGS.md`'s "Known Networks silently never adds
+    /// an unfamiliar network." Not fired for the "no interface at all"
+    /// case, which has nothing worth retrying. `NMSApp` wires this to a
+    /// single delayed re-scan (`hasRequestedRetry` caps it at one, so a
+    /// network that genuinely never resolves its router's MAC doesn't
+    /// retry forever).
+    var onRecognitionPending: (() -> Void)?
 
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
@@ -26,13 +43,42 @@ final class NetworkIdentityViewModel: ObservableObject {
     /// actually scopes Events/SNMP Devices/DHCP History to this network —
     /// this method existing and being called is the one place that
     /// connects "which network are we on" to "what data should show."
+    ///
+    /// The two failure cases are handled differently on purpose. No
+    /// interface, or no subnet mask, means there's nothing to recognize
+    /// yet — silent, same as before. But the router already answering
+    /// (its address and subnet are known) while its MAC is still missing
+    /// from the ARP cache is a real, previously-silent bug: the scan that
+    /// just ran was simply too early, macOS's own ARP resolution hadn't
+    /// caught up, and — with no retry — the network would never be
+    /// recognized for the rest of the session. That race is already
+    /// documented elsewhere in this codebase, for the same reason, after
+    /// a Wi-Fi reconnect (`SNMPViewModel.refreshARPIfMergeDataIsStale`).
     func recognize(routerAddress: String?, subnetMask: String?, from devices: [DiscoveredDevice]) {
-        guard
-            let routerAddress,
-            let subnetMask,
-            let routerMAC = devices.first(where: { $0.ipAddress == routerAddress })?.macAddress,
-            let subnet = SubnetCalculator.cidr(ipAddress: routerAddress, subnetMask: subnetMask)
-        else {
+        guard let routerAddress, let subnetMask else { return }
+
+        guard let routerMAC = devices.first(where: { $0.ipAddress == routerAddress })?.macAddress else {
+            if hasRequestedRetry {
+                UIStateLogger.log(
+                    "NetworkIdentityViewModel.recognize",
+                    "\(routerAddress) still not in ARP cache after one retry — giving up until the next topology change"
+                )
+            } else {
+                hasRequestedRetry = true
+                UIStateLogger.log(
+                    "NetworkIdentityViewModel.recognize",
+                    "\(routerAddress) not yet in ARP cache — requesting one retry"
+                )
+                onRecognitionPending?()
+            }
+            return
+        }
+
+        guard let subnet = SubnetCalculator.cidr(ipAddress: routerAddress, subnetMask: subnetMask) else {
+            UIStateLogger.log(
+                "NetworkIdentityViewModel.recognize",
+                "could not compute a subnet for \(routerAddress)/\(subnetMask)"
+            )
             return
         }
 
@@ -61,6 +107,7 @@ final class NetworkIdentityViewModel: ObservableObject {
     func reset() {
         currentNetwork = nil
         isNewNetwork = false
+        hasRequestedRetry = false
         snapshotStore.setCurrentNetworkFingerprint(nil)
     }
 

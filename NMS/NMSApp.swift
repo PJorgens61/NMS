@@ -377,6 +377,23 @@ struct NMSApp: App {
             snmp.rebuildDeviceList()
         }
 
+        // The retry half of the fix in `NetworkIdentityViewModel.recognize`
+        // for `BUGS.md`'s "Known Networks silently never adds an
+        // unfamiliar network": a scan that ran too early for the OS to
+        // have ARP-resolved the router yet used to leave that network
+        // unrecognized for the rest of the session, with nothing to
+        // retrigger recognition. 3s is long enough for the OS to catch up
+        // (this exact race, after a Wi-Fi reconnect, is what
+        // `SNMPViewModel.refreshARPIfMergeDataIsStale`'s own doc comment
+        // already describes) without meaningfully delaying a legitimately
+        // new network's first recognition. Capped at one retry by
+        // `NetworkIdentityViewModel.hasRequestedRetry`, not here.
+        networkIdentity.onRecognitionPending = { [weak lanDiscovery] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                lanDiscovery?.scan()
+            }
+        }
+
         // `ConnectivityViewModel.buildTargets` pings the SNMP device list as
         // its infrastructure targets, reading it as `snmp?.devices ?? []`.
         // `connectivity` is constructed *before* `snmp` (the back-reference is
