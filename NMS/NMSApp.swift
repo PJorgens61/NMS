@@ -61,7 +61,25 @@ private struct MenuBarLabel: View {
             guard !didAutoOpen else { return }
             didAutoOpen = true
             openWindow(id: "nms-window")
-            UIStateLogger.log("MenuBarLabel.autoOpenWindow", "nms-window")
+            // Same activation/ordering `openWindowInFront` needed on the
+            // MacBook (see `ContentView.openWindowInFront`'s fix,
+            // `NSApp.activate()` with no arguments) — found by testing
+            // this exact path right after that fix landed: a script or
+            // screenshot right after launch would otherwise see the
+            // window exist but sit behind other apps, the same failure
+            // mode, just reached through `openWindow(id:)` directly
+            // instead of a footer button. Deferred one run loop turn for
+            // the same reason `openWindowInFront` is: the window may not
+            // exist yet the instant `openWindow` returns.
+            DispatchQueue.main.async {
+                NSApp.activate()
+                let match = NSApp.windows.first { $0.identifier?.rawValue.contains("nms-window") == true }
+                match?.makeKeyAndOrderFront(nil)
+                UIStateLogger.log(
+                    "MenuBarLabel.autoOpenWindow",
+                    "nms-window → \(match?.identifier?.rawValue ?? "NO WINDOW MATCHED")"
+                )
+            }
         }
         #else
         image

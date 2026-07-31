@@ -82,16 +82,15 @@ under both.
 
 ### No window comes to the front on the MacBook
 
-- **Status**: Open, fix built, **needs confirmation on the MacBook** —
-  the iMac's own macOS (15.7.7) is old enough that the deprecated API
-  still worked there, so there's no before/after to observe on this
-  machine at all. Please pull, rebuild, and retest Known Networks on
-  the MacBook, and post the result to
-  [issue #6](https://github.com/PJorgens61/NMS/issues/6).
+- **Status**: Fixed, confirmed on the MacBook — see below for a second,
+  related gap found and fixed during confirmation.
 - **Severity**: High — three separate entry points (Open in Window,
   Preferences, Known Networks) completely broken on this machine, while
   all three work on the iMac from the same build.
 - **Found in build**: not recorded
+- **Fixed in build**: `f92b584` (`ContentView.openWindowInFront`);
+  auto-open gap below fixed same session, MacBook-local at time of
+  writing
 - **First reported**: off-site testing at Martha's
 - **Confirmed via**: [GitHub issue #6](https://github.com/PJorgens61/NMS/issues/6),
   the MacBook reproducing it live and posting `sw_vers` + the
@@ -137,7 +136,25 @@ Background: foregrounding was fixed twice already for the iMac.
 then ordered the specific window front by identifier. Neither touches
 application-level activation the modern way, which is what this
 machine-specific gap needs.
-for where to save one.
+
+**Confirmed on the MacBook**: pulled `f92b584`, rebuilt, retested all
+three entry points. Known Networks and Preferences both now come
+correctly to the front — verified visually (screenshots, not just the
+log) for both, not just a clean log match this time.
+
+**A second, related gap found during that confirmation, on the same
+machine**: `MenuBarLabel.autoOpenWindow` (this session's DEBUG-only
+launch-time auto-open, added for headless/scripted verification — see
+`PUNCHLIST.md`) calls plain `openWindow(id:)` directly, with none of
+`openWindowInFront`'s activation/ordering logic. It's a separate code
+path the iMac's fix never touched, and it turned out to have the exact
+same failure mode: the window existed but sat behind other apps after
+auto-opening at launch. Fixed the same way — added the identical
+`NSApp.activate()` + `makeKeyAndOrderFront` sequence, deferred one run
+loop turn, to `MenuBarLabel`'s `.task`. Verified visually after
+rebuilding: the window is now genuinely frontmost immediately at
+launch, confirmed against a live screenshot, not just the resulting log
+line (`MenuBarLabel.autoOpenWindow | nms-window → nms-window`).
 
 ## Fixed
 
