@@ -10,6 +10,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// The `MenuBarExtra` label, plus a DEBUG-only side effect: auto-opening
+/// the "nms-window" `Window` scene once at launch.
+///
+/// This exists so a script (or an AI assistant driving a session, same
+/// audience `FailureInjector`'s doc comments call out) can verify the app
+/// visually with just `screencapture` against a real `NSWindow` — no
+/// Accessibility permission, no clicking through the menu bar popover
+/// first. See the punch-list item this closes ("a debug key to auto-open
+/// the real window at launch").
+///
+/// **Why this lives here, not in `NMSApp.init()` or `AppDelegate`:**
+/// `openWindow(id:)` is a SwiftUI `@Environment` action, only available
+/// inside a real `View` — `NMSApp` is a `struct: App`, not a `View`, and
+/// `AppDelegate` is plain `AppKit`, neither has access to it. The
+/// `MenuBarExtra`'s popover content (`ContentView`) *is* a `View` with
+/// that access already (see its own `openWindow`/`openWindowInFront`),
+/// but its `.task`/`.onAppear` only fire once actually shown — clicked
+/// open by a user or a script, not at launch. The one place in this
+/// scene graph guaranteed to render immediately, regardless of whether
+/// anything is ever clicked, is the `MenuBarExtra`'s `label` — it's
+/// what makes the menu bar icon itself show up, confirmed empirically:
+/// the icon and its live color are visible the instant the app launches.
+/// Wrapping the label in its own tiny `View` gets a real `openWindow`
+/// binding attached to something with that guarantee.
+///
+/// **`for now`, unconditional in DEBUG rather than gated behind its own
+/// defaults key** — this is a temporary dev/verification convenience,
+/// not a real behavior change for the shipped app, so it follows the
+/// same `#if DEBUG` discipline as `FailureInjector`/`StoreInspector`
+/// rather than adding a new toggle. A release build can't produce this
+/// side effect at all.
+///
+/// `didAutoOpen` guards against re-triggering on every re-render — the
+/// label closure re-evaluates whenever `overallStatus.color` changes,
+/// and while `.task` on a stable view identity shouldn't restart on its
+/// own, the guard costs nothing and removes any doubt.
+private struct MenuBarLabel: View {
+    let symbolName: String
+    let color: Color
+    #if DEBUG
+    @Environment(\.openWindow) private var openWindow
+    @State private var didAutoOpen = false
+    #endif
+
+    var body: some View {
+        let image = Image(nsImage: NMSApp.statusIcon(symbolName: symbolName, color: color))
+        #if DEBUG
+        image.task {
+            guard !didAutoOpen else { return }
+            didAutoOpen = true
+            openWindow(id: "nms-window")
+            UIStateLogger.log("MenuBarLabel.autoOpenWindow", "nms-window")
+        }
+        #else
+        image
+        #endif
+    }
+}
+
 @main
 struct NMSApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -432,7 +491,7 @@ struct NMSApp: App {
         MenuBarExtra {
             contentView(isInWindow: false)
         } label: {
-            Image(nsImage: Self.statusIcon(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color))
+            MenuBarLabel(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color)
         }
         .menuBarExtraStyle(.window)
 
@@ -515,7 +574,12 @@ struct NMSApp: App {
     /// the color didn't show up at all with that approach). Rasterizing
     /// the symbol into an `NSImage` and explicitly setting `isTemplate =
     /// false` is the standard way to bypass that.
-    private static func statusIcon(symbolName: String, color: Color) -> NSImage {
+    ///
+    /// `fileprivate`, not `private` — `MenuBarLabel` above is a sibling
+    /// type in this same file, not an extension of `NMSApp`, so `private`
+    /// (scoped to the enclosing declaration) wouldn't reach it; this stays
+    /// exactly as invisible outside `NMSApp.swift` either way.
+    fileprivate static func statusIcon(symbolName: String, color: Color) -> NSImage {
         let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         let base = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(configuration) ?? NSImage()
