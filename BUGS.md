@@ -29,6 +29,65 @@ than summarized away.
 
 ## Open
 
+### The persistent store fails to open, and every launch silently starts empty
+
+- **Status**: Open, reproduced twice, mechanism partly unexplained
+- **Severity**: High — the Events log, DHCP History and every other
+  persisted history are the app's core record, and all of them read as
+  empty on a store that demonstrably holds 230 events. Nothing on screen
+  says anything is wrong: an empty Events list renders the friendly
+  "No events yet — everything's healthy" copy, which is exactly the
+  reading a user would trust.
+- **Found in build**: `d20af0a+dirty` (also present on `dead27c+dirty`,
+  so it predates today's UI work)
+- **First reported**: found incidentally on 2026-07-31 while running the
+  test suite for an unrelated UI change — *not* reported by a user, which
+  is itself the concerning part
+
+CoreData refuses to migrate the store and `NMSApp.makeModelContainer()`
+catches it and falls back to `isStoredInMemoryOnly: true`:
+
+```
+Cannot migrate store in-place: Validation error missing attribute values
+on mandatory destination attribute
+entity=KnownNetwork, attribute=routerMAC
+```
+
+`KnownNetwork.routerMAC` and `.subnet` are non-optional `String`s added
+in `e2f9ba2`. SwiftData's lightweight migration can't add a mandatory
+attribute to a table that already has rows, and there's no
+`SchemaMigrationPlan` in the project to do it the heavy way.
+
+**What's verified.** On disk, `ZKNOWNNETWORK` has no `ZROUTERMAC` or
+`ZSUBNET`, and `ZAPPEVENTRECORD` has no `ZNETWORKFINGERPRINT` — all three
+added in `e2f9ba2`. The live app logs `EventLogViewModel.events | []`
+exactly once at startup and never again, against 230 rows in the file.
+The 11:26 bug-report screenshot from earlier the same day already showed
+"No events yet," so this is not new today. Data is **stranded, not
+destroyed** — the file is intact and every row is still readable via
+`sqlite3`.
+
+**What isn't explained yet, and shouldn't be guessed at.** The newest
+event *in the file* is 11:26:16 today, written into that same 6-column
+table. If the container had been falling back to memory since `e2f9ba2`,
+nothing from today should have reached disk at all. Either the fallback
+is intermittent, or writes reach the file by a path this investigation
+didn't find. Worth resolving before designing the fix, since "how did
+today's row get there" and "why won't it migrate" may well have the same
+answer.
+
+**Why it stayed invisible.** The fallback's only signal is a `print()` to
+stdout, which nothing captures — it isn't in `UIStateLogger`, so it never
+reaches `ui-state.log`, the state dumps, or a bug report. Whatever the
+fix, this should log through `UIStateLogger` and surface in the UI:
+silently serving an empty database in place of the real one is worse than
+refusing to start.
+
+**Blast radius.** Anyone running NMS with a store created before `e2f9ba2`
+— which includes the friends now testing it, if they were given an
+earlier build — is losing all history on every quit and has no way to
+know.
+
 ### First traceroute after joining a network reports inflated latency
 
 - **Status**: Open, root-caused, two fix options proposed
