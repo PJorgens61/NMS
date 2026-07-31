@@ -1883,12 +1883,45 @@ Two options worth considering, not mutually exclusive:
   (`vrrpOperState`, `vrrpOperMasterIpAddr`, etc.) that could, if the APs
   expose them, explicitly report which addresses are VRRP virtual
   addresses and which physical device currently holds mastership —
-  removing the guesswork entirely. Not yet confirmed whether these
-  specific Aruba APs expose the VRRP-MIB at all.
+  removing the guesswork entirely. **Checked directly against both real
+  APs — not exposed.** See "VRRP-MIB checked against the real APs:
+  not supported" below. This option is off the table for this hardware.
 
 Either way, individual and virtual addresses should end up as distinct,
 related entries — never merged into one ambiguous record the way the
 reverted `sysName` approach did.
+
+### VRRP-MIB checked against the real APs: not supported
+
+Walked the VRRP-MIB base OID (`1.3.6.1.2.1.68`) against both AP1
+(`10.0.0.16`) and AP2 (`10.0.0.18`) directly, with the community
+strings already in use on this network:
+
+```
+$ snmpwalk -v2c -c public -t 2 -r 1 10.0.0.16 1.3.6.1.2.1.68
+SNMPv2-SMI::mib-2.68 = No Such Object available on this agent at this OID
+
+$ snmpwalk -v2c -c public -t 2 -r 1 10.0.0.18 1.3.6.1.2.1.68
+SNMPv2-SMI::mib-2.68 = No Such Object available on this agent at this OID
+```
+
+`thistle` timed out against both (not a community this network's
+devices accept, not evidence of anything else). Confirmed this isn't a
+broader agent problem before concluding the MIB is genuinely absent —
+`public` reads `sysDescr`/`sysName` cleanly on both:
+
+```
+AP1 (10.0.0.16): AOS-8 (MODEL: 535), Version 8.13.3.0-8.13.3.0 LSR
+AP2 (10.0.0.18): AOS-8 (MODEL: 535), Version 8.13.3.0-8.13.3.0 LSR
+```
+
+Same "not implemented at all" signature as the switch's missing
+BRIDGE-MIB elsewhere in this document — a real, responsive agent that
+simply doesn't carry this subtree, not a permissions or community
+problem. **This settles the "manual config vs. VRRP-MIB" question for
+this hardware**: VRRP-MIB awareness isn't viable here at all, so
+manual configuration is the only remaining option of the two, not a
+choice between them, if the proper fix is ever built.
 
 ### A smaller, unrelated bug this merge caused (since fixed)
 
@@ -1920,18 +1953,26 @@ already established.
 
 ### Open questions before implementing
 
-- Manual config or VRRP-MIB (or both) — does auto-detection via the MIB
-  make manual config unnecessary, or is manual config still wanted as a
-  fallback for APs that don't expose it?
-- If manual config: what's the UI for declaring a pair — a settings field
-  parallel to the existing community-string list, or something in the
-  SNMP Devices section itself (e.g. right-click "mark as VRRP pair")?
-- If VRRP-MIB: needs testing against the actual Aruba APs to confirm the
-  MIB is exposed under the community strings already in use, before any
-  code is written against it.
+- ~~Manual config or VRRP-MIB (or both)~~ — **resolved**: VRRP-MIB isn't
+  exposed on the actual APs (see above), so this is manual config only,
+  not a choice.
+- What's the UI for declaring a pair — a settings field parallel to the
+  existing community-string list, or something in the SNMP Devices
+  section itself (e.g. right-click "mark as VRRP pair")?
 - How should the UI actually present a confirmed pair — one row with both
   addresses shown, or two rows visually grouped/linked? Affects
   `SNMPDeviceRecord`'s shape either way.
+
+### Decision: staying with the current MAC-merge approach, not building the proper fix
+
+With VRRP-MIB confirmed off the table, the only remaining path to the
+"proper fix" is manual configuration — a new settings surface with its
+own UI questions still open above. Given the current MAC-based merge
+already handles the one real case actually observed, explicit direction
+is to leave it there rather than build that config surface now. This
+entry moves from "deferred, pending evidence" to "decided, for now" —
+revisit only if real hardware using a true VRRP virtual MAC is
+encountered and the duplicate-device problem visibly comes back.
 
 ## Per-network device scoping, and fixing the network fingerprint
 
