@@ -139,12 +139,20 @@ new ones as they come up.
   "Open in Window" stays the only full-detail surface — no
   expand/collapse path was added to the popover itself, since the whole
   point was moving detail *out*, not adding a second way to reach it
-  from the same place. Not yet confirmed live (this session has no
-  Accessibility permission to click the actual menu-bar icon); still
-  worth a look next time you open the popover, especially whether its
-  560pt width — sized originally for DHCP History's wrapped lines, which
-  left the popover before this change — still makes sense for two
-  label/value tiles, or should shrink.
+  from the same place. Confirmed live via accessibility-driven AppleScript (a fresh
+  capability this session — see below): the split renders correctly and
+  560pt still looks right for two tiles, no dead space on the right
+  edge. That same check surfaced a real, immediate follow-up: Network
+  Health (7 rows) and Info (5-6 rows) no longer share a column with a
+  second tile absorbing the height difference, so their borders visibly
+  mismatched. A same-day Bug Report caught it within minutes
+  ("can we align the two tiles?") — fixed by syncing just those two tiles'
+  heights via a `GeometryReader`/`PreferenceKey` pair
+  (`ContentView.topRowTile`), deliberately scoped to only Network Health
+  and Info so Path to Internet/Speed Test in the window keep their
+  existing independent sizing (syncing those was rejected once already —
+  see `scrollableContent`'s "Independent columns" comment — since Speed
+  Test's history can grow arbitrarily tall).
 
 **From off-site testing at Martha's** (8 items originally; 3 turned out
 to be bugs and moved to `BUGS.md` — Known Networks not recognizing an

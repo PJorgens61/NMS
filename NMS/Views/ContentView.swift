@@ -1,5 +1,18 @@
 import SwiftUI
 
+/// Backs `ContentView.topRowTile(title:content:)` — bubbles each
+/// reporting tile's own natural height up to a single shared ancestor,
+/// `reduce` keeping the max seen so far. Top-level (not nested in
+/// `ContentView`) because `PreferenceKey` conformances are simplest as
+/// freestanding types; nothing about this is specific to `ContentView`
+/// beyond where it's used.
+private struct TileHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var viewModel: NetworkMonitorViewModel
     @ObservedObject var lanDiscovery: LANDiscoveryViewModel
@@ -86,6 +99,26 @@ struct ContentView: View {
     /// section's `.task`; empty until then, which simply renders no
     /// sparklines rather than empty boxes.
     @State private var latencyHistory: [String: [LatencySample]] = [:]
+
+    /// The taller of Network Health's and Info's two tile heights, fed
+    /// back down as a shared `minHeight` on both — see `topRowTile(_:)`.
+    ///
+    /// Found via a real Bug Report filed minutes after the audience split
+    /// shipped (`BUGS.md`/`PUNCHLIST.md` — "can we align the two tiles?"):
+    /// once Path to Internet and Speed Test moved to window-only, each
+    /// popover column collapsed to exactly one tile, and Network Health's
+    /// fixed 7 rows versus Info's 5-6 left their borders visibly
+    /// mismatched — a gap the two-tile-per-column stack used to absorb
+    /// without anyone choosing to rely on it.
+    ///
+    /// `0` (not knowing the row counts) rather than a hardcoded row
+    /// count: both tiles' content varies slightly with state (`Public IP`
+    /// error text, whether "Known network" has resolved yet), so a fixed
+    /// guess would drift out of sync with reality the way this codebase
+    /// has explicitly moved away from elsewhere (see `SectionLayout`'s
+    /// measured, not estimated, row heights). Measuring the real rendered
+    /// heights and syncing them is the same discipline applied here.
+    @State private var topRowTileHeight: CGFloat = 0
 
     /// The window branch used to be handled by `NMSApp` splitting
     /// `scrollableContent`/`footerBar` into two children of *its own*
@@ -232,7 +265,7 @@ struct ContentView: View {
             // surface, not a new one.
             HStack(alignment: .top, spacing: 12) {
                 VStack(spacing: 12) {
-                    tile(title: "Network Health") {
+                    topRowTile(title: "Network Health") {
                         connectionHealthSection
                     }
                     if SectionLayout.pathToInternet.appears(on: surface) {
@@ -249,7 +282,7 @@ struct ContentView: View {
                     }
                 }
                 VStack(spacing: 12) {
-                    tile(title: "Info") {
+                    topRowTile(title: "Info") {
                         infoSection
                     }
                     if SectionLayout.speedTest.appears(on: surface) {
@@ -266,6 +299,7 @@ struct ContentView: View {
                     }
                 }
             }
+            .onPreferenceChange(TileHeightPreferenceKey.self) { topRowTileHeight = $0 }
 
             // Window-only (declared in `SectionLayout`, not gated inline
             // here) — this adds a full-width section, and the popover's
@@ -573,6 +607,39 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.secondary.opacity(0.25))
         )
+    }
+
+    /// Wraps `tile(title:content:)` for Network Health and Info
+    /// specifically, syncing their two heights via `topRowTileHeight`
+    /// rather than letting each size independently to its own row count.
+    ///
+    /// Reports this tile's natural height upward through
+    /// `TileHeightPreferenceKey` (via an invisible `GeometryReader` in the
+    /// background, the standard SwiftUI way to read a view's own rendered
+    /// size), and applies whatever the shared max currently is as a
+    /// `minHeight` — so the shorter tile grows to match the taller one,
+    /// and the taller tile is unaffected (a `minHeight` below its natural
+    /// height changes nothing).
+    ///
+    /// Deliberately scoped to just these two. Path to Internet and Speed
+    /// Test, stacked below them in the window, must stay independently
+    /// sized — that asymmetry is a fix already in place, not an oversight
+    /// (see `scrollableContent`'s "Independent columns" comment): Speed
+    /// Test's real history can grow arbitrarily tall, and syncing it with
+    /// Path to Internet's near-constant few lines is exactly the dead-
+    /// space bug a `LazyVGrid` was rejected for once already. Network
+    /// Health and Info have no such unbounded grower between them, which
+    /// is what makes syncing *this* pair safe where syncing that one
+    /// wasn't.
+    @ViewBuilder
+    private func topRowTile(title: String, @ViewBuilder content: () -> some View) -> some View {
+        tile(title: title, content: content)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: TileHeightPreferenceKey.self, value: proxy.size.height)
+                }
+            )
+            .frame(minHeight: topRowTileHeight > 0 ? topRowTileHeight : nil, alignment: .top)
     }
 
     /// The one place a fixed-height, independently-scrolling history box
