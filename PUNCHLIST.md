@@ -185,6 +185,49 @@ new ones as they come up.
   against the user's own live view, is what actually confirmed the fix,
   not the automated heuristic.
 
+  **Round 3, a different pair**: a *third* same-day Bug Report ("can you
+  align the bottom edges of path to internet and speed test?") named the
+  window's other tile-grid row. First attempt: a `SectionLayout
+  .forcesWindowBox` flag letting Path to Internet size to content below
+  3 rows instead of always boxing at 150pt, on the theory that an empty
+  box (2 confirmed hops in a box sized for the worst case) was the whole
+  problem. Live verification (a real screencapture of the frontmost
+  window, not a build check) showed it wasn't: Speed Test's real history
+  already had 5 entries, past its own threshold, so it kept boxing at
+  140pt regardless of the flag — the mismatch persisted, just for a
+  different reason. That reason turned out to be structural, not a
+  layout bug at all: **a network path is almost always short (1-4 hops,
+  usually confirmed down to 1-2), while Speed Test's history only
+  grows** — no box-forcing rule reconciles a tile whose content is
+  inherently sparse with one that's inherently an accumulating log.
+
+  Raised directly and answered directly: rather than keep chasing that
+  asymmetry with layout rules, give Path to Internet the same kind of
+  content Speed Test already has. `SnapshotStore.fetchProviderEdgeHistory`
+  / `ProviderEdgeRecord` already existed for exactly this — a real
+  change-log of the ISP edge address, built earlier and never wired into
+  any UI — so this was surfacing existing data, not building a feature
+  from scratch. Added `TracerouteViewModel.edgeHistory`, network-scoped
+  the same way DHCP/Events are (`ProviderEdgeRecord.networkFingerprint`,
+  optional — a mandatory version would have hit the exact migration
+  failure `BUGS.md`'s store bug describes), wired
+  `NetworkIdentityViewModel.onNetworkRecognized` to reload it (same gap
+  as today's earlier Events/DHCP fix), and appended it below the current
+  hop list inside Path to Internet's existing box — one shared
+  scrollable area, mirroring how Speed Test's history *is* its content
+  rather than an addition below a separate "current state" display.
+  `forcesWindowBox` was reverted (the window boxes unconditionally again,
+  for every section) and Path to Internet's declared window height was
+  set equal to Speed Test's (140, not derived from either tile's actual
+  content — "reasonable sizes, the window scrolls past whatever doesn't
+  fit" was the explicit call, since squeezing every tile to fit exactly
+  stopped being the point once nothing has to fit inside a popover
+  anymore). Verified against the real store (3 existing
+  `ProviderEdgeRecord` rows migrated and adopted cleanly, no fallback)
+  and live via a screencapture of the actual frontmost window: both
+  tiles' bottom borders and the divider below them now land on the same
+  row.
+
 **From off-site testing at Martha's** (8 items originally; 3 turned out
 to be bugs and moved to `BUGS.md` — Known Networks not recognizing an
 unfamiliar network, the first-traceroute latency inflation, and the

@@ -56,6 +56,14 @@ final class SnapshotStore {
         )) {
             for lease in leases { lease.networkFingerprint = fingerprint }
         }
+        // Append-only timeline, same as events/leases above — no
+        // uniqueness constraint to protect the way SNMPDeviceRecord's
+        // block below does, so a plain retag is correct here.
+        if let edges = try? context.fetch(FetchDescriptor<ProviderEdgeRecord>(
+            predicate: #Predicate { $0.networkFingerprint == nil }
+        )) {
+            for edge in edges { edge.networkFingerprint = fingerprint }
+        }
         // Unlike events and leases above — append-only logs where a
         // retagged row is just another entry — `SNMPDeviceRecord` holds
         // **one row per (ipAddress, network)**, an invariant enforced only
@@ -798,16 +806,29 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    /// Scoped to `currentNetworkFingerprint` — same reasoning as
+    /// `latestDHCPLease`: an edge address from a different network
+    /// shouldn't count as "the previous edge" for change detection, or
+    /// show as this network's fallback ping target
+    /// (`TracerouteViewModel.monitoredHopAddress`).
     func latestProviderEdge() -> ProviderEdgeRecord? {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<ProviderEdgeRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
         )
         descriptor.fetchLimit = 1
         return (try? context.fetch(descriptor))?.first
     }
 
+    /// The current network's ISP edge history — every real change, not a
+    /// per-trace log (see `ProviderEdgeRecord`). Scoped by
+    /// `currentNetworkFingerprint`: a different network's edge history
+    /// never shows here.
     func fetchProviderEdgeHistory(limit: Int = 100) -> [ProviderEdgeRecord] {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<ProviderEdgeRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit
@@ -821,7 +842,12 @@ final class SnapshotStore {
     @discardableResult
     func recordProviderEdgeIfChanged(address: String, hostname: String?, at date: Date = Date()) -> Bool {
         guard latestProviderEdge()?.address != address else { return false }
-        context.insert(ProviderEdgeRecord(address: address, hostname: hostname, observedAt: date))
+        context.insert(ProviderEdgeRecord(
+            address: address,
+            hostname: hostname,
+            observedAt: date,
+            networkFingerprint: currentNetworkFingerprint
+        ))
         try? context.save()
         return true
     }

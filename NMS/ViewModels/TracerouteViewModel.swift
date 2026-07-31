@@ -15,6 +15,12 @@ final class TracerouteViewModel: ObservableObject {
         didSet { UIStateLogger.log("TracerouteViewModel.lastError", lastError as Any) }
     }
     @Published private(set) var lastRunAt: Date?
+    /// The current network's ISP edge history — real changes only, not a
+    /// per-trace log (see `ProviderEdgeRecord`). Gives Path to Internet
+    /// genuine, naturally-growing content of its own in the window,
+    /// rather than the same 1-2 confirmed hops repeated on every launch —
+    /// see `ContentView.tracerouteSection`'s use of this.
+    @Published private(set) var edgeHistory: [ProviderEdgeRecord] = []
     /// The hop number the user has confirmed as "the" router to monitor —
     /// persisted across launches. `nil` until they confirm one.
     @Published private(set) var monitoredHopNumber: Int? {
@@ -71,6 +77,7 @@ final class TracerouteViewModel: ObservableObject {
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         monitoredHopNumber = UserDefaults.standard.object(forKey: Self.monitoredHopDefaultsKey) as? Int
+        edgeHistory = snapshotStore.fetchProviderEdgeHistory()
         timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.runInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.run()
@@ -304,6 +311,18 @@ final class TracerouteViewModel: ObservableObject {
     /// address actually changed — a change timeline, not a per-run log.
     private func persistMonitoredHopIfNeeded() {
         guard let hop = monitoredHop, let address = hop.address else { return }
-        snapshotStore.recordProviderEdgeIfChanged(address: address, hostname: hop.hostname)
+        guard snapshotStore.recordProviderEdgeIfChanged(address: address, hostname: hop.hostname) else { return }
+        reloadEdgeHistory()
+    }
+
+    /// Re-reads the current network's edge history — called after a real
+    /// change is persisted above, and by `NetworkIdentityViewModel
+    /// .onNetworkRecognized` once the network is known. The latter covers
+    /// the same launch-time gap `EventLogViewModel`/`DHCPLeaseViewModel`
+    /// have: this view model's own `init` fetches before the first LAN
+    /// scan has resolved which network this is, so that fetch runs with
+    /// no fingerprint set and returns nothing.
+    func reloadEdgeHistory() {
+        edgeHistory = snapshotStore.fetchProviderEdgeHistory()
     }
 }

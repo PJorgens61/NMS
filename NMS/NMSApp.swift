@@ -507,6 +507,7 @@ struct NMSApp: App {
         networkIdentity.onNetworkRecognized = {
             eventLog.refresh()
             dhcpLease.reloadHistory()
+            traceroute.reloadEdgeHistory()
         }
     }
 

@@ -996,15 +996,32 @@ struct SectionLayoutTests {
         }
     }
 
-    @Test("sections that scroll on both surfaces always box in the window")
+    @Test("every window section boxes regardless of the popover's row-count threshold")
     func windowAlwaysBoxes() {
         // The popover's row-count threshold exists to avoid blank space
-        // under 1-2 rows; the window ignores it so sections behave
-        // consistently there. Pins that asymmetry as intentional.
+        // under 1-2 rows; the window ignores it for every section so they
+        // behave consistently there. A brief exception for Path to
+        // Internet/Speed Test was tried and reverted — see
+        // `SectionLayout.scrollThreshold`'s doc comment for why it didn't
+        // actually fix the mismatch it was built for.
         for section in SectionLayout.allCases where section.appears(on: .window) {
             guard section.boxHeight(on: .window) != nil else { continue }
             #expect(section.scrollThreshold >= 0)
         }
+    }
+
+    @Test("Path to Internet and Speed Test share the same declared window height")
+    func tileGridPartnersMatchWindowHeight() {
+        // A real Bug Report, in two rounds: first the two tiles' bottom
+        // edges didn't match because the window force-boxed one but not
+        // the other; reverting that still didn't fix it, because Speed
+        // Test's real history almost always exceeds its row threshold
+        // while Path to Internet's structurally doesn't. The actual fix
+        // was giving Path to Internet its own real, growing content
+        // (`TracerouteViewModel.edgeHistory`) and declaring a matching
+        // height here — not a derived/measured value, an explicit
+        // decision that these two should look the same size.
+        #expect(SectionLayout.pathToInternet.boxHeight(on: .window) == SectionLayout.speedTest.boxHeight(on: .window))
     }
 
     @Test("Printer Alerts carries a row of headroom past the 2-printer boundary")

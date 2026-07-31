@@ -643,7 +643,10 @@ struct ContentView: View {
     /// sized for the worst case leaves visible blank space under the 1-2
     /// rows that are usually there. The window always boxes regardless,
     /// so sections behave consistently there rather than silently losing
-    /// their scroll container whenever the row count happens to be low.
+    /// their scroll container whenever the row count happens to be low —
+    /// see `SectionLayout.scrollThreshold`'s doc comment for why Path to
+    /// Internet and Speed Test don't get an exception to this despite
+    /// their content differing a lot in how fast it grows.
     @ViewBuilder
     private func scrollBox(
         _ section: SectionLayout,
@@ -1624,9 +1627,44 @@ struct ContentView: View {
         }
 
         if viewModel.currentInterface != nil, !traceroute.hops.isEmpty {
-            scrollBox(.pathToInternet, rowCount: displayedHops.count) {
+            // Edge history shares this one box with the current hop list
+            // rather than getting a second box of its own — mirrors Speed
+            // Test's own tile, where the run history *is* the content,
+            // not an addition below some separate "current state" display.
+            // Gives Path to Internet real, naturally-growing content
+            // instead of the same 1-2 confirmed hops on every launch,
+            // which is what let its box match Speed Test's declared
+            // height instead of needing an exception (see
+            // `SectionLayout.scrollThreshold`'s doc comment).
+            scrollBox(.pathToInternet, rowCount: displayedHops.count + traceroute.edgeHistory.count) {
                 hopRows
+                if !traceroute.edgeHistory.isEmpty {
+                    Divider()
+                    Text("Provider Edge History")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    edgeHistoryRows
+                }
             }
+        }
+    }
+
+    /// One line per real ISP-edge-address change — see
+    /// `SnapshotStore.recordProviderEdgeIfChanged`. Single-line, unlike
+    /// DHCP History's two: address/hostname plus a date is short enough
+    /// to fit without wrapping, confirmed against this tile's width the
+    /// same way `speedTestRows`' single-line format was.
+    private var edgeHistoryRows: some View {
+        ForEach(traceroute.edgeHistory) { record in
+            HStack {
+                Text(record.hostname ?? record.address)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(record.observedAt, format: .dateTime.month().day().hour().minute())
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 12))
         }
     }
 

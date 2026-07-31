@@ -128,17 +128,21 @@ enum SectionLayout: String, CaseIterable, Sendable {
     func boxHeight(on surface: Surface) -> CGFloat? {
         guard appears(on: surface) else { return nil }
         switch (self, surface) {
-        // Predates the audience split, from when this still had to fit a
-        // popover: sized for the worst case (3+ hops, before an edge hop
-        // is confirmed). Kept in the window now mainly for consistency
-        // with the other boxed sections, not because this surface has a
-        // height constraint of its own to size against.
-        case (.pathToInternet, .window): return 150
+        // Matched to Speed Test's, deliberately — these two sit side by
+        // side in the same tile-grid row, and with both now boxing
+        // unconditionally in the window (see `scrollThreshold`'s doc
+        // comment), a mismatched pair of declared heights would just be a
+        // new, more permanent version of the same misaligned-bottom-edge
+        // Bug Report this was tuned to fix. Not derived from either
+        // tile's content — "reasonable sizes, the window scrolls past
+        // whatever doesn't fit" was the explicit call here, same as
+        // Speed Test's own value below.
+        case (.pathToInternet, .window): return 140
 
-        // Ditto — this was trimmed against the popover's M1 Air
-        // constraint (90 → 56pt there, in the popover-only days) before
-        // the audience split removed it from the popover entirely. The
-        // window value was already more generous and needed no change.
+        // Predates the audience split, from when this still had to fit a
+        // popover (trimmed against the M1 Air constraint, 90 → 56pt
+        // there) — the window value was already more generous and never
+        // needed to change on its own account.
         case (.speedTest, .window): return 140
 
         // 300 was already the window value from before the split; 136
@@ -196,16 +200,21 @@ enum SectionLayout: String, CaseIterable, Sendable {
     /// statement of the rule; collecting them here is what made that
     /// visible.
     ///
-    /// **Vestigial for Path to Internet and Speed Test as of the audience
-    /// split.** `scrollBox`'s `wantsBox` check is `rowCount > threshold
-    /// || surface == .window`, and every section here now only ever
-    /// renders `on: .window` — so the `|| surface == .window` half is
-    /// always true regardless of what this returns, and the popover
-    /// threshold these two values were originally chosen for no longer
-    /// applies to anything. Left at their old values rather than deleted,
-    /// since a case for every `SectionLayout` value is still required —
-    /// this comment is what stops that from reading as an unexplained
-    /// leftover.
+    /// The window boxes regardless of this threshold for every section —
+    /// see `scrollBox`'s `wantsBox`. A brief attempt at an exception for
+    /// Path to Internet/Speed Test (a `forcesWindowBox` flag, letting them
+    /// size to content below 3 rows) is *not* what fixed the empty-box
+    /// Bug Report that prompted it: Speed Test's real history almost
+    /// always exceeds 3 rows in any ongoing use, so it kept boxing at
+    /// 140pt regardless, while Path to Internet — a network path is
+    /// structurally always short, 1-4 hops — kept rendering unboxed. The
+    /// two tiles' bottom edges stayed just as mismatched, for a different
+    /// reason. What actually fixed it: giving Path to Internet real,
+    /// naturally-growing content of its own (`TracerouteViewModel
+    /// .edgeHistory`, `ContentView.tracerouteSection`), the same kind of
+    /// content Speed Test already had, so both consistently box at a
+    /// matching declared height instead of one of them needing an
+    /// exception to the general rule.
     var scrollThreshold: Int {
         switch self {
         case .pathToInternet, .speedTest: return 3
