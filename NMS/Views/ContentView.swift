@@ -331,7 +331,7 @@ struct ContentView: View {
                 Text("Printer Alerts")
                     .font(.headline)
 
-                printerAlertRows
+                printerAlertsList
             }
     }
 
@@ -1050,6 +1050,47 @@ struct ContentView: View {
                     // bare hex transaction ID do.
                     .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: !isCapturingScreenshot)
             }
+        }
+    }
+
+    /// A fixed-height, scrollable box built to comfortably show 2 rows
+    /// before it scrolls — same `NoBounceScrollView` pattern and the same
+    /// confirmed 17pt/row constant `dhcpHistoryList` uses (measured
+    /// directly against two real screenshots bracketing commit
+    /// `41e169c`), just for a single-line row instead of DHCP's two-line
+    /// one. This section is already window-only outright (never shown in
+    /// the popover at all), so unlike DHCP History there's no
+    /// popover-height value to also pick — a plain fixed height, not a
+    /// ternary.
+    ///
+    /// First built at exactly 2 × 17 = 34pt — landed right on the
+    /// boundary instead of with headroom past it, unlike every other use
+    /// of this constant in this file (see `speedTestRows`'s trim: "two
+    /// rows are taken rather than one so the fix lands with a row of
+    /// headroom instead of exactly on the boundary"). Only 1 real printer
+    /// was configured to test against at the time, so the exact boundary
+    /// was never actually exercised — a same-day Bug Report flagged
+    /// exactly this ("might need to be taller for 2 printers") before a
+    /// second real printer could confirm or refute it either way. Bumped
+    /// to 3 × 17 = 51pt to match the same headroom convention rather than
+    /// re-guess a tighter number blind.
+    ///
+    /// Not wrapped during a screenshot capture, same as every other
+    /// scrollable section here — `isCapturingScreenshot` swaps in a plain,
+    /// unclipped list so a saved image shows every configured printer,
+    /// not just whichever 2 fit the live box.
+    @ViewBuilder
+    private var printerAlertsList: some View {
+        if isCapturingScreenshot {
+            printerAlertRows
+        } else {
+            NoBounceScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    printerAlertRows
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 51)
         }
     }
 
