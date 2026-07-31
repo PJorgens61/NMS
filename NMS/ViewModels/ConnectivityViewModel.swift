@@ -20,7 +20,6 @@ final class ConnectivityViewModel: ObservableObject {
     private let printerService = PrinterDiscoveryService()
     private let snapshotStore: SnapshotStore
     private weak var networkMonitor: NetworkMonitorViewModel?
-    private weak var lanDiscovery: LANDiscoveryViewModel?
     private weak var traceroute: TracerouteViewModel?
     private weak var snmp: SNMPViewModel?
     private weak var publicIP: PublicIPViewModel?
@@ -113,13 +112,11 @@ final class ConnectivityViewModel: ObservableObject {
 
     init(
         networkMonitor: NetworkMonitorViewModel,
-        lanDiscovery: LANDiscoveryViewModel,
         traceroute: TracerouteViewModel,
         publicIP: PublicIPViewModel,
         snapshotStore: SnapshotStore
     ) {
         self.networkMonitor = networkMonitor
-        self.lanDiscovery = lanDiscovery
         self.traceroute = traceroute
         self.publicIP = publicIP
         self.snapshotStore = snapshotStore

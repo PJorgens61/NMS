@@ -266,11 +266,19 @@ final class SnapshotStore {
     /// essentially all the growth while touching nothing anyone would
     /// miss.
     ///
-    /// Worth stating plainly: **nothing in this app currently reads any
-    /// of the three pruned tables.** They're written and never fetched
-    /// (verified across the whole source), so this bounds data that is,
-    /// as of today, pure write amplification — retained only because the
-    /// planned sparklines feature would read the first of them.
+    /// **Update: two of the three are read now.** This originally said
+    /// nothing here was fetched at all, retained only because a *planned*
+    /// sparklines feature would eventually read the first table — that
+    /// feature has since shipped. `fetchLatencyHistory` reads
+    /// `ConnectivityCheckRecord` for Network Health's per-layer
+    /// sparklines, and `fetchWiFiSampleHistory` reads `WiFiSampleRecord`
+    /// for the Wi-Fi RSSI sparkline and Network Review's Wi-Fi tab.
+    /// `DiscoveredDeviceRecord` alone still fits the original claim —
+    /// written (here and by LAN scans) and never fetched anywhere else
+    /// (verified across the whole source). The retention math doesn't
+    /// change either way: seven days is still ~700x what either
+    /// sparkline's ~20-30-point window actually needs, so being read now
+    /// rather than "eventually" doesn't argue for keeping more of it.
     ///
     /// Pruning on write rather than from a timer or at launch is a
     /// deliberate choice for a menu bar app: launch-only never runs on an

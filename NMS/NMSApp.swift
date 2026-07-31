@@ -170,7 +170,6 @@ struct NMSApp: App {
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let connectivity = ConnectivityViewModel(
             networkMonitor: networkMonitor,
-            lanDiscovery: lanDiscovery,
             traceroute: traceroute,
             publicIP: publicIP,
             snapshotStore: store
