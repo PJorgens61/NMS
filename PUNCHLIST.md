@@ -8,6 +8,30 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Shrink the Printer Alerts window section; confirm it handles 2
+  printers.** Checked the "2 printers" half first — it should already
+  work. `PrinterDiscoveryService.parseAlerts` loops over every
+  `printer <name> is ...` block `lpstat -l -p` reports (there's an
+  existing unit test, `multiPrinter`, pinning exactly two), and nothing
+  downstream — `ConnectivityViewModel`'s target-building, the
+  `ForEach(connectivity.printerStatuses)` row rendering — narrows to a
+  single printer anywhere. Worth an actual test with a second real
+  printer configured rather than more code, unless that test finds a
+  real gap.
+
+  "Shrink" needs a decision before it's actionable: unlike DHCP History
+  and SNMP Devices, this section (`ContentView.printerAlertRows`) has
+  no fixed-height scroll box at all — it's a plain `ForEach`, so it
+  already takes only as much room as it needs (one row per printer,
+  no padding to trim) and grows unbounded rather than being capped.
+  Two real, different things "shrink" could mean:
+  - Tighter per-row styling (smaller dot, less spacing) — a small,
+    reversible visual tweak.
+  - Add the same scrollable fixed-height box the other window-only
+    sections use, so a future long printer list doesn't just grow the
+    window indefinitely — a bigger, structural change for a case
+    (many configured printers) that doesn't exist yet.
+
 - [ ] **`BuildInfoService`'s hardcoded repo path breaks when more than
   one checkout exists on a machine.** Found directly: this session
   worked from a second clone (`~/NMS`) alongside a pre-existing one at
