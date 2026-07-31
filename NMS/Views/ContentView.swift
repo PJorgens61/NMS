@@ -839,32 +839,19 @@ struct ContentView: View {
             )
         }
 
-        let internetCheck = connectivity.checks.first { $0.label == OverallStatus.internetLabel }
-        let internetLayer = ConnectionLayer(
-            id: "internet",
-            label: OverallStatus.internetLabel,
-            detail: internetCheck.map(checkDetail) ?? "Not checked",
-            status: internetCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-            correlatedWithChange: internetCheck?.correlatedWithChange ?? false
-        )
-
-        let dnsCheck = connectivity.checks.first { $0.label == OverallStatus.dnsLabel }
-        let dnsLayer = ConnectionLayer(
-            id: "dns",
-            label: OverallStatus.dnsLabel,
-            detail: dnsCheck.map(checkDetail) ?? "Not checked",
-            status: dnsCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-            correlatedWithChange: dnsCheck?.correlatedWithChange ?? false
-        )
-
-        let httpCheck = connectivity.checks.first { $0.label == OverallStatus.httpLabel }
-        let httpLayer = ConnectionLayer(
-            id: "http",
-            label: OverallStatus.httpLabel,
-            detail: httpCheck.map(checkDetail) ?? "Not checked",
-            status: httpCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-            correlatedWithChange: httpCheck?.correlatedWithChange ?? false
-        )
+        // Internet/DNS/HTTP need none of Network/Local Router/Public IP/
+        // ISP Edge Router's special-cased `info == nil` branches above:
+        // `ConnectivityViewModel.runChecks()`'s own no-interface guard
+        // already synthesizes `success: false` entries for exactly these
+        // three labels unconditionally (unlike Router/PublicIP/PeRouter,
+        // which it only covers conditionally or not at all), so the
+        // ordinary check-lookup-and-map below already resolves to
+        // `.unhealthy` with no interface, correctly, without a local
+        // guard of its own — confirmed by reading that guard rather than
+        // assumed, before relying on it here.
+        let internetLayer = standardLayer(id: "internet", label: OverallStatus.internetLabel)
+        let dnsLayer = standardLayer(id: "dns", label: OverallStatus.dnsLabel)
+        let httpLayer = standardLayer(id: "http", label: OverallStatus.httpLabel)
 
         return [networkLayer, localRouterLayer, publicIPLayer, peRouterLayer, internetLayer, dnsLayer, httpLayer]
     }
@@ -936,6 +923,23 @@ struct ContentView: View {
 
     private func checkDetail(for check: ConnectivityCheck) -> String {
         check.success ? String(format: "%.0f ms", check.latencyMs ?? 0) : "unreachable"
+    }
+
+    /// Builds a `ConnectionLayer` straight from `connectivity.checks`, no
+    /// special-casing beyond "absent means not checked yet." Only fits
+    /// layers with no extra states of their own to represent — see
+    /// `connectionLayersLowToHigh`'s Internet/DNS/HTTP call sites for why
+    /// those three specifically can use this and Network/Local Router/
+    /// Public IP/ISP Edge Router can't.
+    private func standardLayer(id: String, label: String) -> ConnectionLayer {
+        let check = connectivity.checks.first { $0.label == label }
+        return ConnectionLayer(
+            id: id,
+            label: label,
+            detail: check.map(checkDetail) ?? "Not checked",
+            status: check.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: check?.correlatedWithChange ?? false
+        )
     }
 
     /// The footer's Bug Report button reveals this in place of nothing
