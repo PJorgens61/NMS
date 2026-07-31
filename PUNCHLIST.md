@@ -46,6 +46,47 @@ new ones as they come up.
   the same pass, plus the Bug Report button, missing from the footer
   description). Build clean, 64/64 tests, relaunched without issue.
 
+- [ ] **Is the plain Screenshot button still needed now that Bug Report
+  exists?** Real question, but the two aren't redundant — checked what
+  each actually does. Screenshot (`ScreenshotViewModel.capture`) is a
+  single no-prompt action: grabs the image, logs `screenshotCaptured`,
+  done. Bug Report (`captureBugReport`) is a strict *superset* of that
+  same screenshot mechanism, plus a state dump, plus a comment/severity
+  — but its own doc comment is explicit this was a deliberate design
+  choice, not an oversight: "Deliberately a separate button from
+  Screenshot above, not a prompt bolted onto it — that one's whole
+  value is staying a fast, no-prompt capture. This one exists
+  specifically to stop and ask 'what are you seeing.'"
+
+  Submitting Bug Report with an empty comment *would* work as a
+  Screenshot replacement functionally (the code already handles an
+  empty comment gracefully — `"(none)"`), but costs two extra clicks
+  (open the prompt, confirm with nothing typed) and always writes a
+  state-dump file even when nobody needed one. This session's own
+  history argues for keeping both: several screenshots handed over
+  mid-session this exact week were all the fast, no-prompt button,
+  precisely because typing a comment first would have been friction
+  for "just look at this."
+
+  Leaning toward **keep both** — but it's your workflow being optimized
+  here, not a technical necessity either way.
+
+- [ ] **"Open in Window" shouldn't appear once you're already in the
+  window.** Confirmed, not assumed: the button
+  (`ContentView.swift:405-411`) is gated only by
+  `FeatureFlags.comparisonWindow`, not by `isInWindow` — so inside the
+  resizable window itself, the footer still shows "Open in Window,"
+  and clicking it just re-triggers `openWindowInFront("nms-window")`
+  on the window you're already looking at. A real, small, confirmed
+  redundancy.
+
+  Fix is mechanical and matches an existing pattern exactly backwards:
+  every window-only *section* here (Wi-Fi, DHCP History, SNMP Devices,
+  Printer Alerts) is gated `isInWindow && ...`, since that content only
+  belongs *in* the window. This button is the opposite case — content
+  that only makes sense *outside* it — so it should read
+  `if FeatureFlags.comparisonWindow && !isInWindow`.
+
 - [ ] **Add a length cap to untrusted network-derived text before it's
   persisted.** Found during a security review requested ahead of
   letting friends try the app. SNMP `sysDescr`/`sysName`
