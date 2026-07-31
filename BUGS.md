@@ -82,59 +82,52 @@ under both.
 
 ### No window comes to the front on the MacBook
 
-- **Status**: Open, leading hypothesis identified, not yet confirmed
+- **Status**: Open, root cause confirmed, fix not yet written
 - **Severity**: High — three separate entry points (Open in Window,
   Preferences, Known Networks) completely broken on this machine, while
   all three work on the iMac from the same build.
-- **Found in build**: not recorded — reported before this field existed;
-  get this off the MacBook's popover footer next time this is touched
+- **Found in build**: not recorded
 - **First reported**: off-site testing at Martha's
+- **Confirmed via**: [GitHub issue #6](https://github.com/PJorgens61/NMS/issues/6),
+  the MacBook reproducing it live and posting `sw_vers` + the
+  `openWindowInFront` log line
 
 That it's *all three* windows is the important part: this isn't a
 per-window bug, the whole `openWindowInFront` mechanism is inert on this
 machine, so the cause is machine-level, not per-window logic.
 
-**Leading suspect: macOS tightened focus-stealing.**
-`NSApp.activate(ignoringOtherApps: true)` has been deprecated since macOS
-14, and later versions increasingly decline to let a background app pull
-itself forward. The iMac runs 15.7.7; if the MacBook is on a newer major
-version, that alone would explain a clean split between two machines
-running identical code. **Get the MacBook's `sw_vers` first** — that
-single fact probably settles it. If confirmed, the fix is the modern
-activation path (`NSApp.activate()` with no arguments, or
-`NSRunningApplication.current.activate(options:)`) rather than more
-window ordering.
+**Confirmed: macOS tightened focus-stealing.** The MacBook is on
+**macOS 26.5.2** (Build 25F84) against the iMac's 15.7.7 — a real,
+large version gap. Reproducing the bug there and clicking Known
+Networks logged:
 
-Background: foregrounding was fixed twice already. `0f8f80e` added
-`NSApp.activate`; `1ca9dc8` deferred a run loop turn and then ordered the
-specific window front by identifier, which fixed both windows on the
-iMac (verified from the state log, not by eye).
-
-**Start with the log rather than the code** — `openWindowInFront`
-already records what it matched:
-
-```bash
-grep openWindowInFront ~/Library/Logs/NMS/ui-state.log
+```
+ContentView.openWindowInFront | known-networks → known-networks
 ```
 
-- `nms-window → nms-window` means the window was found and
-  `makeKeyOrderFront` ran, so the failure is *after* that — something is
-  re-ordering above it, or the app never became active. Suspect Stage
-  Manager, multiple displays, or a different Space, none of which the
-  iMac has in the same configuration.
-- `NO WINDOW MATCHED` means SwiftUI hadn't created the window yet when
-  the deferred block ran — one run loop turn is enough on the iMac but
-  not on the slower/busier machine. That would make the current fix
-  timing-dependent, and it should instead retry or hook window creation
-  rather than assume a single turn is enough.
+A clean match — `makeKeyOrderFront` ran — but the window still never
+came to front; another app (Notes) ended up frontmost instead. That
+rules out the timing hypothesis outright (a timing miss would have
+logged `NO WINDOW MATCHED`) and confirms the other branch: the specific
+window *is* found and made key within this app's own window list, but
+the *application itself* never becomes frontmost, so another app's
+windows keep rendering on top of it regardless of what NMS did to its
+own window.
 
-Worth noting the two machines differ in more than speed: the MacBook is
-Apple Silicon and the iMac is Intel, so this may also be a macOS version
-difference rather than a race.
+`NSApp.activate(ignoringOtherApps: true)` has been deprecated since
+macOS 14, and later versions increasingly decline to let a background
+app pull itself forward this way — exactly this. **Fix**: the modern
+activation path, `NSApplication.shared.activate()` (no
+`ignoringOtherApps` parameter) or `NSRunningApplication.current.activate(options:)`,
+in `ContentView.openWindowInFront`, replacing the deprecated call rather
+than adding more window-ordering logic — the window-matching half
+already works correctly and needs no changes.
 
-A screenshot of the stuck-behind-other-windows state, or of the log
-output above, would help confirm which branch this falls into before
-more time goes into it — see the Screenshots field description above
+Background: foregrounding was fixed twice already for the iMac.
+`0f8f80e` added `NSApp.activate`; `1ca9dc8` deferred a run loop turn and
+then ordered the specific window front by identifier. Neither touches
+application-level activation the modern way, which is what this
+machine-specific gap needs.
 for where to save one.
 
 ## Fixed
