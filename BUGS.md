@@ -29,37 +29,6 @@ than summarized away.
 
 ## Open
 
-### Known Networks silently never adds an unfamiliar network
-
-- **Status**: Open, root-caused, fix proposed
-- **Severity**: High — the entire per-network history feature depends on
-  recognition succeeding; a network that fails to recognize gets no
-  Known Networks entry and no scoped history, permanently, for that
-  network.
-- **Found in build**: not recorded — reported before this field existed
-- **First reported**: off-site testing at Martha's
-
-`NetworkIdentityViewModel.recognize(routerAddress:subnetMask:from:)`
-requires the router's MAC to already be present in that *one* LAN scan's
-ARP results (`devices.first(where: { $0.ipAddress == routerAddress
-})?.macAddress`) — if it's missing, the guard just `return`s. No retry,
-no log line, nothing else re-triggers recognition for the rest of the
-session unless another topology change happens to fire a fresh scan.
-
-That guard failing on an unfamiliar network is plausible: joining fires
-the scan almost immediately, and if macOS's own ARP cache hasn't resolved
-the gateway yet — a real race this codebase has hit before
-(`SNMPViewModel.refreshARPIfMergeDataIsStale`'s doc comment describes
-exactly this after a Wi-Fi reconnect) — the guard fails silently and
-permanently.
-
-**Proposed fix**: two independent changes worth doing together — retry
-`recognize()` a few seconds after a first failure, and log the failure so
-it's diagnosable instead of the network landing in silent limbo.
-`refreshARPIfMergeDataIsStale` is scoped only to already-known SNMP
-devices, so it doesn't cover first-time recognition — this needs its own
-path.
-
 ### First traceroute after joining a network reports inflated latency
 
 - **Status**: Open, root-caused, two fix options proposed
@@ -173,6 +142,48 @@ for where to save one.
 (Move an item here with **Fixed in build**, a one-line resolution note,
 and the commit hash, rather than deleting it, so there's a record of
 what broke and how it got fixed.)
+
+### Known Networks silently never adds an unfamiliar network
+
+- **Status**: Fixed
+- **Severity**: High — the entire per-network history feature depends on
+  recognition succeeding; a network that fails to recognize gets no
+  Known Networks entry and no scoped history, permanently, for that
+  network.
+- **Found in build**: not recorded — reported before this field existed
+- **Fixed in build**: `d5661da`
+- **First reported**: off-site testing at Martha's
+
+`NetworkIdentityViewModel.recognize(routerAddress:subnetMask:from:)`
+required the router's MAC to already be present in that *one* LAN scan's
+ARP results (`devices.first(where: { $0.ipAddress == routerAddress
+})?.macAddress`) — if it was missing, the guard just `return`ed. No
+retry, no log line, nothing else re-triggered recognition for the rest of
+the session unless another topology change happened to fire a fresh
+scan.
+
+That guard failing on an unfamiliar network was plausible: joining fires
+the scan almost immediately, and if macOS's own ARP cache hasn't resolved
+the gateway yet — a real race this codebase has hit before
+(`SNMPViewModel.refreshARPIfMergeDataIsStale`'s doc comment describes
+exactly this after a Wi-Fi reconnect) — the guard failed silently and
+permanently.
+
+**Fix**: split the combined guard so this one retriable case (router
+address and subnet known, MAC missing) is distinguished from the
+legitimate "no interface yet" case. On that specific failure, logs it
+and fires a new `onRecognitionPending` hook exactly once per topology
+change (`NetworkIdentityViewModel.hasRequestedRetry`, reset alongside
+the rest of `reset()`'s state); `NMSApp` wires that to a single
+3-second-delayed re-scan — long enough for the OS to catch up, without
+meaningfully delaying a legitimately new network's first recognition.
+
+Verified: clean build, relaunched, existing recognition on the stable
+home network unaffected (no regression — the MAC lookup still succeeds
+on the first try there, so the new retry path isn't even exercised in
+that case, as expected). The retry path itself needs an actual slow-ARP
+race to exercise, which isn't reproducible from this session — same
+limitation as the original report, only ever seen off-site.
 
 ### Bug Report produced no visible UI in the app window
 
