@@ -139,20 +139,51 @@ new ones as they come up.
   "Open in Window" stays the only full-detail surface — no
   expand/collapse path was added to the popover itself, since the whole
   point was moving detail *out*, not adding a second way to reach it
-  from the same place. Confirmed live via accessibility-driven AppleScript (a fresh
-  capability this session — see below): the split renders correctly and
-  560pt still looks right for two tiles, no dead space on the right
-  edge. That same check surfaced a real, immediate follow-up: Network
-  Health (7 rows) and Info (5-6 rows) no longer share a column with a
-  second tile absorbing the height difference, so their borders visibly
-  mismatched. A same-day Bug Report caught it within minutes
-  ("can we align the two tiles?") — fixed by syncing just those two tiles'
-  heights via a `GeometryReader`/`PreferenceKey` pair
-  (`ContentView.topRowTile`), deliberately scoped to only Network Health
-  and Info so Path to Internet/Speed Test in the window keep their
-  existing independent sizing (syncing those was rejected once already —
-  see `scrollableContent`'s "Independent columns" comment — since Speed
-  Test's history can grow arbitrarily tall).
+  from the same place. Confirmed live via accessibility-driven AppleScript
+  (a fresh capability this session — see below): the split renders
+  correctly and 560pt still looks right for two tiles, no dead space on
+  the right edge.
+
+  That same check surfaced a real, immediate follow-up, in two rounds.
+  **Round 1**: Network Health (7 rows) and Info (5-6 rows) no longer
+  shared a column with a second tile absorbing the height difference, so
+  their borders visibly mismatched. A same-day Bug Report caught it
+  within minutes ("can we align the two tiles?"). First fix used a
+  `GeometryReader`/`PreferenceKey`/`@State` round-trip and looked correct
+  when checked via a live `screencapture` of the real popover — but a
+  *second* same-day Bug Report on the same two tiles ("bottom edge of
+  tiles not aligned") turned out to be right: `ScreenshotService.capture`
+  renders via `ImageRenderer` once, synchronously, with no run-loop turn
+  for that state round-trip to land before the image is captured, so
+  every actual Bug Report/Screenshot still showed the unsynced heights.
+  Confirmed by measuring the captured PNG's border pixels directly, not
+  by eye — the same class of `ImageRenderer` quirk already documented
+  three times on `ScreenshotService`, now a fourth.
+
+  **Round 2**: replaced the state-based sync with a `Grid`/`GridRow`
+  for just Network Health and Info — `Grid` synchronizes cell heights in
+  one deterministic layout pass, no state round-trip, no window for a
+  single-shot renderer to miss. Measuring again showed the *same* gap
+  persisting, which turned up a second, real SwiftUI subtlety: `Grid`
+  synchronizes each cell's layout *slot* to the row's tallest cell, but a
+  shorter cell's own drawn background/border doesn't stretch to fill that
+  slot unless the cell explicitly opts in with `maxHeight: .infinity`.
+  Added a `fillHeight` parameter to `ContentView.tile(title:content:)`,
+  applied only to the Network Health/Info `GridRow` — Path to Internet
+  and Speed Test keep the plain, unstretched `tile()` in their own
+  `HStack`, so their independent sizing (Speed Test's history can grow
+  arbitrarily tall; forcing that onto Path to Internet was rejected once
+  already, see `scrollableContent`'s "Independent columns" comment) is
+  unaffected.
+
+  Verified via the real popover's own Screenshot button (accessibility-
+  clicked, not just built) and a tight crop of the resulting PNG. One
+  more lesson from this round: the pixel-measurement script written to
+  check it had its own bug (picking up the footer's button borders below
+  the tiles, the same false-positive class the orange Bug Report banner
+  caused earlier) — direct visual comparison of the crop, cross-checked
+  against the user's own live view, is what actually confirmed the fix,
+  not the automated heuristic.
 
 **From off-site testing at Martha's** (8 items originally; 3 turned out
 to be bugs and moved to `BUGS.md` — Known Networks not recognizing an

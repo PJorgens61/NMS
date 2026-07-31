@@ -1,18 +1,5 @@
 import SwiftUI
 
-/// Backs `ContentView.topRowTile(title:content:)` — bubbles each
-/// reporting tile's own natural height up to a single shared ancestor,
-/// `reduce` keeping the max seen so far. Top-level (not nested in
-/// `ContentView`) because `PreferenceKey` conformances are simplest as
-/// freestanding types; nothing about this is specific to `ContentView`
-/// beyond where it's used.
-private struct TileHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 struct ContentView: View {
     @ObservedObject var viewModel: NetworkMonitorViewModel
     @ObservedObject var lanDiscovery: LANDiscoveryViewModel
@@ -99,26 +86,6 @@ struct ContentView: View {
     /// section's `.task`; empty until then, which simply renders no
     /// sparklines rather than empty boxes.
     @State private var latencyHistory: [String: [LatencySample]] = [:]
-
-    /// The taller of Network Health's and Info's two tile heights, fed
-    /// back down as a shared `minHeight` on both — see `topRowTile(_:)`.
-    ///
-    /// Found via a real Bug Report filed minutes after the audience split
-    /// shipped (`BUGS.md`/`PUNCHLIST.md` — "can we align the two tiles?"):
-    /// once Path to Internet and Speed Test moved to window-only, each
-    /// popover column collapsed to exactly one tile, and Network Health's
-    /// fixed 7 rows versus Info's 5-6 left their borders visibly
-    /// mismatched — a gap the two-tile-per-column stack used to absorb
-    /// without anyone choosing to rely on it.
-    ///
-    /// `0` (not knowing the row counts) rather than a hardcoded row
-    /// count: both tiles' content varies slightly with state (`Public IP`
-    /// error text, whether "Known network" has resolved yet), so a fixed
-    /// guess would drift out of sync with reality the way this codebase
-    /// has explicitly moved away from elsewhere (see `SectionLayout`'s
-    /// measured, not estimated, row heights). Measuring the real rendered
-    /// heights and syncing them is the same discipline applied here.
-    @State private var topRowTileHeight: CGFloat = 0
 
     /// The window branch used to be handled by `NMSApp` splitting
     /// `scrollableContent`/`footerBar` into two children of *its own*
@@ -226,48 +193,75 @@ struct ContentView: View {
             // to fill the space. Tiled side by side instead, each sized to
             // its own half, not the whole popover.
             //
-            // Two independent columns (`HStack` of two `VStack`s), not a
-            // `LazyVGrid` — that was tried first and produced visibly
-            // misaligned tiles: a `LazyVGrid` synchronizes each *row's*
-            // height to its tallest cell, so Path to Internet (short) and
-            // Speed Test (its row-mate, and by far the tallest tile once
-            // it has real history) were forced to the same row height,
-            // leaving a real, confirmed-by-a-live-screenshot gap of dead
-            // space below Path to Internet's shorter box.
+            // Network Health and Info share a `Grid` row, which
+            // synchronizes cell heights within that row natively — so
+            // their tile borders always line up, in one deterministic
+            // layout pass, regardless of which has more rows of content.
             //
-            // Independent columns fix that by construction, not by
-            // coincidence: row-grid total height is
+            // That row-sync is exactly what a `LazyVGrid` was tried and
+            // rejected for once already, for a *different* pair: with all
+            // four tiles in one grid, Path to Internet (short) and Speed
+            // Test (its row-mate, and by far the tallest tile once it has
+            // real history) were forced to the same row height, leaving a
+            // real, confirmed-by-a-live-screenshot gap of dead space below
+            // Path to Internet's shorter box. `Grid` has the identical
+            // per-row sync behavior — the difference here is which pair
+            // it's applied to. Network Health and Info have no unbounded
+            // grower between them (both are short, bounded label/value
+            // lists), so syncing them is exactly the fix, not a repeat of
+            // that bug.
+            //
+            // A first attempt at this fix (see `git blame` /
+            // `PUNCHLIST.md`'s "Split by audience" entry) used a
+            // `GeometryReader`/`PreferenceKey`/`@State` round-trip instead
+            // of `Grid`, and looked correct in the live popover — but
+            // `ScreenshotService.capture`'s `ImageRenderer` renders once,
+            // synchronously, with no run-loop turn for that round-trip's
+            // state update to land before the image is captured. Every
+            // Bug Report and Screenshot therefore still showed the
+            // *unsynced* heights, confirmed by measuring a real captured
+            // PNG's border pixels directly rather than eyeballing it. This
+            // is the same class of quirk as `ImageRenderer`'s three others
+            // documented on `ScreenshotService` (`ScrollView` content not
+            // rendering, bordered buttons breaking, no implicit
+            // background) — a fourth case of "looks right live, wrong in
+            // a one-shot capture." `Grid` sidesteps the whole class: it
+            // needs no second pass, so there's no window for a
+            // single-shot renderer to miss.
+            //
+            // Path to Internet and Speed Test, below, keep the "two
+            // independent columns" structure this comment used to
+            // describe for all four tiles: row-grid total height is
             // `max(NetworkHealth, Info) + max(Path, Speed)`, while
             // column-stack total is `max(NetworkHealth+Path,
-            // Info+Speed)`. The sum-of-maxes is always ≥ the max-of-sums
-            // for non-negative sizes, so this is a guaranteed improvement
-            // (or at worst a no-op), never a regression — it can't make
-            // the popover taller than the grid did.
+            // Info+Speed)` — the sum-of-maxes is always ≥ the max-of-sums
+            // for non-negative sizes, so keeping *that* pair unsynced and
+            // column-stacked is a guaranteed improvement over syncing
+            // them, never a regression. Swapping Info and Path to
+            // Internet was also tried directly (measured via
+            // `ContentView.liveHeight`, not just reasoned about):
+            // {NetworkHealth+Info} / {Path+Speed} measured 850pt, 4pt
+            // *taller* than this arrangement's 846pt, and visually just
+            // moved the same-size imbalance to the other column instead
+            // of reducing it.
             //
-            // Swapping Info and Path to Internet was tried directly
-            // (measured via `ContentView.liveHeight`, not just reasoned
-            // about): {NetworkHealth+Info} / {Path+Speed} measured 850pt,
-            // 4pt *taller* than this arrangement's 846pt, and visually just
-            // moved the same-size imbalance to the other column instead of
-            // reducing it. Of the three possible pairings of these four
-            // tiles, this one — not the swap — happens to be the shortest.
-            //
-            // All of the above is window-only reasoning now. As of the
-            // audience split (see `SectionLayout.surfaces`), Path to
-            // Internet and Speed Test are gated by
-            // `SectionLayout.pathToInternet`/`.speedTest.appears(on:)` and
-            // render only in the window — the popover's two columns
-            // collapse to exactly Network Health and Info, side by side,
-            // with nothing conditional left to reason about there. The
-            // column split itself needed no change: an `HStack` of two
-            // one-tile `VStack`s lays out the same as two plain tiles
-            // would, so this is one fewer thing to special-case per
-            // surface, not a new one.
-            HStack(alignment: .top, spacing: 12) {
-                VStack(spacing: 12) {
-                    topRowTile(title: "Network Health") {
-                        connectionHealthSection
+            // Both tiles below are window-only as of the audience split
+            // (see `SectionLayout.surfaces`) and always appear together,
+            // so there's no partial-row case to handle — on the popover
+            // this whole `HStack` renders with both conditions false and
+            // contributes nothing.
+            VStack(spacing: 12) {
+                Grid(alignment: .topLeading, horizontalSpacing: 12) {
+                    GridRow {
+                        tile(title: "Network Health", fillHeight: true) {
+                            connectionHealthSection
+                        }
+                        tile(title: "Info", fillHeight: true) {
+                            infoSection
+                        }
                     }
+                }
+                HStack(alignment: .top, spacing: 12) {
                     if SectionLayout.pathToInternet.appears(on: surface) {
                         tile(title: "Path to Internet", trailing: {
                             Button("Trace Now") {
@@ -279,11 +273,6 @@ struct ContentView: View {
                         }) {
                             tracerouteSection
                         }
-                    }
-                }
-                VStack(spacing: 12) {
-                    topRowTile(title: "Info") {
-                        infoSection
                     }
                     if SectionLayout.speedTest.appears(on: surface) {
                         tile(title: "Speed Test", trailing: {
@@ -299,7 +288,6 @@ struct ContentView: View {
                     }
                 }
             }
-            .onPreferenceChange(TileHeightPreferenceKey.self) { topRowTileHeight = $0 }
 
             // Window-only (declared in `SectionLayout`, not gated inline
             // here) — this adds a full-width section, and the popover's
@@ -582,13 +570,39 @@ struct ContentView: View {
     /// separator once two tiles sit side by side rather than stacked full
     /// width, so each tile draws its own border instead.
     @ViewBuilder
-    private func tile(title: String, @ViewBuilder content: () -> some View) -> some View {
-        tile(title: title, trailing: { EmptyView() }, content: content)
+    private func tile(title: String, fillHeight: Bool = false, @ViewBuilder content: () -> some View) -> some View {
+        tile(title: title, fillHeight: fillHeight, trailing: { EmptyView() }, content: content)
     }
 
+    /// `fillHeight` only matters inside a `Grid`. A `GridRow` synchronizes
+    /// each cell's *layout slot* to the row's tallest cell, but a shorter
+    /// cell's own drawn background/border doesn't stretch to fill that
+    /// slot on its own — confirmed directly, the hard way: a first pass
+    /// at the Network Health/Info alignment fix put both tiles in a
+    /// `GridRow` and stopped there, verified only by eye against a small
+    /// screenshot. A same-day *second* Bug Report on the same two tiles
+    /// ("bottom edge of tiles not aligned") turned out to be right — a
+    /// pixel-level measurement of the captured PNG showed a real ~20-40pt
+    /// gap that eyeballing a thumbnail had missed both times. `Grid` was
+    /// already correctly equalizing the row's reserved height (confirmed
+    /// by the divider below sitting in the right place); what was missing
+    /// was telling the shorter tile's own `VStack` to actually consume
+    /// the extra height it was offered, via `maxHeight: .infinity` on the
+    /// same frame this already stretches horizontally, rather than
+    /// sizing tightly to its own content and leaving Grid's extra space
+    /// blank *outside* the border.
+    ///
+    /// Only Network Health and Info opt in. Path to Internet and Speed
+    /// Test render in a plain `HStack`, not a `Grid` — `maxHeight:
+    /// .infinity` there would have nothing bounding it to a shared row
+    /// height and would instead expand to fill whatever space the
+    /// popover/window happens to offer, which is exactly the "Speed
+    /// Test's height forces its row-mate" failure mode this file already
+    /// rejected once (see the "Independent columns" comment above).
     @ViewBuilder
     private func tile(
         title: String,
+        fillHeight: Bool = false,
         @ViewBuilder trailing: () -> some View,
         @ViewBuilder content: () -> some View
     ) -> some View {
@@ -602,44 +616,11 @@ struct ContentView: View {
             content()
         }
         .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: fillHeight ? .infinity : nil, alignment: .topLeading)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.secondary.opacity(0.25))
         )
-    }
-
-    /// Wraps `tile(title:content:)` for Network Health and Info
-    /// specifically, syncing their two heights via `topRowTileHeight`
-    /// rather than letting each size independently to its own row count.
-    ///
-    /// Reports this tile's natural height upward through
-    /// `TileHeightPreferenceKey` (via an invisible `GeometryReader` in the
-    /// background, the standard SwiftUI way to read a view's own rendered
-    /// size), and applies whatever the shared max currently is as a
-    /// `minHeight` — so the shorter tile grows to match the taller one,
-    /// and the taller tile is unaffected (a `minHeight` below its natural
-    /// height changes nothing).
-    ///
-    /// Deliberately scoped to just these two. Path to Internet and Speed
-    /// Test, stacked below them in the window, must stay independently
-    /// sized — that asymmetry is a fix already in place, not an oversight
-    /// (see `scrollableContent`'s "Independent columns" comment): Speed
-    /// Test's real history can grow arbitrarily tall, and syncing it with
-    /// Path to Internet's near-constant few lines is exactly the dead-
-    /// space bug a `LazyVGrid` was rejected for once already. Network
-    /// Health and Info have no such unbounded grower between them, which
-    /// is what makes syncing *this* pair safe where syncing that one
-    /// wasn't.
-    @ViewBuilder
-    private func topRowTile(title: String, @ViewBuilder content: () -> some View) -> some View {
-        tile(title: title, content: content)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(key: TileHeightPreferenceKey.self, value: proxy.size.height)
-                }
-            )
-            .frame(minHeight: topRowTileHeight > 0 ? topRowTileHeight : nil, alignment: .top)
     }
 
     /// The one place a fixed-height, independently-scrolling history box
