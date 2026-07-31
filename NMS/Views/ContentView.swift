@@ -110,10 +110,27 @@ struct ContentView: View {
             // deeper, from wrapping `ContentView` externally to living
             // inside its own `body`, which is what restores the state
             // continuity described above.
+            //
+            // **Skipped entirely when `isCapturingScreenshot`** — found
+            // via a live bug report filed right after the state-identity
+            // fix above shipped: `ImageRenderer` can't render
+            // `NoBounceScrollView`'s `NSViewRepresentable` content
+            // off-screen any better than it renders a plain `ScrollView`
+            // (see `ScreenshotService`'s own doc comment, quirk 1) — every
+            // capture taken in the window was silently missing
+            // `scrollableContent` entirely, confirmed by the resulting
+            // PNGs shrinking from 300-700KB to ~42KB. Same fix as that
+            // quirk: swap to the plain, unclipped form for the capturing
+            // copy only, never for the live window.
             VStack(spacing: 0) {
-                NoBounceScrollView(persistentScrollbar: true) {
+                if isCapturingScreenshot {
                     scrollableContent
                         .padding(12)
+                } else {
+                    NoBounceScrollView(persistentScrollbar: true) {
+                        scrollableContent
+                            .padding(12)
+                    }
                 }
                 Divider()
                 footerBar
@@ -1321,10 +1338,31 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.orange)
                 HStack {
-                    TextField("What are you seeing?", text: $bugReportDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 11))
-                        .onSubmit { submitBugReport() }
+                    // `.textFieldStyle(.plain)` on the capture chain
+                    // (`ScreenshotViewModel`) wasn't enough on its own —
+                    // confirmed against a real capture, still the same
+                    // solid-yellow-bar-with-a-red-"prohibited"-glyph
+                    // glitch, not just an unstyled-but-legible field.
+                    // Whatever `ImageRenderer` is doing here goes deeper
+                    // than border chrome — plausibly trying to draw a
+                    // live insertion-point/field-editor for a field that
+                    // has no real focus/window context off-screen. Same
+                    // fix as every other `ImageRenderer` gap in this
+                    // file: don't ask it to render the broken control at
+                    // all. A plain `Text` has nothing native to fail to
+                    // draw, and needs no interaction during a capture
+                    // anyway.
+                    if isCapturingScreenshot {
+                        Text(bugReportDraft.isEmpty ? "What are you seeing?" : bugReportDraft)
+                            .font(.system(size: 11))
+                            .foregroundStyle(bugReportDraft.isEmpty ? .secondary : .primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        TextField("What are you seeing?", text: $bugReportDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                            .onSubmit { submitBugReport() }
+                    }
                     Button("Submit") { submitBugReport() }
                         .accessibilityLabel("Submit bug report")
                         .font(.system(size: 11))

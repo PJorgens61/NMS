@@ -211,3 +211,53 @@ window via Accessibility scripting, waited 2+ seconds (spanning at
 least one connectivity re-render) before screenshotting to confirm the
 box persists rather than just surviving one frame — then watched a real
 report get typed and submitted through it live.
+
+### Window captures were missing content, and the comment field rendered as a glitch
+
+- **Status**: Fixed
+- **Severity**: High — every window-mode Screenshot/Bug Report capture
+  silently lost most of its content, and the one control unique to Bug
+  Report rendered as an unreadable graphical glitch instead of text.
+- **Found in build**: e1d5c0d (introduced by the state-identity fix
+  above, same build)
+- **Fixed in build**: e1d5c0d
+- **First reported**: field-tested and filed through the app's own Bug
+  Report button, in the window, immediately after the state-identity
+  fix above shipped — comment was itself a question ("i did some wifi
+  network switching. thoughts?"), but the attached screenshot showed
+  the real defect: everything above the Bug Report box was missing, and
+  the comment field was a solid yellow bar with a red "prohibited"
+  glyph instead of any visible text.
+
+Two distinct causes, both `ImageRenderer` limitations, both introduced
+by the same fix:
+
+1. **Missing content**: fixing the state-identity bug above meant
+   moving `NoBounceScrollView` inside `ContentView.body`'s `isInWindow`
+   branch. `ImageRenderer` can't render `NoBounceScrollView`'s
+   `NSViewRepresentable` content off-screen any better than it renders
+   a plain `ScrollView` (see `ScreenshotService`'s own doc comment,
+   quirk 1) — every window capture was silently missing
+   `scrollableContent` entirely. Confirmed by the resulting PNGs
+   shrinking from 300-700KB to ~42KB. Fixed the same way as that
+   already-documented quirk: skip the scroll wrapper and render
+   `scrollableContent` plain/unclipped when `isCapturingScreenshot`.
+2. **Glitched text field**: `TextField` with `.roundedBorder` styling
+   is `NSTextField`-backed the same way a bordered `Button` is
+   `NSButton`-backed (the reason `.buttonStyle(.plain)` exists), so it
+   hits a related but worse rendering gap off-screen. Adding
+   `.textFieldStyle(.plain)` to the capture chain (same place
+   `.buttonStyle(.plain)` already lives, in `ScreenshotViewModel`) was
+   **not sufficient on its own** — confirmed by a second real capture
+   still showing the identical glitch. Actually fixed in
+   `ContentView.bugReportRow`: swap the `TextField` for a plain `Text`
+   showing the same content when `isCapturingScreenshot`, rather than
+   asking `ImageRenderer` to draw the control at all — the same
+   principle as fix 1, applied one level more locally since this
+   control (unlike a `ScrollView`) has no existing capture-mode
+   fallback to reuse.
+
+Verified against two real, independently-submitted field reports (not
+just forced tests): the first showed both defects together, confirming
+the diagnosis; after both fixes shipped, a second real submission
+("lookd good") showed full content and clean, readable comment text.

@@ -36,6 +36,22 @@ final class ScreenshotViewModel: ObservableObject {
     /// generic broken-image placeholder instead of its label. Plain
     /// style has no native bezel to fail to draw.
     ///
+    /// `.textFieldStyle(.plain)`: found via a real bug report whose own
+    /// screenshot showed a `TextField` (`.roundedBorder` on the live
+    /// view) rendering as a solid yellow bar with a red "prohibited"
+    /// glyph instead of any text — the same category of native-chrome
+    /// gap as the button case above. **Kept, but confirmed insufficient
+    /// on its own** — a second real capture with this modifier already
+    /// applied showed the identical glitch, so whatever `ImageRenderer`
+    /// is doing here goes deeper than border styling (plausibly trying
+    /// to draw a live insertion-point/field-editor for a field with no
+    /// real focus/window context off-screen). Left in place as cheap
+    /// insurance for any `TextField` this doesn't fully cover, but the
+    /// actual fix for Bug Report's field is in `ContentView.bugReportRow`:
+    /// swap to a plain `Text` during capture rather than asking
+    /// `ImageRenderer` to draw the control at all — see that type's own
+    /// comment.
+    ///
     /// `.background(...)`: the live popover's background belongs to the
     /// `MenuBarExtra` window, not to `ContentView`, so a detached render
     /// has none at all — every pixel the content doesn't cover comes out
@@ -67,6 +83,7 @@ final class ScreenshotViewModel: ObservableObject {
     func capture(_ view: some View) {
         let renderable = view
             .buttonStyle(.plain)
+            .textFieldStyle(.plain)
             .background(Color(nsColor: .windowBackgroundColor))
         guard let filename = ScreenshotService.capture(renderable) else { return }
 
@@ -112,6 +129,7 @@ final class ScreenshotViewModel: ObservableObject {
     func captureBugReport(_ view: some View, comment: String, buildInfo: BuildInfoService.Info?, severityDescription: String) {
         let renderable = view
             .buttonStyle(.plain)
+            .textFieldStyle(.plain)
             .background(Color(nsColor: .windowBackgroundColor))
         guard let filename = ScreenshotService.capture(renderable) else { return }
 
