@@ -81,12 +81,13 @@ Xcode 15+.
   bordered box. The two columns size independently (not a synchronized
   grid), so one column can run longer than the other without leaving a
   gap under the shorter tile.
-- **Events**, **SNMP Devices**, and **DHCP History**, full width, in that
-  order.
-- A footer: **Refresh**, a camera icon (screenshot), **Open in Window**,
-  **Networks…**, and **Quit**, with a small build-hash / store-size line
-  and, when a debug override is active, an orange warning line beneath
-  it.
+- **Events**, full width.
+- A footer: **Refresh**, a camera icon (screenshot), a ladybug icon (Bug
+  Report — a screenshot plus a state dump plus a comment field, for
+  describing what you're seeing), **Open in Window**, **Networks…**,
+  **Preferences…**, and **Quit**, with a small build-hash / store-size
+  line and, when a debug override is active, an orange warning line
+  beneath it.
 
 ### Open in Window
 
@@ -101,12 +102,19 @@ scrollbar on the right reaches whatever doesn't fit on screen. It's a
 comparison alternative alongside the popover for now, not a replacement
 — both stay open to the same underlying state.
 
-The window also has one section the popover never will: **Wi-Fi**
-(signal strength with a short trend line, channel/band, negotiated PHY
-rate, security), visible only on Wi-Fi. It's gated to the window
-specifically rather than a feature flag, since the popover's fixed
-height is exactly the budget a new full-width section shouldn't spend
-on every fresh install by default.
+The window also has sections the popover never will — the popover's
+fixed height is exactly the budget these shouldn't spend on every fresh
+install by default:
+
+- **DHCP History**, **Printer Alerts** (hidden when no printer is
+  configured), and **Wi-Fi** (signal strength with a short trend line,
+  channel/band, negotiated PHY rate, security, visible only on Wi-Fi) —
+  gated to the window itself, no feature flag involved.
+- **SNMP Devices** — window-only *and* behind `FeatureFlags.snmpDevices`
+  (off by default; see "Experimental features" below), since a
+  scrollable per-device list is niche detail *and* this is active
+  network probing, two independent reasons that happen to gate the same
+  section.
 
 ### Network Health
 

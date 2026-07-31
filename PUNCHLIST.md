@@ -8,19 +8,16 @@ new ones as they come up.
 
 ## Open
 
-- [ ] **Remove SNMP Devices from the popover; keep it window-only.**
-  Currently gated by `FeatureFlags.snmpDevices` and shown in both
-  surfaces when the flag is on. Change: hide it from the popover
-  entirely (same `isInWindow`-gating pattern already used for Wi-Fi and
-  DHCP History — see those sections in `ContentView.swift`/README), so
-  it only ever appears in the resizable window. Small, mechanical —
-  wrap the existing `if FeatureFlags.snmpDevices { ... }` block in
-  `ContentView.body` with `isInWindow &&`, matching the reasoning
-  already established for the other two window-only sections (active
-  probing / a scrollable device list is squarely "niche per-device
-  detail," not popover-budget material). Directly relevant to the new
-  "split by audience" idea right below this — this is effectively step
-  one of that split, done for one section rather than the whole app.
+- [x] ~~Remove SNMP Devices from the popover; keep it window-only.~~
+  **Done.** `ContentView`'s SNMP Devices block now reads
+  `if FeatureFlags.snmpDevices && isInWindow`, same pattern as Wi-Fi/
+  DHCP History/Printer Alerts. README's popover and "Open in Window"
+  sections updated to match (also caught DHCP History and Printer
+  Alerts already being window-only but not yet reflected in the
+  "Open in Window" section's own text, and the popover's content list
+  still listing DHCP History as if it were still there — both fixed in
+  the same pass, plus the Bug Report button, missing from the footer
+  description). Build clean, 64/64 tests, relaunched without issue.
 
 - [ ] **Add a length cap to untrusted network-derived text before it's
   persisted.** Found during a security review requested ahead of

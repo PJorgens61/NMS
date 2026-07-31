@@ -263,11 +263,15 @@ struct ContentView: View {
 
             eventList
 
-            // Gated by `FeatureFlags.snmpDevices` — off by default for a
-            // fresh install, since this is active network probing (SNMP
-            // sweeps) against whatever LAN the Mac is on, not just a UI
-            // section. See that flag's doc comment.
-            if FeatureFlags.snmpDevices {
+            // Gated by `FeatureFlags.snmpDevices` (off by default for a
+            // fresh install, since this is active network probing against
+            // whatever LAN the Mac is on, not just a UI section — see that
+            // flag's doc comment) *and* window-only, same pattern as the
+            // Wi-Fi and DHCP History sections: a scrollable list of
+            // per-device detail is squarely "niche," not popover-budget
+            // material, independent of the probing-consent question the
+            // flag itself answers.
+            if FeatureFlags.snmpDevices && isInWindow {
                 Divider()
 
                 HStack {
