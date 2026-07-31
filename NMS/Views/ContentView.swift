@@ -74,6 +74,43 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            scrollableContent
+            footerBar
+        }
+        .padding(12)
+        // Widened from the original 335pt for the DHCP History section,
+        // then brought back down from a first attempt at 670pt (a single
+        // *unbroken* line of full lease detail) once that line wrapped to
+        // two instead — 670pt then just left every section with wide,
+        // pointless gaps between labels and values, confirmed directly:
+        // the widest wrapped DHCP line (bcast/gateway/DNS/domain/lease-
+        // T1-T2/xid) measured to ~440pt of actual text, against a screenshot
+        // of a real lease. 560pt covers that with headroom for a slightly
+        // longer domain or an extra DNS server, without carrying 670pt's
+        // dead space. Every section still has `.lineLimit(1)` truncation
+        // as its fallback regardless.
+        .frame(width: 560)
+    }
+
+    /// Everything except the footer controls. Split out from what used
+    /// to be one flat `body` so the window scene
+    /// (`NMSApp.comparisonWindowContent`) can pin `footerBar` outside the
+    /// outer scroll container while this part scrolls underneath it —
+    /// raised directly, after having to resize the window just to reach
+    /// the footer buttons past a tall SNMP Devices/DHCP History/Printer
+    /// Alerts stack.
+    ///
+    /// `body` above recombines both unchanged from before this split —
+    /// `@ViewBuilder`'s tuple-view flattening means
+    /// `VStack(spacing: 6) { scrollableContent; footerBar }` lays out
+    /// identically to the single VStack this used to be, so the popover
+    /// isn't affected by this refactor at all, only the window is.
+    ///
+    /// Not `private` — `NMSApp` (a different file, same module) composes
+    /// this and `footerBar` directly for the window case; still
+    /// inaccessible outside the module either way.
+    @ViewBuilder
+    var scrollableContent: some View {
             // Network Health, Info, and Path to Internet are short
             // label/value lists that looked sparse and hard to read once
             // the popover doubled in width for the DHCP History section —
@@ -232,7 +269,17 @@ struct ContentView: View {
 
                 printerAlertRows
             }
+    }
 
+    /// Refresh/Screenshot/Bug Report/Open in Window/Networks…/
+    /// Preferences…/Quit, the build-hash/store-size line, and the
+    /// DEBUG-overrides banner — plus `bugReportRow`, whose comment
+    /// field is only reachable via a footer button, so it's pinned
+    /// alongside that button in the window rather than needing a
+    /// scroll back down to see what was just opened. See
+    /// `scrollableContent`'s doc comment for why this split exists.
+    @ViewBuilder
+    var footerBar: some View {
             bugReportRow
 
             Divider()
@@ -364,20 +411,6 @@ struct ContentView: View {
                     .lineLimit(2)
                     .accessibilityLabel("Debug overrides active: \(overrides)")
             }
-        }
-        .padding(12)
-        // Widened from the original 335pt for the DHCP History section,
-        // then brought back down from a first attempt at 670pt (a single
-        // *unbroken* line of full lease detail) once that line wrapped to
-        // two instead — 670pt then just left every section with wide,
-        // pointless gaps between labels and values, confirmed directly:
-        // the widest wrapped DHCP line (bcast/gateway/DNS/domain/lease-
-        // T1-T2/xid) measured to ~440pt of actual text, against a screenshot
-        // of a real lease. 560pt covers that with headroom for a slightly
-        // longer domain or an extra DNS server, without carrying 670pt's
-        // dead space. Every section still has `.lineLimit(1)` truncation
-        // as its fallback regardless.
-        .frame(width: 560)
     }
 
     /// A bordered box with a header row (title, plus an optional trailing

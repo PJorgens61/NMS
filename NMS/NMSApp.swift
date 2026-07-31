@@ -557,12 +557,27 @@ struct NMSApp: App {
     /// .comparisonWindow` off means an empty window that's unreachable
     /// anyway (the footer button that opens it is hidden in that case),
     /// not a real content leak.
+    /// Footer pinned outside the scroll container, unlike the popover
+    /// (`ContentView.body`, unaffected by this) — raised directly, after
+    /// having to resize the window just to reach Refresh/Screenshot/Bug
+    /// Report/Quit past a tall SNMP Devices/DHCP History/Printer Alerts
+    /// stack. `ContentView.scrollableContent`/`.footerBar` are the split
+    /// this composes; see `scrollableContent`'s doc comment for why the
+    /// split lives on `ContentView` rather than being done here.
     @ViewBuilder
     private var comparisonWindowContent: some View {
         if FeatureFlags.comparisonWindow {
-            NoBounceScrollView(persistentScrollbar: true) {
-                contentView(isInWindow: true)
+            let content = contentView(isInWindow: true)
+            VStack(spacing: 0) {
+                NoBounceScrollView(persistentScrollbar: true) {
+                    content.scrollableContent
+                        .padding(12)
+                }
+                Divider()
+                content.footerBar
+                    .padding(12)
             }
+            .frame(width: 560)
         } else {
             EmptyView()
         }
