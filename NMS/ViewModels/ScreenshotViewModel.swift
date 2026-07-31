@@ -126,7 +126,7 @@ final class ScreenshotViewModel: ObservableObject {
     /// resolved here because both already exist as `ContentView`
     /// properties (`buildInfo` directly; severity via `OverallStatus
     /// .compute`, duplicated there rather than threaded through
-    /// `NMSApp.contentView(isInWindow:)` as a new parameter — see that
+    /// `NMSApp.contentView(surface:)` as a new parameter — see that
     /// call site's comment for why touching that wiring is treated as a
     /// bigger cost than a one-line formula repeated twice).
     ///

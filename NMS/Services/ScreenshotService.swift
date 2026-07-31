@@ -12,10 +12,13 @@ import AppKit
 /// renders the view's own layout instead, so what's saved is exactly the
 /// popover's content and nothing else, with no permission prompt at all.
 ///
-/// **Three `ImageRenderer` quirks the caller has to work around**, all
-/// found by reading real output rather than assumed, and all handled in
-/// `ScreenshotViewModel.capture` (which is why this type takes an
-/// already-prepared view and does nothing clever itself):
+/// **At least four `ImageRenderer` quirks the caller has to work
+/// around**, all found by reading real output rather than assumed. The
+/// first three are handled centrally in `ScreenshotViewModel.capture`
+/// (which is why this type takes an already-prepared view and does
+/// nothing clever itself); the fourth needed its own fix at each
+/// affected call site instead, since it's not something a shared
+/// modifier applied here can reach:
 ///
 /// 1. `ScrollView` content doesn't render *at all* off-screen — not
 ///    clipped, absent. Hence `ContentView.isCapturingScreenshot`, which
@@ -26,10 +29,24 @@ import AppKit
 ///    the `MenuBarExtra` window, not to `ContentView` — so an
 ///    unmodified render is fully transparent. Hence an explicit
 ///    `.background(...)`.
+/// 4. Any `NSViewRepresentable` (a `TextField` even with
+///    `.textFieldStyle(.plain)`, and separately `NoBounceScrollView`)
+///    renders as a solid yellow bar with a red "prohibited" glyph
+///    instead of its real content — confirmed deeper than border/bezel
+///    styling, since `.plain` alone didn't fix the `TextField` case.
+///    No shared fix is possible here the way 1-3 have one: each site
+///    swaps to a plain, capture-only substitute instead (`Text` in place
+///    of `TextField` in `ContentView.bugReportRow`; an unclipped `VStack`
+///    in place of `NoBounceScrollView` in `ContentView.tile(fixedHeight:)`
+///    and `scrollBox`) — this is the "the capture branch is easy to
+///    forget, and forgetting it fails silently" bug class those two
+///    types' own doc comments describe, and it has recurred more than
+///    once precisely because the fix can't live in one place the way
+///    quirks 1-3's can.
 ///
-/// See DESIGN-NOTES.md's "Popover screenshot button" for how each was
-/// diagnosed, including one attempted fix (`@Environment`) that was
-/// built, disproved by logging, and reverted.
+/// See DESIGN-NOTES.md's "Popover screenshot button" for how the first
+/// three were diagnosed, including one attempted fix (`@Environment`)
+/// that was built, disproved by logging, and reverted.
 struct ScreenshotService {
     private static let directory = FileManager.default
         .urls(for: .libraryDirectory, in: .userDomainMask)[0]
