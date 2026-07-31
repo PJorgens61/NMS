@@ -44,7 +44,20 @@ final class LocationAuthorizationService: NSObject, CLLocationManagerDelegate {
         // foregrounded, which is indistinguishable from "no prompt" and
         // leaves `authorizationStatus` stuck at `.notDetermined` forever.
         DispatchQueue.main.async {
-            NSApplication.shared.activate(ignoringOtherApps: true)
+            // `activate()`, not the deprecated `activate(ignoringOtherApps:)`
+            // this used before — that call is confirmed (not just
+            // suspected) to silently stop working on newer macOS for a
+            // background/`.accessory` app: reproduced live on a MacBook
+            // running macOS 26.5.2 (see `BUGS.md`'s "No window comes to
+            // the front on the MacBook", found via the same call in
+            // `ContentView.openWindowInFront`). The consequence here would
+            // be worse than that bug — there's no window to visibly sit
+            // behind, just a permission dialog that silently never
+            // surfaces, leaving `authorizationStatus` stuck at
+            // `.notDetermined` forever with nothing to notice. Fixed
+            // proactively, before it was ever seen failing here
+            // specifically, since it's the identical mechanism.
+            NSApplication.shared.activate()
             self.manager.requestWhenInUseAuthorization()
         }
     }
