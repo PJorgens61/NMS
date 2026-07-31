@@ -19,12 +19,14 @@ import Foundation
 /// test seams would be a large change to production code to reach logic
 /// that sits after them anyway.
 ///
-/// **Controlled entirely from the command line, with no UI.** Two
-/// reasons. The popover has no vertical headroom left (it fits a 13"
-/// MacBook Air exactly, after the Events list was trimmed to make it
-/// fit), and a UI toggle would mean every test needs someone to click
-/// something — where a defaults key can be set by whoever is doing the
-/// debugging, including a script or an AI assistant driving the session.
+/// **Controlled entirely from the command line, with no UI.** A UI
+/// toggle would mean every test needs someone to click something, where
+/// a defaults key can be set by whoever is doing the debugging,
+/// including a script or an AI assistant driving the session — that
+/// scriptability is the whole point, not a workaround for popover space
+/// that happened to be scarce (that specific constraint is resolved now
+/// that every scrollable/full-width section moved window-only; see
+/// `SectionLayout`'s "audience split").
 ///
 /// **Use the full plist path, not the bare domain name.** This matters
 /// and cost real time to work out:
