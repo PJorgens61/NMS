@@ -1227,10 +1227,21 @@ struct ContentView: View {
     /// show when inactive — a bug report isn't a setting) — same
     /// TextField/Button/`onSubmit` shape as `communityRow`, one row, no
     /// new vertical cost when inactive.
+    ///
+    /// Tinted/bordered rather than plain text, unlike the DEBUG-overrides
+    /// banner above (`FailureInjector.activeOverridesSummary`, orange
+    /// text with a ⚠ prefix, no box) — that one only ever needs to be
+    /// *noticed* in an otherwise-static footer; this one needs to read as
+    /// "you are now in a distinct mode, everything below applies to a
+    /// report you're composing," which a color/weight change alone
+    /// doesn't convey as clearly as a contained shape does.
     @ViewBuilder
     private var bugReportRow: some View {
         if isReportingBug {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Bug Report", systemImage: "ladybug.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.orange)
                 HStack {
                     TextField("What are you seeing?", text: $bugReportDraft)
                         .textFieldStyle(.roundedBorder)
@@ -1250,6 +1261,15 @@ struct ContentView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.orange.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.orange.opacity(0.5), lineWidth: 1)
+            )
             Divider()
         }
     }
