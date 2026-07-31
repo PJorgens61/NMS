@@ -125,41 +125,26 @@ new ones as they come up.
   as the format string itself, and the ARP-parsing regex is simple and
   anchored (no ReDoS risk).
 
-- [ ] **Split by audience: popover for business users (summary only),
-  the real window for IT users (everything).** Raised directly: liked
-  the full app window enough to wonder whether the popover and the
-  window should eventually serve two different audiences rather than
-  being "the same content, one has more room" — popover trimmed to
-  summary status indicators only, window keeps the full detail
-  (Network Health rows, Info, Path to Internet, SNMP Devices, DHCP
-  History, everything).
+- [x] ~~Split by audience: popover for business users (summary only),
+  the real window for IT users (everything).~~ **Done (`4104b24`+).**
+  Resolved the open questions below with a direct answer: "summary"
+  means Network Health plus Info — status plus which network you're on,
+  nothing else. Path to Internet, Speed Test, and Events all moved to
+  window-only (`SectionLayout.surfaces`), joining Wi-Fi/SNMP Devices/
+  DHCP History/Printer Alerts, which were already there. The popover's
+  scroll-box budget (`SectionLayout.popoverBoxTotal`) is now pinned to
+  exactly `0` by a test — any box-bearing section landing back on the
+  popover fails the build.
 
-  This is the natural conclusion of a question `DESIGN-NOTES.md`'s
-  "Business SaaS monitoring" section left half-resolved — it worked out
-  that a business user wants "can I work, what's restricted" while an
-  IT-minded read wants root cause and specificity, and left the
-  resolution at "headline color stays simple, detail lives one level
-  down via drill-down." Splitting by *surface* (popover vs. window)
-  instead of by interaction depth within one surface is a cleaner
-  version of that same resolution, not a new idea.
-
-  Real open questions before this is a plan, not just a direction:
-  - **What exactly counts as "summary"?** The popover today isn't
-    thin — it's the full 2×2 tile grid (Network Health, Info, Path to
-    Internet, Speed Test) plus Events/SNMP Devices/DHCP History.
-    Reducing it to indicators-only is a genuine content
-    redistribution, closer in scope to the popover-height-calibration
-    work already done than to a UI tweak — needs its own real
-    specification (just the top-level red/yellow/green icon? A
-    handful of key rows?).
-  - **Is there a confirmed business-user audience yet, or is this
-    designing ahead of one?** The README's "Status: early" framing is
-    explicit this is currently a personal project. Not a reason not to
-    log the direction, but worth being honest that nothing is forcing
-    this redesign right now.
-  - Does "Open in Window" become the *only* full-detail surface, or
-    does the popover keep an expand/collapse path for someone who's
-    both audiences at once (this app's actual current usage)?
+  "Open in Window" stays the only full-detail surface — no
+  expand/collapse path was added to the popover itself, since the whole
+  point was moving detail *out*, not adding a second way to reach it
+  from the same place. Not yet confirmed live (this session has no
+  Accessibility permission to click the actual menu-bar icon); still
+  worth a look next time you open the popover, especially whether its
+  560pt width — sized originally for DHCP History's wrapped lines, which
+  left the popover before this change — still makes sense for two
+  label/value tiles, or should shrink.
 
 **From off-site testing at Martha's** (8 items originally; 3 turned out
 to be bugs and moved to `BUGS.md` — Known Networks not recognizing an

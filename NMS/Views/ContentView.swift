@@ -218,35 +218,51 @@ struct ContentView: View {
             // moved the same-size imbalance to the other column instead of
             // reducing it. Of the three possible pairings of these four
             // tiles, this one — not the swap — happens to be the shortest.
+            //
+            // All of the above is window-only reasoning now. As of the
+            // audience split (see `SectionLayout.surfaces`), Path to
+            // Internet and Speed Test are gated by
+            // `SectionLayout.pathToInternet`/`.speedTest.appears(on:)` and
+            // render only in the window — the popover's two columns
+            // collapse to exactly Network Health and Info, side by side,
+            // with nothing conditional left to reason about there. The
+            // column split itself needed no change: an `HStack` of two
+            // one-tile `VStack`s lays out the same as two plain tiles
+            // would, so this is one fewer thing to special-case per
+            // surface, not a new one.
             HStack(alignment: .top, spacing: 12) {
                 VStack(spacing: 12) {
                     tile(title: "Network Health") {
                         connectionHealthSection
                     }
-                    tile(title: "Path to Internet", trailing: {
-                        Button("Trace Now") {
-                            traceroute.run()
+                    if SectionLayout.pathToInternet.appears(on: surface) {
+                        tile(title: "Path to Internet", trailing: {
+                            Button("Trace Now") {
+                                traceroute.run()
+                            }
+                            .disabled(traceroute.isRunning)
+                            .accessibilityLabel("Trace Now")
+                            .accessibilityHint("Runs a traceroute to find the path to the internet")
+                        }) {
+                            tracerouteSection
                         }
-                        .disabled(traceroute.isRunning)
-                        .accessibilityLabel("Trace Now")
-                        .accessibilityHint("Runs a traceroute to find the path to the internet")
-                    }) {
-                        tracerouteSection
                     }
                 }
                 VStack(spacing: 12) {
                     tile(title: "Info") {
                         infoSection
                     }
-                    tile(title: "Speed Test", trailing: {
-                        Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
-                            networkQuality.run()
+                    if SectionLayout.speedTest.appears(on: surface) {
+                        tile(title: "Speed Test", trailing: {
+                            Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
+                                networkQuality.run()
+                            }
+                            .disabled(networkQuality.isRunning)
+                            .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
+                            .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
+                        }) {
+                            speedTestTileContent
                         }
-                        .disabled(networkQuality.isRunning)
-                        .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
-                        .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
-                    }) {
-                        speedTestTileContent
                     }
                 }
             }
@@ -269,12 +285,21 @@ struct ContentView: View {
                 wifiSection
             }
 
-            Divider()
+            // Window-only as of the audience split (see
+            // `SectionLayout.surfaces`): the popover's scope is now "can
+            // I work, what's restricted," which Network Health already
+            // answers, not "what changed and when" — that's the
+            // diagnostic read Events exists for, so it moved to the
+            // window along with Path to Internet and Speed Test rather
+            // than staying as the one full-width holdout on the popover.
+            if SectionLayout.events.appears(on: surface) {
+                Divider()
 
-            Text("Events")
-                .font(.headline)
+                Text("Events")
+                    .font(.headline)
 
-            eventList
+                eventList
+            }
 
             // Two independent gates. `FeatureFlags.snmpDevices` answers a
             // consent question (this is active network probing against

@@ -931,16 +931,18 @@ struct SectionLayoutTests {
         #expect(SectionLayout.popoverBoxTotal == SectionLayout.popoverBoxBudget)
     }
 
-    @Test("the popover's scroll boxes are the only trimmable space, and it's small")
-    func trimmableSpaceIsMostlyGone() {
-        // Documents the finding that motivated this whole structure: the
-        // trim lever is nearly exhausted. Against a last-measured popover
-        // of 846-860pt, the boxes are ~252pt — everything else (the tile
-        // grid's rows, headers, dividers, footer) has no trim mechanism
-        // at all. If this ever drops much further, trimming has stopped
-        // being a viable answer and content has to move to the window
-        // instead.
-        #expect(SectionLayout.popoverBoxTotal < SectionLayout.estimatedPopoverCeiling / 2)
+    @Test("the popover has no scrollable, box-bearing content left at all")
+    func popoverHasNoBoxBearingContent() {
+        // This test used to assert the trim lever was *nearly* exhausted
+        // (~252pt of boxes against a ~846-860pt popover, with everything
+        // else having no trim mechanism at all). The audience split
+        // finished that trend rather than continuing to shave it: Events,
+        // Path to Internet and Speed Test all moved to window-only, so
+        // the popover now carries zero scrollable sections by design, not
+        // by a trim that happened to land on zero. `== 0`, not `< half
+        // the ceiling` — the weaker check would still pass if this
+        // regressed halfway back.
+        #expect(SectionLayout.popoverBoxTotal == 0)
     }
 
     @Test("window-only sections declare no popover height")
@@ -954,6 +956,24 @@ struct SectionLayoutTests {
                 section.boxHeight(on: .popover) == nil,
                 "\(section.rawValue) is window-only but declares a popover height"
             )
+        }
+    }
+
+    @Test("the audience split scopes every declared section to the window only")
+    func audienceSplitIsWindowOnly() {
+        // Pins the split's exact scope directly, rather than leaving it
+        // as a side effect of the box-height check below. The popover is
+        // now just Network Health and Info (neither a `SectionLayout`
+        // case — see the type's doc comment), so every case that *is*
+        // declared here should be window-only. If this ever fails, it
+        // means something regressed back onto the popover, which is the
+        // one thing this whole split was for.
+        for section in SectionLayout.allCases {
+            #expect(
+                !section.appears(on: .popover),
+                "\(section.rawValue) reappeared on the popover after the audience split"
+            )
+            #expect(section.appears(on: .window), "\(section.rawValue) renders nowhere")
         }
     }
 
@@ -1001,9 +1021,13 @@ struct SectionLayoutTests {
     func rowHeightIsTheMeasuredConstant() {
         // 17pt/row is measured, not estimated: two real desktop
         // screenshots bracketing 41e169c showed 10 rows in 170pt and 8
-        // rows in 136pt. Both trims in the table derive from it.
+        // rows in 136pt (the popover box that trim produced, back when
+        // Events still had one). That box no longer exists post-audience-
+        // split — Events is window-only now — so there's no popover
+        // height left to check the constant against directly here;
+        // `printerAlertsHasHeadroom` above covers the one window height
+        // still derived from it (`rowHeight * 3`).
         #expect(SectionLayout.rowHeight == 17)
-        #expect(SectionLayout.events.boxHeight(on: .popover) == SectionLayout.rowHeight * 8)
     }
 }
 
