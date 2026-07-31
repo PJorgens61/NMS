@@ -63,7 +63,13 @@ final class WiFiSSIDViewModel: ObservableObject {
     /// after switching away from Wi-Fi — this also stops the periodic
     /// sampling timer, since sampling a radio that isn't in use would just
     /// record the same "not connected" reading every interval.
-    func refresh(isWiFi: Bool) {
+    ///
+    /// `departingNetworkFingerprint` is for `NMSApp`'s topology-change
+    /// wiring only — see `logNetworkChangeIfNeeded` for why a network-
+    /// change event needs it. `nil` (every other caller, including the
+    /// popover's manual Refresh button) means "no override, tag with
+    /// whatever's live," today's existing behavior.
+    func refresh(isWiFi: Bool, departingNetworkFingerprint: String? = nil) {
         guard isWiFi else {
             currentSSID = nil
             currentBSSID = nil
@@ -83,7 +89,7 @@ final class WiFiSSIDViewModel: ObservableObject {
             // @Published state.
             Task { @MainActor in
                 guard let self else { return }
-                self.sample()
+                self.sample(departingNetworkFingerprint: departingNetworkFingerprint)
                 self.startSamplingIfNeeded()
             }
         }
@@ -101,8 +107,12 @@ final class WiFiSSIDViewModel: ObservableObject {
     /// Reads current Wi-Fi state, updates the published fields, logs a
     /// network-change event if warranted, and persists the reading —
     /// called immediately on every `refresh(isWiFi: true)` and again every
-    /// `sampleInterval` after that while still on Wi-Fi.
-    private func sample() {
+    /// `sampleInterval` after that while still on Wi-Fi. `departingNetworkFingerprint`
+    /// passes straight through from `refresh(isWiFi:departingNetworkFingerprint:)` —
+    /// see that parameter's doc comment; the periodic timer in
+    /// `startSamplingIfNeeded` always calls this with `nil` (no topology
+    /// change involved).
+    private func sample(departingNetworkFingerprint: String? = nil) {
         let info = ssidService.currentInfo()
         currentSSID = info.ssid
         currentBSSID = info.bssid
@@ -112,7 +122,7 @@ final class WiFiSSIDViewModel: ObservableObject {
         currentChannelBand = info.channelBand
         currentPHYRateMbps = info.phyRateMbps
         currentSecurity = info.security
-        logNetworkChangeIfNeeded(to: info.ssid)
+        logNetworkChangeIfNeeded(to: info.ssid, departingNetworkFingerprint: departingNetworkFingerprint)
         snapshotStore.recordWiFiSample(
             ssid: info.ssid,
             bssid: info.bssid,
@@ -133,14 +143,30 @@ final class WiFiSSIDViewModel: ObservableObject {
     /// covered by `interfaceChanged`, which fires on the same handoff.
     /// What was missing, and all this adds, is the SSID-to-SSID case that
     /// no existing event could see.
-    private func logNetworkChangeIfNeeded(to ssid: String?) {
+    ///
+    /// This event describes something that happened *on the network being
+    /// left* ("you were on X, and left it for Y"), so `departingNetworkFingerprint`
+    /// — captured by `NetworkIdentityViewModel.reset()` before it clears
+    /// `SnapshotStore.currentNetworkFingerprint` for the topology change
+    /// already in progress — is passed straight to `logEvent` rather than
+    /// letting it fall back to the ambient value, which by the time this
+    /// runs has already moved on (to `nil`, then to whatever the *new*
+    /// network resolves to). Previously this event landed under the
+    /// destination network's Events tab instead of the origin's — see
+    /// `BUGS.md`'s "A network-transition event can be filed under the
+    /// wrong network's Events tab."
+    private func logNetworkChangeIfNeeded(to ssid: String?, departingNetworkFingerprint: String?) {
         guard let ssid, !ssid.isEmpty else { return }
         defer { lastKnownSSID = ssid }
         guard let previous = lastKnownSSID, previous != ssid else { return }
         // "X → Y" matches the interfaceChanged message form, which was
         // chosen over "from X to Y" because real names made the longer
         // phrasing truncate in the popover.
-        snapshotStore.logEvent(.wifiNetworkChanged, message: "Wi-Fi network changed: \(previous) → \(ssid)")
+        snapshotStore.logEvent(
+            .wifiNetworkChanged,
+            message: "Wi-Fi network changed: \(previous) → \(ssid)",
+            networkFingerprint: departingNetworkFingerprint
+        )
         onEventLogged?()
     }
 }

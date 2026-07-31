@@ -327,8 +327,12 @@ struct NMSApp: App {
             // without this, anything recorded during that gap (a DHCP
             // lease, an SNMP poll, an event) would be tagged with the
             // *previous* network's fingerprint. See
-            // `NetworkIdentityViewModel.reset`.
-            networkIdentity.reset()
+            // `NetworkIdentityViewModel.reset`. Its return value is the
+            // fingerprint just cleared — passed to `wifiSSID.refresh`
+            // below so a network-change event it logs still lands under
+            // the network it's actually about, not wherever
+            // `currentNetworkFingerprint` has moved on to by then.
+            let departingFingerprint = networkIdentity.reset()
             lanDiscovery.scan(for: snapshot)
             // A topology change is the most likely moment the public IP
             // actually changed, so check it right away rather than waiting
@@ -336,7 +340,10 @@ struct NMSApp: App {
             publicIP.check()
             // Same for the Wi-Fi SSID — e.g. unplugging Ethernet and
             // falling back to Wi-Fi is exactly this kind of change.
-            wifiSSID.refresh(isWiFi: networkMonitor?.currentInterface?.isWiFi ?? false)
+            wifiSSID.refresh(
+                isWiFi: networkMonitor?.currentInterface?.isWiFi ?? false,
+                departingNetworkFingerprint: departingFingerprint
+            )
             // A topology change (new network, interface failover) is
             // exactly the moment a DHCP lease is likely to have changed
             // too, rather than waiting up to 5 minutes for the next poll.

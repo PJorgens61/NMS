@@ -769,9 +769,18 @@ final class SnapshotStore {
         StoreInspector.dump(context: context, header: header)
     }
 
+    /// `networkFingerprint`, when given, overrides `currentNetworkFingerprint`
+    /// for this one event — see `WiFiSSIDViewModel.logNetworkChangeIfNeeded`,
+    /// the one caller that needs it: a network-transition event describes
+    /// something that happened *on the network being left*, but by the time
+    /// it's logged (after `NetworkIdentityViewModel.reset()` has already
+    /// cleared `currentNetworkFingerprint` for the topology change in
+    /// progress) the ambient value no longer reflects that network at all.
+    /// `nil` (the default, every other call site) keeps today's behavior —
+    /// tag with whatever's currently live.
     @discardableResult
-    func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date()) -> AppEventRecord {
-        let event = AppEventRecord(kind: kind, message: message, occurredAt: date, networkFingerprint: currentNetworkFingerprint)
+    func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date(), networkFingerprint: String? = nil) -> AppEventRecord {
+        let event = AppEventRecord(kind: kind, message: message, occurredAt: date, networkFingerprint: networkFingerprint ?? currentNetworkFingerprint)
         context.insert(event)
         try? context.save()
         return event

@@ -29,36 +29,48 @@ than summarized away.
 
 ## Open
 
+Nothing open right now.
+
+## Fixed
+
 ### A network-transition event can be filed under the wrong network's Events tab
 
-- **Status**: Open, mechanism traced, needs a decision (not just a fix)
+- **Status**: Fixed
 - **Severity**: Low — one event, names both networks by design, nothing
   about the origin network's other history is exposed. Real, but narrow.
 - **Found in build**: not recorded — reported before this field existed
+- **Fixed in build**: not recorded — see git log (`NetworkIdentityViewModel
+  .reset()` returning the departing fingerprint)
 - **First reported**: off-site testing at Martha's
 
 In `wireTopologyChangeFanOut`, `networkIdentity.reset()` (clears
-`currentNetworkFingerprint` to `nil`) runs *before* `wifiSSID.refresh(...)`
+`currentNetworkFingerprint` to `nil`) ran *before* `wifiSSID.refresh(...)`
 in the same closure. `WiFiSSIDViewModel.sample()` →
-`logNetworkChangeIfNeeded` logs the `"X → Y"` event synchronously right
-there — while the fingerprint is still `nil`, since `lanDiscovery.scan()`
-(and therefore `recognize()`) is async and hasn't resolved the new
-network yet. `adoptUntaggedRecords` then sweeps that `nil`-tagged event
-into whichever network resolves next: the new one.
+`logNetworkChangeIfNeeded` logged the `"X → Y"` event while the
+fingerprint was already `nil`, since `lanDiscovery.scan()` (and therefore
+`recognize()`) is async and hadn't resolved the new network yet.
+`adoptUntaggedRecords` then swept that `nil`-tagged event into whichever
+network resolved next: the new one.
 
-So today: leaving "Thistle" for "Guest" logs an event that names Thistle
-but lives under Guest's Events tab.
+So previously: leaving "Thistle" for "Guest" logged an event that named
+Thistle but lived under Guest's Events tab.
 
-**Not a clean fix** — it's genuinely ambiguous which network such an
-event belongs to, and "lives under the destination, names the origin"
-wasn't a deliberate choice, just what the reset-before-log ordering
-happens to produce. Three real options, no strong pull toward any one:
-leave it (simplest, arguably correct — read *while on* the new network),
-log it under the *old* fingerprint by capturing it before `reset()` runs
-(arguably more correct — the transition is what just ended), or log it
-under both.
-
-## Fixed
+**Fixed by taking the "log under the old fingerprint" option** — the one
+argued as "arguably more correct" (the transition is what just ended),
+and the only one of the three original options that didn't require a
+bigger change: "leave it" doesn't fix anything, and "log under both"
+would need `AppEventRecord` to carry more than one fingerprint, which
+its schema doesn't support. `NetworkIdentityViewModel.reset()` now
+returns the fingerprint it just cleared; `NMSApp`'s topology-change
+wiring captures that and threads it through
+`wifiSSID.refresh(departingNetworkFingerprint:)` →
+`logNetworkChangeIfNeeded` → a new optional override parameter on
+`SnapshotStore.logEvent`, so this one event is tagged with the network
+it's actually about instead of falling back to
+`currentNetworkFingerprint`'s live (by then already-moved-on) value.
+Every other `logEvent` call site is unaffected — the override defaults
+to `nil`, meaning "use whatever's live," today's behavior everywhere
+else.
 
 ### First traceroute after joining a network reports inflated latency
 

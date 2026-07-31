@@ -128,11 +128,24 @@ final class NetworkIdentityViewModel: ObservableObject {
     /// recognition, during which any data recorded would be wrongly
     /// attributed to it — exactly the cross-network leakage this whole
     /// feature exists to prevent.
-    func reset() {
+    ///
+    /// Returns the fingerprint that was just cleared — the network being
+    /// left, `nil` if there wasn't one recognized yet. `NMSApp`'s
+    /// topology-change wiring needs this: `wifiSSID.refresh(...)` runs
+    /// right after this call and can log a network-change event describing
+    /// the departure, but by then `currentNetworkFingerprint` has already
+    /// moved to `nil` — capturing it here, before that happens, is the only
+    /// way that event can still be tagged with the network it's actually
+    /// about. See `BUGS.md`'s "A network-transition event can be filed
+    /// under the wrong network's Events tab."
+    @discardableResult
+    func reset() -> String? {
+        let departingFingerprint = snapshotStore.currentNetworkFingerprint
         currentNetwork = nil
         isNewNetwork = false
         hasRequestedRetry = false
         snapshotStore.setCurrentNetworkFingerprint(nil)
+        return departingFingerprint
     }
 
     /// Names a network — any known network, not just the current one,

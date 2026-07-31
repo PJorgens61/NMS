@@ -385,6 +385,16 @@ from this list. This one remains, since it's an idea, not a defect):
   a main-thread stall, so a multi-agent pass over the whole branch would
   likely surface more.
 
+- [ ] **Code review the Screenshot and Bug Report code.** Not yet done as
+  part of this session's file-by-file review pass — `ScreenshotService`,
+  `ScreenshotViewModel`, and the capture-mode branches scattered across
+  `ContentView` (`isCapturingScreenshot`, `tile(fixedHeight:)`,
+  `scrollBox`, `bugReportRow`) are exactly the area that's already
+  produced the most recurring bug class this session (the
+  `ImageRenderer`/`NSViewRepresentable` "yellow prohibited glyph" quirk,
+  independently reopened at least three times) — worth a dedicated pass
+  rather than assuming the pattern is now fully closed off everywhere.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
