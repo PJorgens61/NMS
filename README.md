@@ -588,22 +588,47 @@ handles this automatically.
 
 Nearly everything stays on the local network: `arp -a`, SNMP GETs,
 ping/traceroute, `lpstat` (reads local CUPS configuration, no network
-I/O at all). Persistence is local SwiftData;
-nothing is uploaded anywhere. Two checks leave the network, both on a
-timer:
+I/O at all). Persistence is local SwiftData; nothing is uploaded
+anywhere, and no analytics, crash reports, or telemetry of any kind
+leave the machine — `UIStateLogger`'s debug log is local-only and
+compiled out entirely in Release builds.
 
-- **`https://api.ipify.org`** — public-IP lookup. Reveals your public IP
-  to a third party; see [ipify's terms](https://www.ipify.org/).
-  `PublicIPService` holds the endpoint in a single constant.
+Four things reach beyond the local network, none of them silent:
+
+- **`https://api.ipify.org`** — public-IP lookup, on a background timer.
+  Reveals your public IP to a third party; see
+  [ipify's terms](https://www.ipify.org/). `PublicIPService` holds the
+  endpoint in a single constant.
 - **`http://captive.apple.com/hotspot-detect.html`** — captive-portal
-  detection, the same endpoint macOS itself uses. Plain HTTP is
+  detection, on the same 30s/5s cadence as every other connectivity
+  check. The same endpoint macOS itself already uses. Plain HTTP is
   deliberate: a captive portal is detected by its interception of the
   response, which TLS would prevent.
+- **A DNS query for a randomized `*.apple.com` subdomain**
+  (`nms-check-<random>.apple.com`), also on that same cadence — see
+  Network Health's own explanation above for why it's randomized. This
+  is a DNS lookup through your configured resolver, not a connection to
+  Apple; the name is never expected to resolve.
+- **Speed Test and Network Quality — user-triggered only, never
+  automatic.** Cloudflare (`speed.cloudflare.com`, both directions) for
+  **Run Speed Test**, and Apple's own `networkQuality` command-line tool
+  for **Run Network Quality**. These move real data (up to ~50MB) and
+  only ever run when you click the button.
+
+Ordinary reachability pings (Router, Internet, ISP Edge Router, Public
+IP) and the traceroute itself also reach real internet addresses
+(`1.1.1.1`, your traced path's hops) — standard ICMP, a handful of bytes
+each, no request body or metadata beyond what routing already requires.
 
 SNMP community strings are stored with the app's other configuration,
 not the Keychain — a deliberate call, since they're shared, read-only,
 and usually the well-known default (`public`). If you use them as real
 access control, they aren't protected at rest here.
+
+**Every subprocess call in this app** (`ping`, `arp`, `traceroute`,
+`snmpget`, `lpstat`, `ipconfig`) uses `Process`'s array-form `arguments`,
+never a shell string — there's no shell in the loop to be tricked by a
+crafted value ending up in an argument.
 
 ## Tests
 

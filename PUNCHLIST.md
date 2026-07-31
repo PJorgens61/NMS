@@ -8,6 +8,39 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Remove SNMP Devices from the popover; keep it window-only.**
+  Currently gated by `FeatureFlags.snmpDevices` and shown in both
+  surfaces when the flag is on. Change: hide it from the popover
+  entirely (same `isInWindow`-gating pattern already used for Wi-Fi and
+  DHCP History — see those sections in `ContentView.swift`/README), so
+  it only ever appears in the resizable window. Small, mechanical —
+  wrap the existing `if FeatureFlags.snmpDevices { ... }` block in
+  `ContentView.body` with `isInWindow &&`, matching the reasoning
+  already established for the other two window-only sections (active
+  probing / a scrollable device list is squarely "niche per-device
+  detail," not popover-budget material). Directly relevant to the new
+  "split by audience" idea right below this — this is effectively step
+  one of that split, done for one section rather than the whole app.
+
+- [ ] **Add a length cap to untrusted network-derived text before it's
+  persisted.** Found during a security review requested ahead of
+  letting friends try the app. SNMP `sysDescr`/`sysName`
+  (`SNMPService.probe`) and DHCP option strings
+  (`DHCPLeaseService.parse`) are genuinely untrusted — they come from
+  whatever a device on the LAN chooses to send back — and neither has a
+  length limit before being stored in SwiftData and rendered in a
+  `Text` view. Not exploitable (every string only ever reaches plain
+  `Text(String)`, never `Text(markdown:)` or `AttributedString(markdown:)`,
+  so there's no rendering-injection path regardless of size), but a
+  misbehaving or malicious device could still bloat the store or slow a
+  render with an oversized response. Low severity, real gap — a
+  reasonable cap (a few KB) at the parsing boundary would close it
+  cheaply. The rest of the review came back clean: every subprocess
+  call uses `Process`'s array-form arguments (no shell, no injection
+  surface), no `String(format:)` call anywhere uses untrusted content
+  as the format string itself, and the ARP-parsing regex is simple and
+  anchored (no ReDoS risk).
+
 - [ ] **Split by audience: popover for business users (summary only),
   the real window for IT users (everything).** Raised directly: liked
   the full app window enough to wonder whether the popover and the

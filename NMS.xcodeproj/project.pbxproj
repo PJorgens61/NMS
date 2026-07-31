@@ -401,7 +401,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS discovers devices on your local network via Bonjour (mDNS) to show printers, file servers, and other advertised services, alongside its ARP-based LAN device list.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS reads your Mac's ARP table to list local devices and polls them via SNMP (using configured community strings) to discover and monitor routers, switches, and other network infrastructure.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -443,7 +443,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS discovers devices on your local network via Bonjour (mDNS) to show printers, file servers, and other advertised services, alongside its ARP-based LAN device list.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS reads your Mac's ARP table to list local devices and polls them via SNMP (using configured community strings) to discover and monitor routers, switches, and other network infrastructure.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
 				LD_RUNPATH_SEARCH_PATHS = (
