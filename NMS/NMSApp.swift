@@ -771,6 +771,36 @@ struct NMSApp: App {
     /// worth saying out loud.
     private(set) static var storeFallbackReason: String?
 
+    /// The actual detect-and-fall-back logic, factored out from
+    /// `makeModelContainer()` so it's testable against a schema/URL a
+    /// test fully controls — not `private`, unlike the function below,
+    /// specifically for that reason (`NMSTests` reaches it via
+    /// `@testable import`, same reasoning as `SaaSStatusService`'s
+    /// parsers).
+    ///
+    /// A **literal** schema-migration mismatch (the real historical bug
+    /// — see `BUGS.md`, "The persistent store fails to open") needs two
+    /// different compiled versions of the same model class, which isn't
+    /// constructible within one test run. What's tested instead, and
+    /// what actually matters most: does *any* store-open failure get
+    /// detected and reported rather than silently swallowed — that
+    /// silence, not the specific migration trigger, was the two-day
+    /// bug's real failure mode (a single `print()`, reaching nowhere
+    /// `UIStateLogger`/a bug report/a state dump would show it).
+    static func openStoreWithFallback(schema: Schema, url: URL) -> (container: ModelContainer, fallbackReason: String?) {
+        do {
+            let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: url)])
+            return (container, nil)
+        } catch {
+            let reason = (error as NSError).localizedDescription
+            let container = try! ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+            )
+            return (container, reason)
+        }
+    }
+
     private static func makeModelContainer() -> (ModelContainer, URL) {
         let schema = Schema([
             NetworkSnapshot.self,
@@ -786,27 +816,20 @@ struct NMSApp: App {
             WiFiSampleRecord.self
         ])
         let storeURL = Self.storeURL()
-        do {
-            let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: storeURL)])
-            return (container, storeURL)
-        } catch {
+        let (container, reason) = openStoreWithFallback(schema: schema, url: storeURL)
+        if let reason {
             // Deliberately recorded three ways, because the single
             // `print()` this used to be reached none of the places anyone
             // actually looks. `UIStateLogger` puts it in `ui-state.log`
             // and therefore in every state dump and bug report; the
             // static above drives a visible banner in the popover.
-            let reason = (error as NSError).localizedDescription
             Self.storeFallbackReason = reason
             UIStateLogger.log(
                 "App.storeFallback",
                 "could not open \(storeURL.path) — running in memory, all history is unavailable and nothing will persist: \(reason)"
             )
-            print("NMS: failed to open persistent store (\(error)); falling back to in-memory store")
-            let container = try! ModelContainer(
-                for: schema,
-                configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
-            )
-            return (container, storeURL)
+            print("NMS: failed to open persistent store (\(reason)); falling back to in-memory store")
         }
+        return (container, storeURL)
     }
 }

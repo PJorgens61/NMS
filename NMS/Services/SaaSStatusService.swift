@@ -157,7 +157,13 @@ struct SaaSStatusService {
     /// performance on Claude Sonnet 5", plus a `shortlink` straight to
     /// that incident's own page. Preferred over the generic description
     /// whenever a real incident is listed.
-    private static func parseStatuspage(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
+    /// Not `private` — same reasoning as `generalStatusPageURL` above:
+    /// `NMSTests` reaches these directly via `@testable import`, which
+    /// exposes `internal` but not `private`. Fixture-based, no network —
+    /// exactly the shape that caught `77912bf` (OpenAI/Notion's omitted
+    /// `incidents` key) after the fact; these tests exist so the next
+    /// shape drift like it is caught before shipping instead.
+    static func parseStatuspage(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct Summary: Decodable {
             struct Status: Decodable {
                 let indicator: String
@@ -204,7 +210,8 @@ struct SaaSStatusService {
     /// history endpoint's identical-looking incident objects, not
     /// confirmed directly against a live active one — worth rechecking
     /// the first time a real active incident actually appears.
-    private static func parseSlack(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
+    /// Not `private` — see `parseStatuspage`'s note above.
+    static func parseSlack(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct SlackStatus: Decodable {
             struct Incident: Decodable {
                 let title: String?
@@ -239,7 +246,8 @@ struct SaaSStatusService {
     /// — any active incident reports as `.major`. No per-incident URL
     /// anywhere in this shape either, unlike Statuspage/Slack — every
     /// Zendesk row falls back to the general status page.
-    private static func parseZendesk(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
+    /// Not `private` — see `parseStatuspage`'s note above.
+    static func parseZendesk(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct ZendeskResponse: Decodable {
             struct Incident: Decodable {
                 struct Attributes: Decodable {
@@ -286,7 +294,8 @@ struct SaaSStatusService {
     /// ever seen zero at a time so far), the most recently `modified` one
     /// is reported — the rest are real but not surfaced, same trade-off
     /// Statuspage's `incidents.first` makes elsewhere in this file.
-    private static func parseGoogleIncidents(_ data: Data, service: MonitoredService) throws -> (indicator: Indicator, description: String, specificURL: String?) {
+    /// Not `private` — see `parseStatuspage`'s note above.
+    static func parseGoogleIncidents(_ data: Data, service: MonitoredService) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct Incident: Decodable {
             let modified: String
             let end: String?
