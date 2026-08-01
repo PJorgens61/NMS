@@ -8,6 +8,34 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Add Google Workspace, Google Cloud, and AWS to SaaS monitoring;
+  Microsoft 365 needs a decision first.** Scoped to *public* status
+  dashboards only — not each provider's tenant-specific health, which
+  needs real per-provider OAuth/IAM auth (AWS SigV4, Google OAuth2
+  service-account, Microsoft Graph app registration) and is a separate,
+  much heavier project, deliberately not this one. All endpoints below
+  checked directly (`curl`, live, this session), same discipline as the
+  rest of `DESIGN-NOTES.md`'s "Business SaaS monitoring" table:
+  - **Google Workspace**: `https://www.google.com/appsstatus/dashboard/incidents.json`
+    — JSON, confirmed live, real `application/json`. Not yet in
+    `DESIGN-NOTES.md`'s table (only Google Cloud was checked there);
+    add it alongside.
+  - **Google Cloud**: `https://status.cloud.google.com/incidents.json`
+    — already in `DESIGN-NOTES.md`, re-confirmed live.
+  - **AWS**: `https://status.aws.amazon.com/rss/<service>-<region>.rss`
+    — already in `DESIGN-NOTES.md`, re-confirmed live (tested
+    `ec2-us-east-1`). Per-service-per-region, not one aggregate feed —
+    needs a decision on which service/region slugs actually matter
+    before this is a single, no-config checkbox the way the others are.
+  - **Microsoft 365**: still no public, unauthenticated endpoint —
+    `DESIGN-NOTES.md` already confirmed `401` on the real API (Microsoft
+    Graph Service Communications) without an OAuth app registration.
+    Options, same three as Workday/ADP's existing gap: skip it, fall
+    back to a plain reachability check against a Microsoft 365 domain
+    (weaker signal, same shape as the Workday/ADP fallback already
+    designed), or treat it as the first candidate for the separate
+    tenant-auth project above. No pull toward one yet.
+
 - [ ] **Popover should roll up non-green SaaS statuses.** SaaS monitoring
   is window-only per `SectionLayout`'s audience split (popover = "can I
   work, what's restricted"), so a real outage (e.g. Slack red) is

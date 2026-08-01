@@ -3096,6 +3096,7 @@ from documentation:
 | Zoom | `https://www.zoomstatus.com/api/v2/summary.json` | JSON |
 | Salesforce | `https://api.status.salesforce.com/v1/instances/<INSTANCE>/status` | JSON, per-org instance |
 | Google Cloud | `https://status.cloud.google.com/incidents.json` | JSON |
+| Google Workspace | `https://www.google.com/appsstatus/dashboard/incidents.json` | JSON — separate from Google Cloud's feed above despite the shared `google.com` host; own incidents, own dashboard |
 | Jira / Confluence | `https://status.atlassian.com/api/v2/summary.json` | JSON |
 | Trello | `https://trello.status.atlassian.com/api/v2/summary.json` | JSON |
 | Asana | `https://status.asana.com/api/v2/summary.json` | JSON |
@@ -3241,6 +3242,96 @@ granularity is finer than every other entry in this table (which
 report one status per named component). Does NMS care about "iCloud"
 as a single thing, or is exposing that it's specifically iCloud Backup
 that's down (say) actually useful?
+
+### Tenant-specific health: AWS, Google Cloud, Microsoft 365 — a separate, heavier project
+
+Everything in this section so far is a *global* fact — Slack's status
+API reports the same thing to everyone, no credentials needed. AWS
+Health, Google Cloud's per-project Service Health, and Microsoft 365's
+per-org Service Health are a different shape entirely: *your account's*
+actual incidents, which only exist behind real authentication.
+Deliberately scoped out of the punchlist item this design responds to
+("public dashboards for now") — this is what "the hard version" means
+concretely, and why it's being kept separate rather than folded in.
+
+**The common shape, and why it doesn't reopen the login-automation
+question.** None of these three need a stored password or an
+automated browser login — the thing this file already ruled out
+(`AskUserQuestion`'s earlier recommendation: token/API auth via
+Keychain, never scripted credential entry). Google and Microsoft both
+offer a genuinely headless, server-to-server flow (no user present, no
+browser, no interactive consent screen after one-time setup):
+
+- **Google Cloud** — create a Service Account in the GCP console,
+  download its JSON key, store it in Keychain. NMS mints short-lived
+  bearer tokens from it via the standard JWT-bearer OAuth2 flow and
+  calls the Service Health API. No interactive login, ever, after the
+  one-time console setup.
+- **Microsoft 365** — register an app in Azure AD with
+  `ServiceHealth.Read.All` **application** (not delegated) permission,
+  get a client ID + secret. OAuth2 client-credentials flow mints
+  bearer tokens the same shape as Google's; calls Microsoft Graph's
+  `serviceHealth`/`healthOverviews` endpoint. Same headless pattern as
+  Google, different console, different token endpoint
+  (`login.microsoftonline.com`).
+- **AWS** — no bearer-token flow. An IAM user or role with
+  `health:Describe*`, an Access Key ID + Secret Access Key (or an STS
+  session token) in Keychain, and every request **SigV4-signed**
+  (HMAC-SHA256 over the canonical request) rather than carrying a
+  simple `Authorization: Bearer` header. Structurally headless too —
+  no login, no browser — but a meaningfully different, more involved
+  signing scheme than the other two share with each other.
+
+**The real decision isn't the auth flow, it's the dependency.** This
+app has zero third-party Swift packages today (confirmed directly —
+every target's `packageProductDependencies` in `project.pbxproj` is
+empty), and has already turned one down deliberately (see "RRDtool for
+historical storage" above, rejected specifically to avoid a new
+dependency chain for a narrow need). AWS is the one of these three that
+raises the question again: Google's and Microsoft's calls are both
+"mint a token, then a plain `URLSession` request with a bearer header"
+— nothing this codebase doesn't already do everywhere (`PublicIPService`,
+`HTTPCheckService`, etc.). SigV4 signing is real cryptographic work
+(canonical-request construction, HMAC-SHA256 chaining) that's
+impractical to hand-roll correctly without a lot of care and testing
+against AWS's own test suite.
+
+Checked directly rather than assumed: the **official AWS SDK for
+Swift** (GA since September 2024, confirmed live via its own
+announcement) supports macOS 11+, but is the wrong size for this — a
+full Smithy-generated client across every AWS service, pulling in
+`swift-nio` and its own dependency chain, for what NMS needs from
+exactly one narrow, read-only endpoint. Its own docs also confirm a
+sandboxed macOS app can't read `~/.aws/credentials` (no entitlement
+exists for that directory), so credentials would need to come from
+Keychain regardless of which library gets used — the SDK's size buys
+nothing extra on that front. A **standalone SigV4-signing-only**
+package — `aws-signer-v4` (Swift Package Index, from the Soto
+maintainer) or `SwiftAWSSignatureV4` were the two found — does just the
+signing math with no service-client machinery attached, leaving the
+actual HTTP call as a plain `URLSession` request in this codebase's
+existing style. Neither has been vetted beyond confirming it exists
+and does SigV4 specifically; that's the next step if this gets built,
+not a recommendation to add either yet.
+
+Not decided, needs a real choice before any of this gets built:
+
+- Is this project worth doing at all, given it's real per-provider
+  console setup (an IAM policy, a GCP service account, an Azure app
+  registration) for *each* service the user wants — the opposite of
+  this app's minimal-configuration bias everywhere else, and a much
+  higher bar than the zero-setup public dashboards.
+- If it is: build all three at once, or ship Google/Microsoft first
+  (same headless bearer-token shape, no new dependency) and treat AWS
+  as a distinct follow-on specifically because of the SigV4/dependency
+  question?
+- Where do these credentials live in the UI — a new Preferences
+  section per service, entered once and stored in Keychain the same
+  way any future API-token feature would?
+- Does a per-tenant incident feed reuse `SectionLayout`'s existing
+  fixed-height-box pattern (matching Events/SNMP Devices), or does
+  "your account's real incidents" want a different, more prominent
+  treatment than a scrollable history list?
 
 ### Login/session signals for discovery — what to use, what to avoid
 
