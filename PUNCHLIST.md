@@ -40,6 +40,40 @@ new ones as they come up.
   as the first candidate for the separate tenant-auth project in
   `DESIGN-NOTES.md`. No pull toward one yet.
 
+- [ ] **Let users add their own website(s) to monitor, via Preferences.**
+  Explicitly requested — reverses a scope cut made earlier this session
+  (a prior punchlist entry, since removed as redundant, deliberately
+  ruled this out as "materially bigger, separate feature"). Different
+  problem from the curated table above: a random user-supplied URL
+  can't be assumed to be Statuspage-shaped JSON the way every curated
+  entry is, so this needs the **reachability-only** fallback
+  `DESIGN-NOTES.md` already designed for Workday/ADP/M365 but never
+  actually built — a plain `HTTPCheckService`-style up/down check
+  against a URL, not real status-page parsing. This would be the first
+  real implementation of that shape.
+  Shape of the work:
+  - A new `SaaSStatusService.MonitoredService.Shape` case (e.g.
+    `.reachabilityOnly`) whose "parser" is just "did the request
+    succeed" — `.none` on 2xx, `.unknown` (not `.major`/`.critical`;
+    a failed fetch to a URL with no real status API doesn't carry
+    Statuspage's severity grading) otherwise, matching how the
+    Workday/ADP/M365 fallback was already scoped in design.
+  - Preferences UI: a distinct add/remove list (URL entry + optional
+    nickname, validated as a real URL before saving), separate from the
+    existing curated-table checklist — these are two different
+    interaction shapes (toggle existing vs. add new), not one list.
+  - Storage: `UserDefaults`, same mechanism `saasEnabledServices`
+    already uses for `[String]` (not `@AppStorage`-compatible) — likely
+    a `[String: String]` or small `Codable` struct array (URL +
+    nickname) rather than a bare string array.
+  - Does a user-added entry get folded into the same
+    `SaaSMonitoringViewModel.statuses` list as the curated ones (one
+    unified Events/rollup treatment), or does "reachability only, no
+    real status API" need its own visually distinct row so it isn't
+    mistaken for a higher-confidence status-page-backed check — same
+    open question `DESIGN-NOTES.md` already raised for Workday/ADP/M365
+    specifically.
+
 - [ ] **Popover should roll up non-green SaaS statuses.** SaaS monitoring
   is window-only per `SectionLayout`'s audience split (popover = "can I
   work, what's restricted"), so a real outage (e.g. Slack red) is
