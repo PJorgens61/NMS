@@ -8,6 +8,27 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **SaaS fault injection: already built, but three real gaps found
+  while checking.** Asked "how to test SaaS services that rarely fail,
+  can we inject faults" — turns out `FailureInjector.applySaaSChanges`
+  already does exactly this (`defaults write
+  ~/Library/Preferences/Thistle.NMS.plist NMSInjectSaaSOutage -array
+  Slack`, DEBUG-only, `[injected]`-tagged, real fetch still runs
+  underneath). Confirmed working, not new. What's actually missing:
+  1. **Not in README's "Experimental features" list.** That section's
+     "Failure injection" bullet names connectivity/interface-down/DHCP/
+     SNMP explicitly but not SaaS — someone reading just the README
+     wouldn't know this exists. Add a line.
+  2. **`script/scenarios.sh` doesn't cover it either** — that script's
+     own description says "connectivity, DHCP, and SNMP," 11 checks;
+     SaaS outage injection has no automated scenario test at all today.
+  3. **Only simulates `.major`** — `applySaaSChanges` hardcodes
+     `.major` for every forced service (confirmed reading the code);
+     there's no way to inject `.minor` or `.critical` specifically, so
+     the UI's handling of the full indicator range (if it differs at
+     all beyond color) can't actually be tested or demoed today, only
+     the "is something wrong at all" case.
+
 - [ ] **Network Health's "Network" row: Wi-Fi signal sparkline, or plain
   "Ethernet."** Requested directly — narrower and more concrete than
   the general "Add Wi-Fi signal strength to Network Health" item below,
