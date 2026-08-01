@@ -8,6 +8,20 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Rename "Expert Mode"'s internal Swift symbols to match its
+  UI name.** Deliberately deferred when the UI-facing rename landed
+  (`3078a33`) — the button label, accessibility text, and every prose
+  doc comment already say "Expert Mode," but the code underneath still
+  says otherwise: `NMSApp.comparisonWindowContent`, `ContentView
+  .isInWindow`, the `Window(..., id: "nms-window")` scene identifier,
+  and the `"nms-window"` string literal at every `openWindow`/
+  `openWindowInFront` call site. Purely cosmetic — nothing user-facing
+  changes — but worth doing once, deliberately, rather than leaving the
+  code and the UI permanently telling two different stories about what
+  this feature is called. Real cost: `"nms-window"` is a scene
+  *identifier*, not just a variable name, so renaming it needs every
+  call site updated together in one pass, not found piecemeal later.
+
 - [ ] **Network Health's Router row: add a web link too.** Requested
   directly, same idea as the SNMP Devices entry below but simpler in
   one real way: the router's IP is already known with certainty here
