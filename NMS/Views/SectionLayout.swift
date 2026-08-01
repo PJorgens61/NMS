@@ -64,6 +64,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     case snmpDevices
     case dhcpHistory
     case printerAlerts
+    case saasMonitoring
 
     /// Which surfaces this section renders on at all.
     ///
@@ -100,7 +101,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     var surfaces: Set<Surface> {
         switch self {
         case .pathToInternet, .speedTest, .events,
-             .wifi, .snmpDevices, .dhcpHistory, .printerAlerts:
+             .wifi, .snmpDevices, .dhcpHistory, .printerAlerts, .saasMonitoring:
             return [.window]
         }
     }
@@ -147,8 +148,9 @@ enum SectionLayout: String, CaseIterable, Sendable {
         case (.printerAlerts, .window): return 85
 
         // Read-at-a-glance current state, not scrollable history — sizes
-        // to its content, no box.
-        case (.wifi, _): return nil
+        // to its content, no box. Same reasoning for saasMonitoring: a
+        // fixed 3-service list, no growth, nothing to scroll.
+        case (.wifi, _), (.saasMonitoring, _): return nil
 
         // Unreachable given the `appears(on:)` guard above (every case
         // here is window-only as of the audience split, so `.popover`

@@ -29,6 +29,7 @@ enum FeatureFlags {
     /// string that could quietly drift apart.
     static let comparisonWindowKey = "FeatureComparisonWindow"
     static let snmpDevicesKey = "FeatureSNMPDevices"
+    static let saasMonitoringKey = "FeatureSaaSMonitoring"
 
     /// The resizable "Open in Window" alternative to the popover — see
     /// `NMSApp`'s "nms-window" scene doc comment. Still explicitly
@@ -56,5 +57,18 @@ enum FeatureFlags {
     /// a gap.
     static var snmpDevices: Bool {
         defaults.bool(forKey: snmpDevicesKey)
+    }
+
+    /// Periodic checks against a small, fixed list of business SaaS
+    /// status pages (Slack, Claude, ChatGPT) — see
+    /// `SaaSStatusService`/`SaaSMonitoringViewModel` and DESIGN-NOTES.md's
+    /// "Business SaaS monitoring". Off by default for the same reason
+    /// `snmpDevices` is: this reaches out to third-party services
+    /// periodically, which a fresh install shouldn't do without explicit
+    /// opt-in, even though (unlike SNMP) it's a WAN fetch rather than LAN
+    /// probing. Read once at `SaaSMonitoringViewModel.init()`, same
+    /// restart-to-apply behavior as `snmpDevices`.
+    static var saasMonitoring: Bool {
+        defaults.bool(forKey: saasMonitoringKey)
     }
 }

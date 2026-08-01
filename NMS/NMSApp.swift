@@ -102,6 +102,7 @@ struct NMSApp: App {
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
     @StateObject private var snmp: SNMPViewModel
+    @StateObject private var saasMonitoring: SaaSMonitoringViewModel
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -180,6 +181,7 @@ struct NMSApp: App {
             lanDiscovery: lanDiscovery,
             traceroute: traceroute
         )
+        let saasMonitoring = SaaSMonitoringViewModel(snapshotStore: store)
         // Two-phase: `SNMPViewModel` needs view models built alongside
         // `connectivity`, so the back-reference is injected once both exist.
         connectivity.attach(snmp: snmp)
@@ -195,7 +197,8 @@ struct NMSApp: App {
             eventLog: eventLog,
             traceroute: traceroute,
             snmp: snmp,
-            networkQuality: networkQuality
+            networkQuality: networkQuality,
+            saasMonitoring: saasMonitoring
         )
         _networkMonitor = StateObject(wrappedValue: networkMonitor)
         _lanDiscovery = StateObject(wrappedValue: lanDiscovery)
@@ -209,6 +212,7 @@ struct NMSApp: App {
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
         _snmp = StateObject(wrappedValue: snmp)
+        _saasMonitoring = StateObject(wrappedValue: saasMonitoring)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
@@ -260,7 +264,8 @@ struct NMSApp: App {
         eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
         snmp: SNMPViewModel,
-        networkQuality: NetworkQualityViewModel
+        networkQuality: NetworkQualityViewModel,
+        saasMonitoring: SaaSMonitoringViewModel
     ) {
         wireTopologyChangeFanOut(
             networkMonitor: networkMonitor,
@@ -297,7 +302,8 @@ struct NMSApp: App {
             eventLog: eventLog,
             networkIdentity: networkIdentity,
             snmp: snmp,
-            traceroute: traceroute
+            traceroute: traceroute,
+            saasMonitoring: saasMonitoring
         )
     }
 
@@ -487,7 +493,8 @@ struct NMSApp: App {
         eventLog: EventLogViewModel,
         networkIdentity: NetworkIdentityViewModel,
         snmp: SNMPViewModel,
-        traceroute: TracerouteViewModel
+        traceroute: TracerouteViewModel,
+        saasMonitoring: SaaSMonitoringViewModel
     ) {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
@@ -497,6 +504,7 @@ struct NMSApp: App {
         wifiSSID.onEventLogged = { eventLog.refresh() }
         snmp.onEventLogged = { eventLog.refresh() }
         traceroute.onEventLogged = { eventLog.refresh() }
+        saasMonitoring.onEventLogged = { eventLog.refresh() }
 
         // Everything above fires on *new* data. This one covers stored
         // data that was already there: both view models fetch once in
@@ -542,6 +550,7 @@ struct NMSApp: App {
             eventLog: eventLog,
             traceroute: traceroute,
             snmp: snmp,
+            saasMonitoring: saasMonitoring,
             buildInfo: buildInfo,
             storeURL: storeURL,
             surface: surface

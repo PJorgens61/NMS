@@ -718,4 +718,41 @@ extension ContentView {
             .font(.system(size: 12))
         }
     }
+
+    // MARK: - SaaS Monitoring
+
+    /// Business SaaS status — window-only, read-at-a-glance current state
+    /// rather than scrollable history, same reasoning `wifiSection` above
+    /// gives: a fixed 3-service list, no box of its own. See
+    /// `SaaSMonitoringViewModel` and DESIGN-NOTES.md's "Business SaaS
+    /// monitoring".
+    // Not `private` — called from `ContentView.swift`'s `scrollableContent`.
+    @ViewBuilder
+    var saasMonitoringSection: some View {
+        ForEach(saasMonitoring.statuses) { status in
+            HStack {
+                Circle()
+                    .fill(saasIndicatorColor(status.indicator))
+                    .frame(width: 8, height: 8)
+                Text(status.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(status.description)
+                    .foregroundStyle(status.indicator == .none ? Color.secondary : saasIndicatorColor(status.indicator))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.system(size: 12))
+        }
+    }
+
+    private func saasIndicatorColor(_ indicator: SaaSStatusService.Indicator) -> Color {
+        switch indicator {
+        case .none: return .green
+        case .minor: return .yellow
+        case .major, .critical: return .red
+        case .unknown: return .gray
+        }
+    }
 }

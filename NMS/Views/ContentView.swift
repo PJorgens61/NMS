@@ -13,6 +13,7 @@ struct ContentView: View {
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
     @ObservedObject var snmp: SNMPViewModel
+    @ObservedObject var saasMonitoring: SaaSMonitoringViewModel
     /// Not `@ObservedObject` — a plain value computed once at launch (see
     /// `NMSApp`), not something that changes while the popover is open.
     let buildInfo: BuildInfoService.Info?
@@ -246,6 +247,22 @@ struct ContentView: View {
                     .font(.headline)
 
                 wifiSection
+            }
+
+            // Same two-independent-gates shape as SNMP Devices below:
+            // `FeatureFlags.saasMonitoring` answers a consent question
+            // (this reaches out to third-party services, not just this
+            // Mac's own LAN); `SectionLayout` answers a space question.
+            // Placed near Wi-Fi, not with the other full-width sections
+            // below — same reasoning: read-at-a-glance current state, not
+            // scrollable history.
+            if FeatureFlags.saasMonitoring, SectionLayout.saasMonitoring.appears(on: surface) {
+                Divider()
+
+                Text("SaaS Status")
+                    .font(.headline)
+
+                saasMonitoringSection
             }
 
             // Window-only as of the audience split (see

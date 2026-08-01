@@ -103,6 +103,28 @@ enum AppEventKind: String, Codable {
     /// differs — same shape as `interfaceChanged`. See
     /// `TracerouteViewModel.leadingNonInternetHopCount`.
     case multipleNATLayersDetected
+    /// A monitored business SaaS service's status-page indicator moved
+    /// off/onto "none" — see `SaaSMonitoringViewModel`. One generic pair
+    /// for any of the monitored services (Slack, Claude, ChatGPT, ...),
+    /// not one pair per service, same shape as `infrastructureUnreachable`/
+    /// `infrastructureReachable` covering any number of SNMP devices —
+    /// the service's own name and the fetched status description are
+    /// carried in `message` instead.
+    ///
+    /// **Known limitation, accepted for this prototype**: unlike a LAN
+    /// check, a vendor's status-page result is a *global* fact, not tied
+    /// to whichever network happens to be current — but this is tagged
+    /// with `currentNetworkFingerprint` like every other event, since
+    /// there's no "genuinely global, never adopt" fingerprint concept
+    /// today (a permanently-`nil` tag would collide with
+    /// `SnapshotStore.adoptUntaggedRecords`, which already treats `nil`
+    /// as "not yet recognized, retag me once you know"). So an outage
+    /// event logged at home won't show in the Events tab while at a
+    /// coffee shop, even though the outage itself is universal. See
+    /// DESIGN-NOTES.md's "Business SaaS monitoring" for the full
+    /// reasoning.
+    case saasServiceDown
+    case saasServiceRecovered
 
     enum Polarity {
         case positive, negative, neutral
@@ -115,11 +137,12 @@ enum AppEventKind: String, Codable {
     var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
-             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered, .printerAlertCleared:
+             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered, .printerAlertCleared,
+             .saasServiceRecovered:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
              .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue,
-             .printerAlert:
+             .printerAlert, .saasServiceDown:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
              .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected:

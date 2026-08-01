@@ -24,6 +24,7 @@ struct PreferencesView: View {
     // elsewhere agree on the same value.
     @AppStorage(FeatureFlags.comparisonWindowKey) private var comparisonWindowEnabled = false
     @AppStorage(FeatureFlags.snmpDevicesKey) private var snmpDevicesEnabled = false
+    @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -43,6 +44,12 @@ struct PreferencesView: View {
                 "SNMP Devices",
                 isOn: $snmpDevicesEnabled,
                 description: "Active SNMP network probing against whatever LAN this Mac is on. Only turn this on if you're comfortable with that on your own network."
+            )
+
+            feature(
+                "SaaS Monitoring",
+                isOn: $saasMonitoringEnabled,
+                description: "Periodically checks Slack, Claude, and ChatGPT's public status pages. Reaches out to those services directly, not just your own network."
             )
 
             caption("Changes here take effect after restarting NMS.")
