@@ -71,39 +71,6 @@
     padding: 0 clamp(1.25rem, 4vw, 3rem);
   }
 
-  /* ---------- Top strip: the real menu bar ---------- */
-  .menubar {
-    background: #1c1c1e;
-    color: #d8d8db;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 14px;
-    padding: 0 16px;
-    font-size: 12.5px;
-    font-family: var(--font-display);
-  }
-  .menubar .glyph { opacity: 0.55; }
-  .menubar .nms-dot-wrap {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 6px;
-    border-radius: 5px;
-    background: rgba(255,255,255,0.08);
-  }
-  .menubar .nms-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--ok);
-    box-shadow: 0 0 0 0 rgba(62,155,92,0.6);
-    animation: pulse 2.6s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(62,155,92,0.45); }
-    50% { box-shadow: 0 0 0 5px rgba(62,155,92,0); }
-  }
-
   /* ---------- Hero ---------- */
   .hero {
     padding: clamp(3rem, 7vw, 5.5rem) 0 clamp(2.5rem, 6vw, 4rem);
@@ -310,19 +277,11 @@
   footer a:hover { color: var(--accent); }
 
   @media (prefers-reduced-motion: reduce) {
-    .menubar .nms-dot { animation: none; }
     .hop { transition: none; opacity: 1; transform: none; }
   }
 </style>
 </head>
 <body>
-
-<div class="menubar">
-  <span class="glyph">🔋</span>
-  <span class="glyph">📶</span>
-  <span class="nms-dot-wrap"><span class="nms-dot"></span></span>
-  <span class="glyph">Fri 10:14 AM</span>
-</div>
 
 <div class="wrap">
   <section class="hero">
@@ -367,6 +326,7 @@
         <ul class="feat-list">
           <li><span class="mark">→</span> One colored dot: green means every layer is healthy, red tells you exactly which one isn't.</li>
           <li><span class="mark">→</span> Distinguishes "your Wi-Fi dropped" from "your ISP is down" from "the site itself is down" — three very different next steps.</li>
+          <li><span class="mark">→</span> Also checks the status pages Slack, Google, Notion, and a dozen other SaaS tools publish themselves — so a real outage on their end never gets mistaken for a problem on yours.</li>
           <li><span class="mark">→</span> A quiet history of every outage, so "the internet's been flaky all week" stops being a feeling and starts being a timestamped fact.</li>
         </ul>
       </div>
@@ -431,7 +391,7 @@
         <h2>Built the way you'd want a Mac utility built.</h2>
         <p class="lede">SwiftUI for the interface, SwiftData for local persistence, and nothing else — no third-party dependencies at all. Where macOS already ships a tool that does the job right, NMS shells out to it instead of reinventing it.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> <code class="inline">getaddrinfo</code> for DNS, <code class="inline">URLSession</code> for HTTP/throughput, straight into SystemConfiguration for interface state.</li>
+          <li><span class="mark">→</span> DNS lookups go straight through <code class="inline">getaddrinfo</code>; HTTP and throughput checks use <code class="inline">URLSession</code>; interface state comes from SystemConfiguration.</li>
           <li><span class="mark">→</span> <code class="inline">ping</code>, <code class="inline">traceroute</code>, <code class="inline">snmpget</code> — the same BSD tools Darwin inherited from 4.2BSD networking, not reimplemented.</li>
           <li><span class="mark">→</span> A design-notes file documenting the reasoning behind the non-obvious calls, kept in the repo alongside the code that made them.</li>
         </ul>
