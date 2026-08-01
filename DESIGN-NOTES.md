@@ -38,6 +38,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [The cadence bug found in a screenshot: a real outage's recovery, delayed by its own heuristic](#the-cadence-bug-found-in-a-screenshot-a-real-outages-recovery-delayed-by-its-own-heuristic)
 - [Two more bugs from the same class, found in a second real transition](#two-more-bugs-from-the-same-class-found-in-a-second-real-transition)
 - [Remediation guides: turning a detected problem into actionable advice](#remediation-guides-turning-a-detected-problem-into-actionable-advice)
+- [Timer-scaling as a stress test — not a fuzzer, a race-condition hunter](#timer-scaling-as-a-stress-test--not-a-fuzzer-a-race-condition-hunter)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -4536,3 +4537,113 @@ worse version of the exact mistake those fixes corrected.
   underlying `ConnectionLayer` recovers** — same "does it need its own
   state" question the active-overrides banner already worked through
   once for a different feature.
+
+## Timer-scaling as a stress test — not a fuzzer, a race-condition hunter
+
+Raised directly: can `FailureInjector`'s existing timer-speedup
+mechanism become a stress test, is it a fuzzer, how far can the timers
+scale, can the app be run faster and faster until trouble is found, and
+CPU needs tracking while doing it. Five real questions, each with a
+different, concrete answer below.
+
+### Not a fuzzer — a different, well-matched category
+
+A fuzzer mutates or randomizes *input* to find crashes in how a program
+parses or handles unexpected data — AFL/libFuzzer feeding mutated byte
+sequences to a parser is the canonical shape. What's being proposed
+here compresses *time* on the same fixed, known sequence of operations
+instead — a timing/concurrency stress test, not fuzzing.
+
+That distinction isn't pedantic — it changes what kind of bug this
+would actually find. Not malformed-input crashes (a fuzzer's specialty)
+but **races and timer-overlap bugs**, which is exactly the category
+this app's real bug history is already made of: the cadence bug, "two
+more bugs from the same class" (both above), and "Fix Wi-Fi section
+showing on Ethernet after a fast interface flap" (posted to GitHub
+issue #6, `42a5079`) were all races surfacing under timing pressure —
+a `Task`-deferred completion landing after a later call had already
+moved state on. This idea is well-matched to this app's actual failure
+history, just not a fuzzer by name.
+
+### The foundation already exists
+
+`FailureInjector.acceleratedInterval(_:)` divides every poll interval
+by `NMSPollSpeedup` (an integer divisor, not a multiplier —
+`defaults write ~/Library/Preferences/Thistle.NMS.plist NMSPollSpeedup
+-int 10` divides every interval by 10), preserving the ratio between
+`ConnectivityViewModel`'s two real cadences: `checkInterval` (30s,
+normal) and `fastCheckInterval` (5s, the faster round used once
+something looks like it's transitioning). `script/scenarios.sh`
+already runs the whole 11-check suite at a fixed 30× and asserts on
+the results in about a minute.
+
+**Turning this into a real stress test is escalation, not a new
+mechanism**: drive `NMSPollSpeedup` upward in a loop (30×, 60×, 120×,
+...) instead of one fixed value, watching for where something breaks
+rather than asserting a single known-good state.
+
+### How far down can the timers actually go?
+
+Not an arithmetic floor — a practical one, set by real work this app
+does every round, not a hypothetical. A connectivity round already
+forks several real subprocesses concurrently — `ping` against
+Router/Switch/AP1/AP2/the configured printer, `1.1.1.1` for raw
+internet, plus DNS and HTTP probes (confirmed directly: a real captured
+`ConnectivityViewModel.checks` log line this session showed 8
+concurrent `ping` invocations in one round, alongside a separate
+`lpstat` call). Each of those is genuine fork/exec overhead, not free.
+
+Once the shrinking interval approaches the actual wall-clock time a
+round takes to complete, rounds start overlapping and queuing instead
+of running cleanly back-to-back. **That overlap regime is the
+interesting part, not a failure state to avoid** — it's exactly the
+condition under which a bug like the Wi-Fi/Ethernet flap race would be
+most likely to reproduce on demand instead of waiting for a real
+network to flap at the right moment. The stress test's job is to find
+where that regime starts, not to stay safely above it.
+
+### CPU tracking: partially exists, wrong shape for this specific job
+
+`SystemLoadService.normalizedLoad()` already reads CPU load via
+`getloadavg(3)` — deliberately not a subprocess (that type's own doc
+comment: shelling out to `top`/`ps` to diagnose subprocess starvation
+"would be self-defeating — the diagnostic would be the first thing to
+stall under the condition it exists to detect"). Built for a different,
+real problem: corroborating whether a `ping` timeout is a genuine
+network failure or the Mac being too busy to service it in time
+(discovered live, twice, during Xcode builds).
+
+That existing service is explicitly the wrong grain for this job,
+by its own admission: it's a **one-minute rolling average**,
+documented as `isLaggingIndicator = true`, with a comment saying "true
+instantaneous CPU would need `host_processor_info` deltas — more
+machinery for a sharper signal than this needs." For *that* purpose,
+a lagging signal was the right, deliberate choice. For a stress test
+trying to find the exact speedup factor where trouble starts, a
+minute-long lag means the dial has already moved several notches past
+the actual breaking point before the measurement catches up — this
+needs the sharper `host_processor_info`-based signal `SystemLoadService`
+explicitly chose not to build, not a reuse of what's there today.
+
+### Open questions, not yet decided
+
+- **What counts as "trouble"?** A `scenarios.sh`-style assertion
+  failure, a hang/deadlock (needs its own timeout to detect, since a
+  genuine deadlock wouldn't self-report), a crash, or purely the CPU
+  signal above crossing some threshold? Different failure shapes need
+  different detection, and a stress harness probably needs all of them
+  watched at once.
+- **Automatic ramp with auto-stop, or a human watching Activity Monitor
+  while manually walking the dial up?** The former is more rigorous and
+  repeatable; the latter is far less to build and matches how this
+  project's testing has worked throughout (real screenshots, real
+  `curl`/`sqlite3` checks, not automated harnesses beyond
+  `scenarios.sh`).
+- **Does a found breaking point get recorded anywhere durable** (a
+  `BUGS.md`-style "breaks above 200×, here's what happens" entry). Or
+  is this a one-off exploratory run each time, not a regression gate?
+- **Single-machine-specific or portable?** The MacBook Air and iMac
+  have already shown real, different behavior under normal conditions
+  (window-foregrounding, the popover height budget) — a breaking point
+  found here is plausibly not the same number on both machines, worth
+  deciding whether that's even in scope to compare.
