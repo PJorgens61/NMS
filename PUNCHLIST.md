@@ -8,6 +8,16 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Do we need a "dark mode" for the app?** Raised directly, not yet
+  investigated. Worth checking what actually happens today first —
+  `MenuBarExtra(.window)` and the plain `Window` scenes may already pick
+  up the system appearance for free via standard SwiftUI/AppKit
+  materials, or specific colors here (the status dots, `Sparkline`'s
+  hardcoded `.secondary`/`.red`, the orange debug-override banner, the
+  yellow bug-report tint) may not adapt correctly against a dark
+  background. Needs a real check in dark mode before deciding whether
+  there's anything to build at all.
+
 - [x] ~~Path to Internet's Provider Edge History may not be worth
   showing on a single-homed network.~~ **Removed the display.** The
   caveat that kept this open (removing it "reopens" the Path to
