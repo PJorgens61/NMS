@@ -15,6 +15,10 @@ final class SaaSMonitoringViewModel: ObservableObject {
         let name: String
         let indicator: SaaSStatusService.Indicator
         let description: String
+        /// See `SaaSStatusService.CheckResult.url` — always a real link:
+        /// the specific incident's page when there is one, the general
+        /// status page otherwise, regardless of current health.
+        let url: String
     }
 
     @Published private(set) var statuses: [ServiceStatus] = [] {
@@ -95,9 +99,14 @@ final class SaaSMonitoringViewModel: ObservableObject {
                     group.addTask {
                         do {
                             let result = try await service.checkStatus(monitored)
-                            return (index, ServiceStatus(name: monitored.name, indicator: result.indicator, description: result.description))
+                            return (index, ServiceStatus(name: monitored.name, indicator: result.indicator, description: result.description, url: result.url))
                         } catch {
-                            return (index, ServiceStatus(name: monitored.name, indicator: .unknown, description: "Could not check status"))
+                            // Still a real link, same reasoning as every
+                            // other fallback here: this Mac failing to
+                            // reach the endpoint says nothing about
+                            // whether the status page itself is up.
+                            let fallbackURL = SaaSStatusService.generalStatusPageURL(for: monitored)
+                            return (index, ServiceStatus(name: monitored.name, indicator: .unknown, description: "Could not check status", url: fallbackURL))
                         }
                     }
                 }
@@ -126,7 +135,12 @@ final class SaaSMonitoringViewModel: ObservableObject {
                 let isDown = result.indicator != .none
                 if isDown, !wasDown {
                     let prefix = FailureInjector.isSaaSForced(result.name) ? "[injected] " : ""
-                    snapshotStore.logEvent(.saasServiceDown, message: "\(prefix)\(result.name): \(result.description)")
+                    // The URL is appended right in the message — this
+                    // event record is the durable, findable copy (the
+                    // live status row disappears the moment the service
+                    // recovers), so it's the one place a link needs to
+                    // survive for later reading.
+                    snapshotStore.logEvent(.saasServiceDown, message: "\(prefix)\(result.name): \(result.description) (\(result.url))")
                     loggedAny = true
                 } else if !isDown, wasDown {
                     snapshotStore.logEvent(.saasServiceRecovered, message: "\(result.name) recovered")

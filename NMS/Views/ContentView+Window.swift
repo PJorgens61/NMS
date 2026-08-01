@@ -723,9 +723,9 @@ extension ContentView {
 
     /// Business SaaS status — window-only, read-at-a-glance current state
     /// rather than scrollable history, same reasoning `wifiSection` above
-    /// gives: a fixed 3-service list, no box of its own. See
-    /// `SaaSMonitoringViewModel` and DESIGN-NOTES.md's "Business SaaS
-    /// monitoring".
+    /// gives: a short, user-configurable list (`PreferencesView`'s
+    /// service picker), no box of its own. See `SaaSMonitoringViewModel`
+    /// and DESIGN-NOTES.md's "Business SaaS monitoring".
     // Not `private` — called from `ContentView.swift`'s `scrollableContent`.
     @ViewBuilder
     var saasMonitoringSection: some View {
@@ -742,6 +742,23 @@ extension ContentView {
                     .foregroundStyle(status.indicator == .none ? Color.secondary : saasIndicatorColor(status.indicator))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                // Always present — `status.url` is always a real link
+                // (the specific incident when there is one, the general
+                // status page otherwise, see `SaaSStatusService
+                // .CheckResult.url`), so "go check for yourself" is one
+                // click away regardless of current health. A dedicated
+                // icon button rather than making the description itself
+                // look clickable — the first use of `Link` anywhere in
+                // this app.
+                if let url = URL(string: status.url) {
+                    Link(destination: url) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("\(status.name) status page")
+                    .accessibilityHint("Opens \(status.name)'s status page in your browser")
+                }
             }
             .font(.system(size: 12))
         }

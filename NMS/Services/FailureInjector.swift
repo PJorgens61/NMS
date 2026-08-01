@@ -277,7 +277,13 @@ enum FailureInjector {
             return SaaSMonitoringViewModel.ServiceStatus(
                 name: status.name,
                 indicator: .major,
-                description: "[injected] Simulated outage"
+                description: "[injected] Simulated outage",
+                // Not nil: a real outage's ServiceStatus usually carries a
+                // URL, so an injection that always left it nil would never
+                // exercise that half of the UI/event path — a clearly
+                // fake but valid URL, not a real incident link, exactly
+                // as honest as the "[injected]" text itself.
+                url: "https://example.com/injected-incident"
             )
         }
         #else

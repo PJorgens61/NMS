@@ -39,6 +39,15 @@ struct SaaSStatusService {
     struct CheckResult {
         let indicator: Indicator
         let description: String
+        /// Always a real, usable link — never `nil`. The specific
+        /// incident's own page when one exists (most informative,
+        /// resolved by each `parseXXX` below); otherwise the service's
+        /// general status page, resolved once here in `checkStatus` from
+        /// `service.endpoint`'s own host rather than a second hand-typed
+        /// URL per service that could drift from the endpoint it's
+        /// derived from. Shown as a link regardless of health — "check
+        /// for yourself" is useful even when everything's reported fine.
+        let url: String
     }
 
     enum SaaSStatusError: Error {
@@ -78,30 +87,67 @@ struct SaaSStatusService {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SaaSStatusError.unexpectedResponse
         }
+        let parsed: (indicator: Indicator, description: String, specificURL: String?)
         switch service.shape {
-        case .statuspage: return try Self.parseStatuspage(data)
-        case .slack: return try Self.parseSlack(data)
-        case .zendesk: return try Self.parseZendesk(data)
+        case .statuspage: parsed = try Self.parseStatuspage(data)
+        case .slack: parsed = try Self.parseSlack(data)
+        case .zendesk: parsed = try Self.parseZendesk(data)
         }
+        return CheckResult(
+            indicator: parsed.indicator,
+            description: parsed.description,
+            url: parsed.specificURL ?? Self.generalStatusPageURL(for: service)
+        )
+    }
+
+    /// The service's general, human-facing status page — derived from
+    /// `endpoint`'s own scheme/host rather than a second, hand-typed URL
+    /// per service, so there's nothing here that could drift from the
+    /// endpoint it's actually fetching. Confirmed this holds for all ten
+    /// (each API endpoint lives at the same host as the page a person
+    /// would actually visit — e.g. `status.claude.com/api/v2/summary.json`
+    /// and `status.claude.com` itself, which matched Claude's own
+    /// `page.url` field exactly).
+    ///
+    /// Not `private` — `SaaSMonitoringViewModel.checkAll()`'s catch branch
+    /// (a fetch failure, not a parsed result) needs the same fallback: a
+    /// service this Mac couldn't reach right now is still worth a link to
+    /// its status page, on the chance the page itself is up even though
+    /// this particular fetch wasn't.
+    static func generalStatusPageURL(for service: MonitoredService) -> String {
+        "\(service.endpoint.scheme ?? "https")://\(service.endpoint.host ?? service.endpoint.absoluteString)"
     }
 
     /// The standard Statuspage.io v2 summary shape — confirmed live for
     /// both Claude and ChatGPT: `{"status": {"indicator": "...",
-    /// "description": "..."}, ...}`. `indicator` is one of
+    /// "description": "..."}, "incidents": [...]}`. `indicator` is one of
     /// `none`/`minor`/`major`/`critical`.
-    private static func parseStatuspage(_ data: Data) throws -> CheckResult {
+    ///
+    /// The top-level `status.description` is a generic aggregate
+    /// ("Partial System Outage") — confirmed live that `incidents` (empty
+    /// when healthy) carries the *specific* incident instead, e.g. "Degraded
+    /// performance on Claude Sonnet 5", plus a `shortlink` straight to
+    /// that incident's own page. Preferred over the generic description
+    /// whenever a real incident is listed.
+    private static func parseStatuspage(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct Summary: Decodable {
             struct Status: Decodable {
                 let indicator: String
                 let description: String
             }
+            struct Incident: Decodable {
+                let name: String
+                let shortlink: String?
+            }
             let status: Status
+            let incidents: [Incident]
         }
         let decoded = try JSONDecoder().decode(Summary.self, from: data)
-        return CheckResult(
-            indicator: Indicator(rawValue: decoded.status.indicator) ?? .unknown,
-            description: decoded.status.description
-        )
+        let indicator = Indicator(rawValue: decoded.status.indicator) ?? .unknown
+        if let incident = decoded.incidents.first {
+            return (indicator, incident.name, incident.shortlink)
+        }
+        return (indicator, decoded.status.description, nil)
     }
 
     /// Slack's own API, not Statuspage — confirmed live, and genuinely
@@ -112,10 +158,20 @@ struct SaaSStatusService {
     /// non-empty means something's wrong, reported as `.major` since
     /// this shape gives no way to distinguish a minor blip from a major
     /// outage the way Statuspage's `indicator` does.
-    private static func parseSlack(_ data: Data) throws -> CheckResult {
+    ///
+    /// `title`/`url` per incident — confirmed from Slack's own incident
+    /// *history* endpoint (`/api/v2.0.0/history`), which returned real
+    /// past incidents shaped `{"title": "...", "url": "https://slack-status.com/...", ...}`.
+    /// `active_incidents` itself was only ever observed empty (this Mac
+    /// never caught Slack mid-outage), so this shape is inferred from the
+    /// history endpoint's identical-looking incident objects, not
+    /// confirmed directly against a live active one — worth rechecking
+    /// the first time a real active incident actually appears.
+    private static func parseSlack(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct SlackStatus: Decodable {
             struct Incident: Decodable {
-                let name: String?
+                let title: String?
+                let url: String?
             }
             let status: String
             let activeIncidents: [Incident]
@@ -126,14 +182,10 @@ struct SaaSStatusService {
             }
         }
         let decoded = try JSONDecoder().decode(SlackStatus.self, from: data)
-        guard !decoded.activeIncidents.isEmpty else {
-            return CheckResult(indicator: .none, description: "All Systems Operational")
+        guard let incident = decoded.activeIncidents.first else {
+            return (.none, "All Systems Operational", nil)
         }
-        let names = decoded.activeIncidents.compactMap(\.name)
-        return CheckResult(
-            indicator: .major,
-            description: names.isEmpty ? "Active incident reported" : names.joined(separator: ", ")
-        )
+        return (.major, incident.title ?? "Active incident reported", incident.url)
     }
 
     /// Zendesk's own active-incidents endpoint, not Statuspage — confirmed
@@ -147,8 +199,10 @@ struct SaaSStatusService {
     /// own multi-reason parsing flagged for the same reason. Worth
     /// rechecking the first time this actually renders a real Zendesk
     /// incident. No severity grading in this shape either, same as Slack
-    /// — any active incident reports as `.major`.
-    private static func parseZendesk(_ data: Data) throws -> CheckResult {
+    /// — any active incident reports as `.major`. No per-incident URL
+    /// anywhere in this shape either, unlike Statuspage/Slack — every
+    /// Zendesk row falls back to the general status page.
+    private static func parseZendesk(_ data: Data) throws -> (indicator: Indicator, description: String, specificURL: String?) {
         struct ZendeskResponse: Decodable {
             struct Incident: Decodable {
                 struct Attributes: Decodable {
@@ -160,12 +214,9 @@ struct SaaSStatusService {
         }
         let decoded = try JSONDecoder().decode(ZendeskResponse.self, from: data)
         guard !decoded.data.isEmpty else {
-            return CheckResult(indicator: .none, description: "All Systems Operational")
+            return (.none, "All Systems Operational", nil)
         }
         let titles = decoded.data.compactMap { $0.attributes?.title }
-        return CheckResult(
-            indicator: .major,
-            description: titles.isEmpty ? "Active incident reported" : titles.joined(separator: ", ")
-        )
+        return (.major, titles.isEmpty ? "Active incident reported" : titles.joined(separator: ", "), nil)
     }
 }
