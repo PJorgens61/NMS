@@ -45,6 +45,21 @@ final class WiFiSSIDViewModel: ObservableObject {
     /// Thistle → Ethernet → ThistleGuest still reports the change.
     private var lastKnownSSID: String?
 
+    /// The `isWiFi` most recently passed to `refresh`, captured
+    /// synchronously — not the same as "is `currentSSID` non-nil," which
+    /// only updates once `sample()` actually runs. Exists purely to guard
+    /// `refresh`'s own authorization completion below against a real race:
+    /// requesting authorization defers its completion through a `Task`
+    /// even when already granted, and on a network that flaps Wi-Fi↔Ethernet
+    /// quickly (confirmed live — see BUGS.md), a `refresh(isWiFi: false)`
+    /// can land in that gap. Without this guard the stale completion still
+    /// runs, re-populating `currentSSID` from the radio (which stays
+    /// associated with a network in the background even once Ethernet
+    /// takes over as primary) and restarting the sampling timer — showing
+    /// Wi-Fi details while on Ethernet, contradicting `ContentView`'s own
+    /// "hidden outright on Ethernet" section gating.
+    private var lastRequestedIsWiFi = false
+
     /// Fired when a `wifiNetworkChanged` event is logged, so the event log
     /// view refreshes — mirrors the other view models' hook.
     var onEventLogged: (() -> Void)?
@@ -70,6 +85,7 @@ final class WiFiSSIDViewModel: ObservableObject {
     /// popover's manual Refresh button) means "no override, tag with
     /// whatever's live," today's existing behavior.
     func refresh(isWiFi: Bool, departingNetworkFingerprint: String? = nil) {
+        lastRequestedIsWiFi = isWiFi
         guard isWiFi else {
             currentSSID = nil
             currentBSSID = nil
@@ -88,7 +104,11 @@ final class WiFiSSIDViewModel: ObservableObject {
             // on the main thread, so hop back explicitly before touching
             // @Published state.
             Task { @MainActor in
-                guard let self else { return }
+                // See `lastRequestedIsWiFi`'s doc comment — a `refresh(isWiFi:
+                // false)` that landed while this authorization request was
+                // pending already cleared everything; applying this stale
+                // result now would undo that.
+                guard let self, self.lastRequestedIsWiFi else { return }
                 self.sample(departingNetworkFingerprint: departingNetworkFingerprint)
                 self.startSamplingIfNeeded()
             }
