@@ -3247,12 +3247,24 @@ that's down (say) actually useful?
 
 Everything in this section so far is a *global* fact — Slack's status
 API reports the same thing to everyone, no credentials needed. AWS
-Health, Google Cloud's per-project Service Health, and Microsoft 365's
-per-org Service Health are a different shape entirely: *your account's*
-actual incidents, which only exist behind real authentication.
-Deliberately scoped out of the punchlist item this design responds to
-("public dashboards for now") — this is what "the hard version" means
-concretely, and why it's being kept separate rather than folded in.
+Health, Google Cloud's **Personalized Service Health** (Google's own
+product name, confirmed directly — the public dashboard at
+`status.cloud.google.com` carries its own "Go to your account" /
+"View your account to see any events that might affect your projects"
+CTA pointing at it), and Microsoft 365's per-org Service Health are a
+different shape entirely: *your account's* actual incidents, which
+only exist behind real authentication. Deliberately scoped out of the
+punchlist item this design responds to ("public dashboards for now")
+— this is what "the hard version" means concretely, and why it's being
+kept separate rather than folded in.
+
+Worth flagging as a real, if minor, point of user confusion now that
+Google Cloud/Workspace are actually built (see the punchlist): the
+general public feed NMS checks and the personalized, login-gated view
+Google's own page advertises are easy to conflate. "No broad severe
+incidents" from the public page is genuinely accurate and not a bug —
+it just isn't the same claim as "nothing affecting *your* projects,"
+which is what Personalized Service Health specifically answers.
 
 **The common shape, and why it doesn't reopen the login-automation
 question.** None of these three need a stored password or an
@@ -3281,6 +3293,59 @@ browser, no interactive consent screen after one-time setup):
   simple `Authorization: Bearer` header. Structurally headless too —
   no login, no browser — but a meaningfully different, more involved
   signing scheme than the other two share with each other.
+
+**Google Cloud, interactive "Sign in with Google" variant — chosen over
+the headless Service Account above, for familiarity.** Checked directly
+against Google's own live discovery document and REST reference
+(`servicehealth.googleapis.com/$discovery/rest`), not assumed:
+
+- **API**: `servicehealth.googleapis.com` — must be explicitly enabled
+  per GCP project first (`gcloud services enable
+  servicehealth.googleapis.com`), a real one-time setup step in the
+  user's own GCP Console, same category as the IAM role below.
+- **OAuth scope**: three exist (`servicehealth`,
+  `servicehealth.readonly`, the broad `cloud-platform`) — confirmed
+  from the live discovery doc's own `auth.oauth2.scopes` block.
+  `servicehealth.readonly` is the right one: NMS only ever reads, and
+  the broad `cloud-platform` scope would ask for far more access than
+  this feature needs.
+- **IAM**: the signed-in Google identity needs `roles/servicehealth
+  .viewer` bound on the project being queried — another real, one-time
+  GCP Console step, separate from enabling the API itself.
+- **Endpoint**: `GET https://servicehealth.googleapis.com/v1/projects/
+  {PROJECT_ID}/locations/global/events`, `Authorization: Bearer
+  <token>`. **NMS also needs the GCP Project ID as its own piece of
+  config** — OAuth alone identifies the signed-in *person*, not which
+  project(s) to query, so this isn't "sign in and done": there's a
+  Preferences field for at least one Project ID no matter which auth
+  variant gets built.
+- **Response shape**: `events[]`, each with `state`
+  (`ACTIVE`/`CLOSED`), `detailedState` (`EMERGING`/`CONFIRMED`/
+  `RESOLVED`/`MERGED`/`AUTO_CLOSED`/`FALSE_POSITIVE`), `category`
+  (currently only `INCIDENT` is a real value), `title`, `description`,
+  `eventImpacts[]`, `startTime`/`endTime`/`updateTime` — richer than
+  the public `incidents.json` feed's flatter shape, and already
+  carries real state/severity fields (`state`, `detailedState`) instead
+  of `.googleIncidents`' `end == nil` inference and the two-value
+  `severity` guess documented above.
+- Native macOS piece: `ASWebAuthenticationSession`
+  (`AuthenticationServices`) is Apple's supported path for exactly this
+  — a system-managed web view for the consent screen, no custom
+  in-app browser to build or secure. Google's documented flow for
+  installed/desktop apps uses PKCE with a loopback redirect
+  (`http://127.0.0.1:<port>/...`), which avoids registering a custom
+  URL scheme entirely.
+
+Real, new engineering this introduces regardless of which Google
+variant gets built: **NMS's first OAuth flow and first real Keychain
+usage** (confirmed directly — `grep`ing the codebase for
+`Keychain`/`SecItem` turns up exactly one hit, a doc comment on
+`SNMPViewModel` explicitly saying community strings are *not* treated
+as Keychain-grade, i.e. the opposite of precedent). Token refresh
+before each call, once the access token's short lifetime expires, is
+mechanical once the exchange code exists — same endpoint, different
+`grant_type` — but is still new lifecycle code with no existing pattern
+in this app to follow.
 
 **The real decision isn't the auth flow, it's the dependency.** This
 app has zero third-party Swift packages today (confirmed directly —
