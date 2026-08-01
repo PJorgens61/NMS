@@ -31,11 +31,12 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// Re-read on every `checkAll()` round rather than resolved once —
     /// `nil` from `FeatureFlags.saasEnabledServices` means every service
     /// (never customized), otherwise exactly the ones left checked (which
-    /// can be empty). A computed property rather than a stored `let`
-    /// specifically so a live change to the Preferences picker is picked
-    /// up by the *next* round automatically, with no separate live-update
-    /// plumbing needed — `checkAll()` already re-reads this fresh every
-    /// time it runs.
+    /// can be empty). A computed property rather than a stored `let` is
+    /// what lets `checkAll()` read the current selection with no separate
+    /// plumbing; `observeFeatureFlagChanges` is what makes a changed
+    /// selection actually trigger a fresh round immediately, rather than
+    /// only being correct whenever the next scheduled round happened to
+    /// land.
     private var activeServices: [SaaSStatusService.MonitoredService] {
         let allServices = SaaSStatusService.monitoredServices
         guard let enabled = FeatureFlags.saasEnabledServices else { return allServices }
@@ -46,6 +47,14 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// firing for an unrelated key — see `SNMPViewModel`'s identical
     /// property for the full reasoning, mirrored here.
     private var isActive = false
+    /// Same reasoning as `isActive`, one level down: lets
+    /// `observeFeatureFlagChanges` tell an actual change to *which*
+    /// services are enabled from the notification firing for an unrelated
+    /// key. Without this, `activeServices` being a computed property was
+    /// only "live" in the sense of being correct on the *next* scheduled
+    /// round — a real gap, since nothing prompted an immediate one the
+    /// way toggling the feature on/off already does via `activate()`.
+    private var lastKnownEnabledServices: Set<String>?
     private var featureFlagObserver: NSObjectProtocol?
     /// Previous round's indicator per service name, so a transition (up →
     /// down, or back) logs once instead of every round a state persists —
@@ -95,6 +104,7 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// fresh launch would. Mirrors `SNMPViewModel.activate()`.
     private func activate() {
         isActive = true
+        lastKnownEnabledServices = FeatureFlags.saasEnabledServices
         // Accelerated by NMSPollSpeedup like the connectivity/SNMP/DHCP/
         // traceroute timers, unlike PublicIPViewModel's (whose cadence is
         // "partly politeness," nothing testable depends on its
@@ -124,9 +134,16 @@ final class SaaSMonitoringViewModel: ObservableObject {
         timer = nil
     }
 
-    /// See `SNMPViewModel.observeFeatureFlagChanges()` for the full
+    /// See `SNMPViewModel.observeFeatureFlagChanges()` for the base
     /// reasoning — identical shape, watching `FeatureFlags.saasMonitoring`
-    /// instead.
+    /// for the on/off flip. Extended one step further here, since this
+    /// view model has a second, finer-grained live preference
+    /// `SNMPViewModel` doesn't: *which* services are enabled. `activate()`
+    /// already re-checks immediately when the feature turns on, so the
+    /// `else if` below only needs to cover the case where the feature was
+    /// already on and just the selection changed — an `else if`, not a
+    /// separate `if`, specifically so a simultaneous "turn on" doesn't
+    /// also trigger this branch and run `checkAll()` twice in one event.
     private func observeFeatureFlagChanges() {
         featureFlagObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -139,6 +156,9 @@ final class SaaSMonitoringViewModel: ObservableObject {
                 self.activate()
             } else if !shouldBeActive, self.isActive {
                 self.deactivate()
+            } else if self.isActive, FeatureFlags.saasEnabledServices != self.lastKnownEnabledServices {
+                self.lastKnownEnabledServices = FeatureFlags.saasEnabledServices
+                self.checkAll()
             }
         }
     }
