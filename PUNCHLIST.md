@@ -8,6 +8,39 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Blocked on the user: GCP OAuth client setup for "Sign in with
+  Google" (Personalized Service Health).** Everything else for this
+  feature (code, API research — see `DESIGN-NOTES.md`'s "Google Cloud,
+  interactive Sign in with Google variant") is ready to build; this is
+  the one piece only the account owner can do. Exact steps:
+  1. Pick or create a GCP project:
+     `gcloud projects create nms-service-health --name="NMS Service Health"`
+     (an existing project works fine too).
+  2. Enable the API: `gcloud services enable servicehealth.googleapis.com
+     --project=YOUR_PROJECT_ID`
+  3. Grant yourself the viewer role on whichever project(s) NMS should
+     monitor: `gcloud projects add-iam-policy-binding YOUR_PROJECT_ID
+     --member="user:your-email@example.com" --role="roles/servicehealth.viewer"`
+  4. Console → APIs & Services → OAuth consent screen: User type
+     **External** (or Internal if this project is under a Workspace
+     org); add scope `https://www.googleapis.com/auth/servicehealth.readonly`;
+     add your own email as a test user; leave publishing status as
+     **Testing** for now.
+  5. Console → APIs & Services → Credentials → Create Credentials →
+     OAuth client ID → Application type **Desktop app** → copy the
+     **Client ID** (`...apps.googleusercontent.com`) — safe to hand to
+     Claude/embed in the app; PKCE secures the flow, not secrecy of
+     this value.
+  - **Real caveat, checked directly**: while the consent screen stays
+    in **Testing**, Google expires refresh tokens after exactly 7 days
+    regardless of activity — a weekly forced re-sign-in. Moving
+    publishing status to **Production** avoids that (indefinite
+    refresh tokens); for a single personal-use client this is usually
+    just a checkbox, not a full verification review, but which bucket
+    `servicehealth.readonly` falls into (verification-required or not)
+    hasn't been confirmed. Try Production first; Testing + weekly
+    re-consent is a real, non-fatal fallback if it demands review.
+
 - [x] ~~Add Google Workspace and Google Cloud to SaaS monitoring.~~
   **Built.** Both added to `SaaSStatusService.monitoredServices` with a
   new `.googleIncidents` `Shape` (a rolling incident-history array, not
