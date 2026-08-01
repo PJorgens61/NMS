@@ -8,6 +8,23 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Network Health's Router row: add a web link too.** Requested
+  directly, same idea as the SNMP Devices entry below but simpler in
+  one real way: the router's IP is already known with certainty here
+  (`connectivity.checks.first { $0.label == OverallStatus.routerLabel
+  }`'s `target`, or `info.routerAddress` — same value `routerDisplay(_:)`
+  already shows in the Info tile), not something that needs discovering
+  the way an arbitrary SNMP device's presence does. Real open question
+  this raises that the SNMP Devices entry didn't have to: does *this*
+  row still run the same "detect a web server first" probe before
+  showing a link, or is a home router's admin UI close enough to
+  universal that it's worth just always showing the link and letting a
+  failed click-through (browser's own "can't connect") be the fallback,
+  skipping the probe entirely for this one case? If it does keep the
+  probe, this and the SNMP Devices item should share one detection
+  service rather than two copies of the same self-signed-cert-handling
+  logic.
+
 - [ ] **SNMP Devices: detect a web server on the device, add a link if
   found.** Requested directly. Real for a lot of what's already
   discovered here — this network's own router, switch, and both APs
