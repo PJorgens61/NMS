@@ -33,6 +33,59 @@ Nothing open right now.
 
 ## Fixed
 
+### Two overlapping-round races found by code review, not live reproduction
+
+- **Status**: Fixed
+- **Severity**: Medium for the SaaS one (corrupts durable event-log
+  history, not just a live UI glitch), Low for the printer one (a
+  delayed `runChecks()` trigger, self-correcting on the next round).
+  Both conditionally reachable rather than everyday — see below.
+- **Found in build**: not observed live — found by a systematic code
+  review of all 28 `Task {}` launch sites across the ViewModels layer,
+  checking each against the pattern that caused the Wi-Fi/Ethernet flap
+  race (`42a5079`): a deferred completion applying results with no
+  check that its trigger is still current. Reasoned through, not
+  reproduced against a real incident, unlike almost everything else in
+  this file — flagged here rather than left unrecorded because the
+  reasoning is concrete enough to act on, not a vague suspicion.
+- **Fixed in build**: `137937e`
+
+**`SaaSMonitoringViewModel.checkAll()` had no overlap guard, unlike
+every sibling periodic-check view model in this codebase**
+(`ConnectivityViewModel.runChecks`, `SNMPViewModel.scan`/`poll`,
+`LANDiscoveryViewModel.scan`, `NetworkQualityViewModel.run`,
+`PublicIPViewModel.check`, `DHCPLeaseViewModel.check` all guard
+re-entrance with an `isRunning`/`isChecking`/`isScanning` flag).
+`checkAll()` is timer-driven on `checkInterval` (300s), accelerated by
+`NMSPollSpeedup` like everything else — once that interval shrinks
+below the time three concurrent WAN status-page fetches actually take,
+a second round can start while the first is still in flight, with no
+ordering guarantee between the two rounds' real network fetches. The
+older round's `apply(_:)` landing *after* the newer one's would
+overwrite fresher `previousIndicators` state with stale data —
+spuriously re-logging a transition that already happened, or silently
+swallowing a real one. **Fixed**: added `isChecking`, same idiom every
+sibling already uses; a dropped round is harmless since the next timer
+tick re-checks regardless.
+
+**`ConnectivityViewModel.refreshConfiguredPrinters()` had no overlap
+guard, unlike its two siblings in the same file** (`runChecks`'s
+`isChecking`, `refreshPrinterAlerts`'s `isRefreshingPrinterAlerts`).
+Called from `init()` and from `NMSApp`'s topology-change handler — and
+rapid topology changes are the exact real-world trigger class that
+caused the Wi-Fi/Ethernet flap race in the first place. Two changes
+close together could start two overlapping `configuredNetworkPrinters()`
+reads; whichever completion landed second would win regardless of
+which read was actually fresher, leaving `configuredPrinters`
+reflecting a stale read and computing `changed` against it incorrectly.
+**Fixed**: added `isRefreshingConfiguredPrinters`, same idiom.
+
+**Verified**: 79/79 tests, clean build. Not verified against a live
+repro for either — by construction, neither race has actually been
+observed to happen; both are prevented on the same reasoning basis
+they were found on, matching how deterministic timing issues in async
+Swift code are normally caught before they manifest, not after.
+
 ### A network-transition event can be filed under the wrong network's Events tab
 
 - **Status**: Fixed
