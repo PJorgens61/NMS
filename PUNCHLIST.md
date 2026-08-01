@@ -8,6 +8,21 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Popover should roll up non-green SaaS statuses.** SaaS monitoring
+  is window-only per `SectionLayout`'s audience split (popover = "can I
+  work, what's restricted"), so a real outage (e.g. Slack red) is
+  currently invisible unless someone opens the window. A small rollup —
+  shown only when at least one monitored service isn't `.none`, e.g. "1
+  SaaS service degraded" or a colored dot — would fit the popover's
+  existing "can I work" framing without reopening the deliberate cut
+  against `OverallStatus`/menu-bar color integration (see the SaaS
+  monitoring plan's Context section): this would be its own independent
+  popover signal, not a change to what the menu-bar color means. Open
+  questions: does it need severity (worst indicator across services) or
+  just a count; does it link/scroll to the window's SaaS section when
+  clicked; does it appear at all when the feature flag is off (no,
+  matching every other conditional section).
+
 - [ ] **Do we need a "dark mode" for the app?** Raised directly, not yet
   investigated. Worth checking what actually happens today first —
   `MenuBarExtra(.window)` and the plain `Window` scenes may already pick
