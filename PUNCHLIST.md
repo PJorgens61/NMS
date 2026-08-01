@@ -385,15 +385,23 @@ from this list. This one remains, since it's an idea, not a defect):
   a main-thread stall, so a multi-agent pass over the whole branch would
   likely surface more.
 
-- [ ] **Code review the Screenshot and Bug Report code.** Not yet done as
-  part of this session's file-by-file review pass — `ScreenshotService`,
-  `ScreenshotViewModel`, and the capture-mode branches scattered across
-  `ContentView` (`isCapturingScreenshot`, `tile(fixedHeight:)`,
-  `scrollBox`, `bugReportRow`) are exactly the area that's already
-  produced the most recurring bug class this session (the
-  `ImageRenderer`/`NSViewRepresentable` "yellow prohibited glyph" quirk,
-  independently reopened at least three times) — worth a dedicated pass
-  rather than assuming the pattern is now fully closed off everywhere.
+- [x] ~~Code review the Screenshot and Bug Report code.~~ **Done
+  (`d505b6f`, `6cd9caa`).** Found exactly the recurring bug class this
+  was raised to check for: `communityRow`'s `TextField` had no
+  `isCapturingScreenshot` guard at all, unlike `bugReportRow`'s identical
+  field — never reported since it only triggers if a community-string
+  edit happens to be in progress at the exact moment a capture fires.
+  Fixed, then hardened structurally: extracted a shared
+  `ContentView.captureSafeTextField` (mirroring how `scrollBox`/
+  `tile(fixedHeight:)` already centralize the equivalent
+  `NoBounceScrollView` guard) so both call sites — and any future one —
+  go through one path instead of hand-rolling the branch. Added a
+  "Capture-mode guard audit" test that scans the source for raw
+  `TextField`/`NoBounceScrollView` constructions and pins the count, so
+  a future bypass fails the build. Also added retention for the
+  screenshots/state-dumps directories (30 days, neither had any before)
+  and a privacy notice in every state dump, both raised as follow-on
+  ideas during the same pass.
 
 ## Deliberately not doing
 
