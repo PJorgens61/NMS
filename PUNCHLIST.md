@@ -27,26 +27,27 @@ new ones as they come up.
   sparkline-source parameter — not a drop-in reuse of the existing
   slot as-is.
 
-- [ ] **Shrink SNMP Devices and Printer Alerts' box heights.** Requested
-  directly: SNMP Devices down 25%, Printer Alerts down 50%.
+- [ ] **Shrink SNMP Devices and Printer Alerts' box heights.**
   `SectionLayout.boxHeight(on:)`:
-  - **SNMP Devices**: `200` → `150`. That 200 is explicitly taller than
-    its neighbors "because `sysDescr` wraps instead of truncating and
-    needs the extra room" (that type's own comment) — worth a live
-    check that a real wrapped `sysDescr` (the switch's is the longest
-    seen so far, two lines) still reads fully at 150 before landing on
-    it, not just trusting the arithmetic.
-  - **Printer Alerts**: `rowHeight * 3` (51) → half is `25.5`, not a
-    clean row multiple (`rowHeight` is 17, so 25.5 = 1.5 rows). That
-    height was already tuned once from a same-day Bug Report
-    ("Confirm Printer Alerts' new fixed-height box actually fits 2
-    printers live," below) specifically to keep a full row of headroom
-    past the 2-row boundary — a 50% cut lands *inside* that boundary
-    (1.5 rows can't show 2 full printer rows without scrolling), which
-    may be exactly what's wanted here (this app only has 1 real printer
-    to test against today) but is worth confirming isn't accidentally
-    re-triggering the gap that Bug Report flagged, given only 1 printer
-    is available to verify against either way.
+  - **SNMP Devices**: `200` → `150` (requested directly, down 25%).
+    That 200 is explicitly taller than its neighbors "because
+    `sysDescr` wraps instead of truncating and needs the extra room"
+    (that type's own comment) — worth a live check that a real wrapped
+    `sysDescr` (the switch's is the longest seen so far, two lines)
+    still reads fully at 150 before landing on it, not just trusting
+    the arithmetic.
+  - **Printer Alerts**: `rowHeight * 3` (51) → **30, exact value given
+    directly**, superseding an earlier "down 50%" ask. `rowHeight` is
+    17, so 30 is 1.76 rows — below even the *exact* 2-row boundary
+    (34), not just below the row-of-headroom-past-it that 51 was tuned
+    to. That headroom came from a real same-day Bug Report ("Confirm
+    Printer Alerts' new fixed-height box actually fits 2 printers
+    live," below); 30 sits inside the boundary that report flagged as
+    too tight in the first place, so a real second printer showing 2
+    alerts at once would need to scroll to see both — likely fine
+    given today's 1-printer network can't actually show that case
+    either way, but worth going in with eyes open rather than
+    rediscovering the same report's finding.
 
 - [ ] **Blocked on the user: GCP OAuth client setup for "Sign in with
   Google" (Personalized Service Health).** Everything else for this
