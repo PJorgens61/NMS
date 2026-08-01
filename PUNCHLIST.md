@@ -174,17 +174,27 @@ new ones as they come up.
 - [ ] **Popover should roll up non-green SaaS statuses.** SaaS monitoring
   is window-only per `SectionLayout`'s audience split (popover = "can I
   work, what's restricted"), so a real outage (e.g. Slack red) is
-  currently invisible unless someone opens the window. A small rollup —
-  shown only when at least one monitored service isn't `.none`, e.g. "1
-  SaaS service degraded" or a colored dot — would fit the popover's
-  existing "can I work" framing without reopening the deliberate cut
-  against `OverallStatus`/menu-bar color integration (see the SaaS
-  monitoring plan's Context section): this would be its own independent
-  popover signal, not a change to what the menu-bar color means. Open
-  questions: does it need severity (worst indicator across services) or
-  just a count; does it link/scroll to the window's SaaS section when
-  clicked; does it appear at all when the feature flag is off (no,
-  matching every other conditional section).
+  currently invisible unless someone opens the window. Would fit the
+  popover's existing "can I work" framing without reopening the
+  deliberate cut against `OverallStatus`/menu-bar color integration
+  (see the SaaS monitoring plan's Context section): this would be its
+  own independent popover signal, not a change to what the menu-bar
+  color means.
+
+  **Concrete shape proposed directly**: a small, fixed-height (2 lines)
+  box, shown only when at least one monitored service isn't `.none` —
+  problems only, not a full status list, so it costs zero popover space
+  when everything's healthy (same "earn its keep" principle
+  `SectionLayout.scrollThreshold`'s doc comment already states for
+  every other box in this app). At exactly 2 lines it can show at most
+  2 problem services before needing to scroll or truncate — worth
+  deciding which once there's a real case with 3+ simultaneous
+  degradations to test against (today's monitored set has never shown
+  more than one at a time). Other open questions: does each line carry
+  severity (worst indicator per service) or just the name; does a line
+  link/scroll to the window's SaaS section when clicked; does it appear
+  at all when the feature flag is off (no, matching every other
+  conditional section).
 
 - [ ] **Do we need a "dark mode" for the app?** Raised directly, not yet
   investigated. Worth checking what actually happens today first —
