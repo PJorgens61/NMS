@@ -3243,6 +3243,26 @@ report one status per named component). Does NMS care about "iCloud"
 as a single thing, or is exposing that it's specifically iCloud Backup
 that's down (say) actually useful?
 
+**"Sign in with Apple" for personalized iCloud health — requested,
+checked, not found.** Raised as the Apple equivalent of the Google
+Cloud "Sign in with Google" work above. `AuthenticationServices`'
+`ASAuthorizationAppleIDProvider` is real and well-supported — that part
+would be no harder than Google's `ASWebAuthenticationSession` piece.
+But unlike Google Cloud, there's no evidence Apple exposes any
+*personalized, per-account* incident/health API to authenticate into
+in the first place: searched directly for one, found only Apple's
+existing public system-status page (already in the table above, global
+not personal) and Apple's own *developer*-platform status
+(`developer.apple.com/system-status`, a different, still-global page
+about Apple's developer services, not a consumer's iCloud account).
+Nothing resembling Google Cloud's `servicehealth.googleapis.com` turned
+up. Concretely: Sign in with Apple would authenticate *who you are* to
+NMS, the same as it does for any app, but there's nothing to call
+afterward that couldn't already be read from the public feed without
+signing in at all — the sign-in would gate access to no actual new
+data. Not building this without a real backend behind it; flagging the
+gap rather than guessing one into existence.
+
 ### Tenant-specific health: AWS, Google Cloud, Microsoft 365 — a separate, heavier project
 
 Everything in this section so far is a *global* fact — Slack's status
