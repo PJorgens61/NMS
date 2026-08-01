@@ -20,6 +20,10 @@ import Foundation
 /// key set either, so review whether your own daily-use Macs need a
 /// `defaults write` to keep what they already had. See the README's
 /// "Experimental features" section for the exact commands.
+///
+/// **One deliberate exception**: `saasMonitoring` defaults to *on* — see
+/// its own doc comment for why and how an explicit prior opt-out is
+/// still respected.
 enum FeatureFlags {
     private static let defaults = UserDefaults.standard
 
@@ -62,15 +66,22 @@ enum FeatureFlags {
 
     /// Periodic checks against a small, fixed list of business SaaS
     /// status pages — see `SaaSStatusService`/`SaaSMonitoringViewModel`
-    /// and DESIGN-NOTES.md's "Business SaaS monitoring". Off by default
-    /// for the same reason `snmpDevices` is: this reaches out to
-    /// third-party services periodically, which a fresh install shouldn't
-    /// do without explicit opt-in, even though (unlike SNMP) it's a WAN
-    /// fetch rather than LAN probing. Read once at
-    /// `SaaSMonitoringViewModel.init()`, same restart-to-apply behavior
-    /// as `snmpDevices`.
+    /// and DESIGN-NOTES.md's "Business SaaS monitoring".
+    ///
+    /// **On by default, for now** — the one exception to this file's own
+    /// "every flag defaults to off" rule above, requested directly
+    /// rather than a silent flip. Originally off for the same reason
+    /// `snmpDevices` is (reaches third parties periodically, shouldn't
+    /// happen without opt-in) — that reasoning hasn't changed, this is a
+    /// deliberate, named exception to it, not a reversal. `defaults.object`
+    /// (not `.bool`) is checked first so an explicit prior opt-out
+    /// (`-bool false`, from before this default flipped) is still
+    /// honored — only a genuinely never-touched key defaults to on.
+    /// Read once at `SaaSMonitoringViewModel.init()`, same
+    /// restart-to-apply behavior as `snmpDevices`.
     static var saasMonitoring: Bool {
-        defaults.bool(forKey: saasMonitoringKey)
+        guard defaults.object(forKey: saasMonitoringKey) != nil else { return true }
+        return defaults.bool(forKey: saasMonitoringKey)
     }
 
     /// Which of `SaaSStatusService.monitoredServices` are actually

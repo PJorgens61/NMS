@@ -24,7 +24,13 @@ struct PreferencesView: View {
     // elsewhere agree on the same value.
     @AppStorage(FeatureFlags.comparisonWindowKey) private var comparisonWindowEnabled = false
     @AppStorage(FeatureFlags.snmpDevicesKey) private var snmpDevicesEnabled = false
-    @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = false
+    // Default `true`, not `false` like its neighbors — see
+    // `FeatureFlags.saasMonitoring`'s doc comment for why this one's on
+    // by default. `@AppStorage`'s default only applies to a genuinely
+    // unset key (same as that property's own `defaults.object` check),
+    // so this and `FeatureFlags.saasMonitoring` agree for every case,
+    // including a prior explicit opt-out.
+    @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = true
     /// Plain `@State`, not `@AppStorage` — `[String]` isn't one of
     /// `@AppStorage`'s supported types, so this is read once at view
     /// creation and written straight to `UserDefaults` on every change
