@@ -8,6 +8,25 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Network Health's "Network" row: Wi-Fi signal sparkline, or plain
+  "Ethernet."** Requested directly — narrower and more concrete than
+  the general "Add Wi-Fi signal strength to Network Health" item below,
+  which this mostly answers: attach the sparkline to the existing
+  combined Network row (`ContentView.swift`'s `networkLayer`,
+  built from `networkDisplay(_:)` — already correctly shows plain
+  `"Ethernet"` with no name when not on Wi-Fi, confirmed reading the
+  code) rather than adding a new row or a new health-status color.
+  Real wiring gap: `connectionHealthSection`'s sparkline slot
+  (`latencyHistory[layer.id]`) is typed for `LatencySample.latencyMs`
+  from `ConnectivityViewModel.latencyHistory()` — RSSI comes from a
+  different source entirely (`WiFiSSIDViewModel.recentSamples`,
+  already used by the existing Wi-Fi section's own Signal row). Needs
+  either a small special case for `layer.id == "network"` when
+  `info.isWiFi` (use `wifiSSID.recentSamples` instead of
+  `latencyHistory` for that one row) or a slightly more general
+  sparkline-source parameter — not a drop-in reuse of the existing
+  slot as-is.
+
 - [ ] **Shrink SNMP Devices and Printer Alerts' box heights.** Requested
   directly: SNMP Devices down 25%, Printer Alerts down 50%.
   `SectionLayout.boxHeight(on:)`:
