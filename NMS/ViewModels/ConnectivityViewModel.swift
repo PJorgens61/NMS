@@ -39,6 +39,11 @@ final class ConnectivityViewModel: ObservableObject {
     /// Whether an `lpstat -l -p` read is already in flight — see
     /// `refreshPrinterAlerts` for why overlapping reads are dropped.
     private var isRefreshingPrinterAlerts = false
+    /// Same reasoning as `isRefreshingPrinterAlerts`, for
+    /// `refreshConfiguredPrinters` — see that method for the real race
+    /// this closes (two topology changes close together, same trigger
+    /// class as the Wi-Fi/Ethernet flap race, `42a5079`).
+    private var isRefreshingConfiguredPrinters = false
     /// Set when `runChecks()` is called while a round is already in flight;
     /// the deferred round fires from `finishChecking()`. Needed because
     /// `TracerouteViewModel.onTraceCompleted` can land while the very first
@@ -143,12 +148,28 @@ final class ConnectivityViewModel: ObservableObject {
     /// `DispatchQueue.global(qos: .utility)` discipline every other
     /// subprocess-backed view model here already uses (DHCP, LAN
     /// discovery, SNMP, traceroute, speed test).
+    ///
+    /// **Overlapping reads are dropped, not queued** — same
+    /// `isRefreshingPrinterAlerts` idiom `refreshPrinterAlerts` already
+    /// uses, added after a real, reasoned-through race: two topology
+    /// changes close together (the same trigger class that caused the
+    /// Wi-Fi/Ethernet flap race, `42a5079`) used to start two overlapping
+    /// `configuredNetworkPrinters()` reads, with no guarantee the two
+    /// completions would land in the order they started. Whichever
+    /// landed second would win regardless of which read was actually
+    /// fresher, potentially leaving `configuredPrinters` reflecting a
+    /// stale read and computing `changed` against it incorrectly. A
+    /// dropped read is harmless here — the next topology change (or the
+    /// one already in flight) re-reads regardless.
     func refreshConfiguredPrinters() {
+        guard !isRefreshingConfiguredPrinters else { return }
+        isRefreshingConfiguredPrinters = true
         let printerService = self.printerService
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let printers = printerService.configuredNetworkPrinters()
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.isRefreshingConfiguredPrinters = false
                 let changed = printers != self.configuredPrinters
                 self.configuredPrinters = printers
                 // Same "re-derive when the dependency resolves" rule as

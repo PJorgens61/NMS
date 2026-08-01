@@ -40,6 +40,12 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// follows. `nil` for a service not yet checked this launch, which is
     /// what lets the very first check stay silent (see `apply`).
     private var previousIndicators: [String: SaaSStatusService.Indicator] = [:]
+    /// Whether a round is already in flight — see `checkAll` for the real
+    /// race this closes. Every other periodic-check view model in this
+    /// app (`ConnectivityViewModel`, `SNMPViewModel`, `LANDiscoveryViewModel`,
+    /// `NetworkQualityViewModel`, `PublicIPViewModel`, `DHCPLeaseViewModel`)
+    /// already guards this way; this one didn't.
+    private var isChecking = false
 
     /// A third-party API on the other end, same reasoning
     /// `PublicIPViewModel.checkInterval` gives for its own 300s: politeness
@@ -90,7 +96,20 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// reported as `.unknown` for that service alone rather than losing
     /// the whole round — one flaky status page shouldn't hide the other
     /// two.
+    ///
+    /// **Overlapping rounds are dropped, not queued.** Reasoned through
+    /// rather than hit live: under `NMSPollSpeedup`, `checkInterval` can
+    /// shrink below the time three concurrent WAN fetches actually take,
+    /// letting a second round start while the first is still in flight.
+    /// With no ordering guarantee between two rounds' real network
+    /// fetches, the older round's `apply(_:)` could land *after* the
+    /// newer one's — overwriting fresher `previousIndicators` state with
+    /// stale data, which can spuriously re-log a transition that already
+    /// happened or silently swallow a real one. The next timer tick
+    /// re-checks regardless, so dropping a round here is harmless.
     func checkAll() {
+        guard !isChecking else { return }
+        isChecking = true
         let service = self.service
         let services = activeServices
         Task { @MainActor [weak self] in
@@ -116,6 +135,7 @@ final class SaaSMonitoringViewModel: ObservableObject {
                 }
                 return ordered.compactMap { $0 }
             }
+            self?.isChecking = false
             self?.apply(results)
         }
     }
