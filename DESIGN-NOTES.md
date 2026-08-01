@@ -41,6 +41,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Timer-scaling as a stress test — not a fuzzer, a race-condition hunter](#timer-scaling-as-a-stress-test--not-a-fuzzer-a-race-condition-hunter)
 - [ISP status pages: identifying the ISP without location, then a real finding about linking to it](#isp-status-pages-identifying-the-isp-without-location-then-a-real-finding-about-linking-to-it)
 - [Testing races: the confirmation gap is systemic, and the real blocker is dependency injection](#testing-races-the-confirmation-gap-is-systemic-and-the-real-blocker-is-dependency-injection)
+- [AI-assisted troubleshooting: an alternative to hand-curated remediation guides](#ai-assisted-troubleshooting-an-alternative-to-hand-curated-remediation-guides)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -4911,3 +4912,128 @@ had existed before today's fix.
   several `init()`s carry a defaulted protocol parameter nobody at a
   real call site ever overrides? Worth a real look at the diff before
   deciding, not assumed either way.
+
+## AI-assisted troubleshooting: an alternative to hand-curated remediation guides
+
+Raised directly, as a follow-on to "Remediation guides" above — same
+underlying goal (turn a detected problem into actionable advice), a
+different strategy for getting there: instead of NMS hand-authoring a
+curated set of pattern→guide mappings, let a real model reason over the
+same diagnostic data via tool calling. Explicitly framed by the person
+raising it as ignoring, for now, network management's classical
+chicken-and-egg problem — "how do you diagnose the network when the
+network is what's broken." That framing turned out to matter: it's the
+deciding factor between the two architectures below, not a side note.
+
+### The honest limit, stated first because it shapes everything else
+
+Any assistant reachable over the network needs *some* working network
+path to reach it — so this can never help with "everything is down,"
+exactly the case hands-on troubleshooting matters most for. What it can
+help with: partial degradations (DNS broken but WAN to the assistant
+provider fine), a LAN device acting up while internet's fine, or
+forensic "what happened at 3am" analysis after the fact. Worth being
+upfront about rather than oversold.
+
+### Two architectures considered, and why the second is the better fit
+
+**NMS as an MCP server** — expose `ConnectionLayer` state, Events
+history, SNMP devices, and traceroute results as MCP tools/resources, so
+an external MCP client (Claude Desktop, Claude Code) can query NMS
+directly. Real and buildable — MCP's wire protocol is plain JSON-RPC 2.0
+over stdio or HTTP, no SDK strictly required — but it means a new,
+always-running local server process, and it only ever reaches a *cloud*
+model: still fully blocked by the honest limit above whenever the Mac's
+own connectivity to Anthropic is itself the thing that's down.
+
+**Apple's Foundation Models framework + App Intents — the better fit,
+checked live rather than assumed.** The framework (WWDC 2025, macOS/
+iOS/iPadOS/visionOS) gives direct Swift API access to the on-device
+model powering Apple Intelligence, with built-in tool calling for
+exactly this shape of integration. Two things make it fit this app
+better than the MCP route:
+
+1. **Genuinely zero network dependency.** The on-device model needs no
+   connectivity at all — closer to actually solving the honest limit
+   above than any cloud-reachable option, MCP included, and closer than
+   even a local Ollama/LM Studio setup (which still needs a separate
+   running app).
+2. **Zero new dependencies, first-party only.** Foundation Models and
+   App Intents are both Apple frameworks — no hand-rolled JSON-RPC
+   server, no third-party SDK, fitting this app's confirmed
+   zero-dependency stance (see "Timer-scaling..." above) far better
+   than standing up an MCP server would.
+
+**WWDC 2026 changed the calculus further, checked live**: Apple opened
+the framework to a public `LanguageModel` protocol any provider can
+implement — including **Anthropic's Claude by name** — through the
+*same* Swift API used for the on-device model. This isn't on-device
+*or* cloud anymore: one integration, two backends, chosen by what's
+actually reachable. The on-device model answers when nothing else is;
+Claude answers the same questions more capably once real connectivity
+exists. Apple also said the framework would be open-sourced later in
+summer 2026.
+
+### What NMS would actually expose
+
+`App Intents`, mirroring the same tool set either architecture above
+would need — Apple's own guidance puts a minimal intent at "often fewer
+than 50 lines of Swift":
+
+- `GetNetworkStatusIntent` — current `ConnectionLayer` states, the same
+  data Network Health's tile already renders.
+- `GetRecentEventsIntent` — recent `AppEventRecord` history.
+- `RunTracerouteIntent` — triggers `TracerouteViewModel.run()`, returns
+  the resolved path.
+- `GetSNMPDevicesIntent` — current SNMP-discovered device list.
+
+Declaring these also makes NMS reachable from Siri/Shortcuts directly
+("Hey Siri, what's my network status"), a real side benefit neither the
+MCP route nor a bespoke in-app chat UI would give for free.
+
+### The capability tradeoff — same shape as "Remediation guides"' scope decision, sharper here
+
+Checked directly, not assumed: local/on-device models have improved
+fast at tool calling (one benchmark cited a jump from ~7% to ~86%
+accuracy for a comparable-class model this year) but still generally
+lag Claude/GPT-4/Gemini specifically on *complex multi-step* tool
+calling — and Apple's on-device model is deliberately smaller and more
+narrowly tuned than even a modest local Ollama model, optimized for
+on-device efficiency over raw reasoning capacity. That's the same
+tension "Remediation guides" already resolved once by choosing a small,
+curated, high-confidence pattern list over a general troubleshooter —
+here it resolves differently: keep the **App Intents themselves**
+narrow and well-defined (`GetNetworkStatusIntent`, not "diagnose my
+network"), so even a weaker on-device model stays anchored to real data
+rather than free-associating, and let the *stronger* backend (Claude,
+once reachable) be the one trusted with genuinely open-ended reasoning
+over that same data.
+
+### Local LLMs as a third option, checked live rather than assumed
+
+Raised separately, worth recording: MCP-capable fully-local setups
+already exist today, independent of Apple's framework. **LM Studio has
+built-in MCP client support**; **`llama.cpp`'s web UI merged full MCP
+client support** in March 2026. **Ollama does not natively speak MCP**
+and needs a bridge tool. Real alternative to Apple's framework if the
+MCP-server route above ever gets built instead — same zero-network
+property, different (and currently more fragmented) client ecosystem.
+
+### Open questions, not yet decided
+
+- **Foundation Models framework, MCP server, or both?** The framework
+  is the better first build (no new dependency, works with Siri/
+  Shortcuts for free); MCP stays relevant if reaching *external* Claude
+  clients (Claude Desktop on the same Mac, say) matters independently
+  of on-device fallback.
+- **Does routing between on-device and Claude need to be automatic**
+  (try on-device, escalate to Claude if reachable and the query looks
+  complex) **or manual** (a Preferences toggle, matching this app's
+  existing "the user decides" convention rather than NMS guessing)?
+- **Does an intent's answer ever get logged as its own `AppEventRecord`**
+  — same question "Remediation guides" left open for a fired guide, and
+  probably the same answer, for the same reason (durable history, not
+  just a live response nobody captured).
+- **Scope past read-only.** Every intent sketched above is a read; does
+  this ever grow a genuinely actionable one (re-run a check, clear an
+  injected failure) or deliberately stay observation-only?
