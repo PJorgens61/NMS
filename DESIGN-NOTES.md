@@ -5139,3 +5139,73 @@ benchmarks. It's entirely possible the gap matters far less for "which
 of these five known fault patterns is this" than it does for
 open-ended, unconstrained reasoning — this harness is what would
 actually show that, one way or the other.
+
+### Improving the on-device model's domain performance: three levers, one recommended
+
+Raised directly: can the local/on-device model be taught about network
+troubleshooting specifically, to close some of the capability gap this
+section already flagged. Three real levers exist, in increasing order
+of effort and ongoing cost — checked live, not assumed, including
+Apple's own specific tooling.
+
+1. **Prompting/instructions — near-zero effort.** Foundation Models'
+   `Instructions` mechanism lets a session be given explicit domain
+   framing before it ever sees a query. Apple's own guidance is to try
+   this first, before reaching for anything heavier.
+2. **RAG-style grounding against the remediation guides already
+   designed above — moderate effort, no new infrastructure, the
+   recommended lever.** Rather than training anything, feed the model
+   the same hand-curated pattern list from "Remediation guides" as
+   retrieval context at inference time. The model draws on real, vetted
+   troubleshooting knowledge *for this specific network's actual
+   reality* — a Netgear switch, Aruba APs, a residential ISP, per this
+   session's own real device data — rather than needing to have learned
+   networking generally from its base training. Directly reuses design
+   work already done this session instead of starting a separate
+   effort, and needs no entitlement, no retraining, no extra hardware.
+3. **Real LoRA adapter fine-tuning — exists, confirmed live, real
+   ongoing cost.** Apple ships an actual Python-based adapter training
+   toolkit for the on-device model: rank-32 LoRA adapters, ~160MB each,
+   fully compatible with the Swift framework. Real costs beyond the
+   training effort itself: training needs a Mac with **Apple Silicon
+   and 32GB+ RAM** (or a Linux GPU machine) — the Intel iMac is excluded
+   from this too, not just from *running* the on-device model (see the
+   hardware-eligibility note above) — production deployment needs a
+   specific **Foundation Models Framework Adapter Entitlement** from
+   Apple, and each adapter is tied to **one specific base model
+   version**, needing retraining every time Apple updates the model. A
+   genuine, recurring maintenance burden for a project this size, not a
+   one-time investment.
+
+**Recommendation: lever 2.** It gets most of the realistic domain-
+specific value with none of lever 3's ongoing cost, and it turns the
+"Remediation guides" work into grounding material for *every* backend
+(hand-curated, on-device, and Claude alike) rather than a competing,
+separate effort.
+
+### A considered, real alternative: Cisco's networking-specific models — checked and rejected
+
+Raised directly, given Cisco's own recent networking-LLM
+announcements: does an existing, purpose-built networking model help
+here instead of grounding a general-purpose one. Checked live, rejected
+for two independent reasons, not assumed unsuitable:
+
+- **Cisco's "Deep Network Model" is closed and proprietary** — locked
+  into Cisco's own product ecosystem (AI Canvas, AI Assistant), not
+  open-weight, not downloadable. No path to embedding it in NMS at all,
+  independent of whether it would otherwise be a good fit.
+- **Wrong domain even if it were accessible.** Trained on "Cisco U
+  courseware and CCIE-level knowledge" — decades of Cisco's own
+  enterprise expertise. This app's actual monitored network is
+  consumer/prosumer gear (a Netgear switch, Aruba APs, a residential
+  Sonic.net connection), not Cisco enterprise hardware — a model tuned
+  on CCIE-level Cisco-specific knowledge is optimized for a genuinely
+  different problem than this app's.
+
+Cisco does have genuinely open-weight models too (`Foundation-sec-8b`,
+`Antares`), but both are **security**-focused (vulnerability
+localization, threat analysis), not networking troubleshooting — same
+conclusion, different specific reason: they don't fill this gap either.
+Reinforces lever 2 above rather than replacing it: grounding against
+*this network's own real evidence* beats reaching for someone else's
+domain-specific model trained on a different domain entirely.
