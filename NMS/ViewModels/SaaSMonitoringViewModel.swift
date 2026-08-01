@@ -24,6 +24,12 @@ final class SaaSMonitoringViewModel: ObservableObject {
     private let service = SaaSStatusService()
     private let snapshotStore: SnapshotStore
     private var timer: Timer?
+    /// Resolved once at `init()` from `FeatureFlags.saasEnabledServices`
+    /// — every service if that preference has never been customized,
+    /// otherwise exactly the ones the user left checked (which can be
+    /// empty). Same restart-to-apply convention as every other
+    /// `FeatureFlags` read in this app; see that property's doc comment.
+    private let activeServices: [SaaSStatusService.MonitoredService]
     /// Previous round's indicator per service name, so a transition (up →
     /// down, or back) logs once instead of every round a state persists —
     /// same convention every other event-logging check in this app
@@ -43,12 +49,25 @@ final class SaaSMonitoringViewModel: ObservableObject {
 
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
+        let allServices = SaaSStatusService.monitoredServices
+        if let enabled = FeatureFlags.saasEnabledServices {
+            activeServices = allServices.filter { enabled.contains($0.name) }
+        } else {
+            activeServices = allServices
+        }
         // Inert if the flag is off — no timer, no checks, not just a
         // hidden UI section. Same convention as `SNMPViewModel.init()`:
         // this reaches out to third parties periodically, which a fresh
         // install shouldn't do without explicit opt-in.
         guard FeatureFlags.saasMonitoring else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
+        // Accelerated by NMSPollSpeedup like the connectivity/SNMP/DHCP/
+        // traceroute timers, unlike PublicIPViewModel's (whose cadence is
+        // "partly politeness," nothing testable depends on its
+        // frequency). This one's worth speeding up: combined with
+        // FailureInjector.applySaaSChanges, it's what makes the down/
+        // recovery transition actually observable in a scripted test
+        // instead of waiting up to 300s for the next real tick.
+        timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.checkInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkAll()
             }
@@ -69,7 +88,7 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// two.
     func checkAll() {
         let service = self.service
-        let services = SaaSStatusService.monitoredServices
+        let services = activeServices
         Task { @MainActor [weak self] in
             let results = await withTaskGroup(of: (offset: Int, status: ServiceStatus).self) { group in
                 for (index, monitored) in services.enumerated() {
@@ -93,6 +112,12 @@ final class SaaSMonitoringViewModel: ObservableObject {
     }
 
     private func apply(_ results: [ServiceStatus]) {
+        // Injected before anything else sees the results, same convention
+        // ConnectivityViewModel.apply/SNMPViewModel.apply already follow —
+        // so persistence, event transitions, and the UI all react exactly
+        // as they would to a real outage. No-op unless the debug defaults
+        // key is set; see FailureInjector.
+        let results = FailureInjector.applySaaSChanges(to: results)
         statuses = results
         var loggedAny = false
         for result in results {
@@ -100,7 +125,8 @@ final class SaaSMonitoringViewModel: ObservableObject {
                 let wasDown = previous != .none
                 let isDown = result.indicator != .none
                 if isDown, !wasDown {
-                    snapshotStore.logEvent(.saasServiceDown, message: "\(result.name): \(result.description)")
+                    let prefix = FailureInjector.isSaaSForced(result.name) ? "[injected] " : ""
+                    snapshotStore.logEvent(.saasServiceDown, message: "\(prefix)\(result.name): \(result.description)")
                     loggedAny = true
                 } else if !isDown, wasDown {
                     snapshotStore.logEvent(.saasServiceRecovered, message: "\(result.name) recovered")

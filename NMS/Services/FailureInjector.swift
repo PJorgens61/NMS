@@ -74,6 +74,17 @@ enum FailureInjector {
     /// SNMP device's display name.
     static let defaultsKey = "NMSInjectFailures"
 
+    /// Matched against `SaaSStatusService.MonitoredService.name` — see
+    /// `applySaaSChanges`. A named constant since it's read from three
+    /// places in this file (`applySaaSChanges`, `isSaaSForced`,
+    /// `activeOverridesSummary`), same reasoning most of `FeatureFlags`'
+    /// own keys are named constants. Still command-line-only, no UI —
+    /// see this type's own "why no UI" reasoning above. (Not to be
+    /// confused with `FeatureFlags.saasEnabledServicesKey`, a real
+    /// user-facing preference for which services to monitor at all,
+    /// unrelated to this debug-only failure injection.)
+    static let saasOutageDefaultsKey = "NMSInjectSaaSOutage"
+
     /// `#if DEBUG` throughout, without exception. Injected failures write
     /// genuine `AppEventRecord` and `ConnectivityCheckRecord` rows — a
     /// release build that could be made to fabricate outages would
@@ -238,6 +249,57 @@ enum FailureInjector {
         #endif
     }
 
+    /// Forces one or more monitored SaaS services (by
+    /// `SaaSStatusService.MonitoredService.name` — "Slack", "Claude",
+    /// etc.) to report as down, so `SaaSMonitoringViewModel`'s real
+    /// down/recovery transition logic and event logging can be exercised
+    /// without waiting for or faking an actual third-party outage.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectSaaSOutage -array Slack
+    /// defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSInjectSaaSOutage
+    /// ```
+    ///
+    /// Rewrites the *result*, not an input one level removed — unlike
+    /// `applySNMPChanges`, there's no deeper comparison this needs to
+    /// preserve (a SaaS check's whole "outcome" is its indicator, the
+    /// same reason `apply(to: [ConnectivityCheck])` above rewrites
+    /// `success` directly rather than faking a ping's raw output). The
+    /// real fetch still runs underneath — only the parsed result is
+    /// overridden afterward, so this never masks a genuine problem
+    /// reaching the endpoint.
+    static func applySaaSChanges(to statuses: [SaaSMonitoringViewModel.ServiceStatus]) -> [SaaSMonitoringViewModel.ServiceStatus] {
+        #if DEBUG
+        let forced = Set(UserDefaults.standard.stringArray(forKey: saasOutageDefaultsKey) ?? [])
+        guard !forced.isEmpty else { return statuses }
+        return statuses.map { status in
+            guard forced.contains(status.name) else { return status }
+            return SaaSMonitoringViewModel.ServiceStatus(
+                name: status.name,
+                indicator: .major,
+                description: "[injected] Simulated outage"
+            )
+        }
+        #else
+        return statuses
+        #endif
+    }
+
+    /// True if `name` is currently forced down via `applySaaSChanges`, for
+    /// prefixing its event-log message the same way connectivity/SNMP
+    /// failures are prefixed — the description baked into the rewritten
+    /// `ServiceStatus` already says "[injected]", but the durable event
+    /// record needs its own marker too, same belt-and-suspenders
+    /// reasoning `SNMPViewModel.apply`'s use of `isSNMPForced` follows.
+    static func isSaaSForced(_ name: String) -> Bool {
+        #if DEBUG
+        let forced = UserDefaults.standard.stringArray(forKey: saasOutageDefaultsKey) ?? []
+        return forced.contains(name)
+        #else
+        return false
+        #endif
+    }
+
     /// Divides a poll interval, so a scripted scenario doesn't spend
     /// most of its runtime asleep.
     ///
@@ -259,12 +321,16 @@ enum FailureInjector {
     /// sub-second scheduling would be self-inflicted load rather than a
     /// faster test.
     ///
-    /// Applied to the connectivity, SNMP, DHCP and traceroute timers, but
-    /// deliberately **not** to `PublicIPViewModel`: that one calls a
-    /// third-party service (`api.ipify.org`), and its 300s cadence is
-    /// partly politeness rather than a tuning decision. Nothing testable
-    /// depends on its frequency anyway — a `publicIPChanged` event needs
-    /// the address to actually change, which no injection here does.
+    /// Applied to the connectivity, SNMP, DHCP, traceroute, and SaaS
+    /// monitoring timers, but deliberately **not** to `PublicIPViewModel`:
+    /// that one calls a third-party service (`api.ipify.org`), and its
+    /// 300s cadence is partly politeness rather than a tuning decision.
+    /// Nothing testable depends on its frequency anyway — a
+    /// `publicIPChanged` event needs the address to actually change,
+    /// which no injection here does. SaaS monitoring is the opposite:
+    /// `applySaaSChanges` *can* force a change, so speeding up its timer
+    /// is what makes that injection's down/recovery transition actually
+    /// observable without waiting up to 300s.
     static func acceleratedInterval(_ interval: TimeInterval) -> TimeInterval {
         #if DEBUG
         let divisor = UserDefaults.standard.double(forKey: "NMSPollSpeedup")
@@ -354,6 +420,10 @@ enum FailureInjector {
         let softwareChanges = Set(UserDefaults.standard.stringArray(forKey: "NMSInjectSNMPSoftwareChange") ?? [])
         if !softwareChanges.isEmpty {
             parts.append("SNMP software-change forced: \(softwareChanges.sorted().joined(separator: ", "))")
+        }
+        let saasOutages = Set(UserDefaults.standard.stringArray(forKey: saasOutageDefaultsKey) ?? [])
+        if !saasOutages.isEmpty {
+            parts.append("SaaS outage forced: \(saasOutages.sorted().joined(separator: ", "))")
         }
         let speedup = UserDefaults.standard.double(forKey: "NMSPollSpeedup")
         if speedup > 1 {

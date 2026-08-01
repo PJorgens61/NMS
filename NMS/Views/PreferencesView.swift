@@ -25,6 +25,16 @@ struct PreferencesView: View {
     @AppStorage(FeatureFlags.comparisonWindowKey) private var comparisonWindowEnabled = false
     @AppStorage(FeatureFlags.snmpDevicesKey) private var snmpDevicesEnabled = false
     @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = false
+    /// Plain `@State`, not `@AppStorage` — `[String]` isn't one of
+    /// `@AppStorage`'s supported types, so this is read once at view
+    /// creation and written straight to `UserDefaults` on every change
+    /// instead (see `saasServiceBinding`/`setAllSaaSServices` below).
+    /// Initialized from `FeatureFlags.saasEnabledServices`, defaulting to
+    /// "every service checked" when that preference has never been
+    /// customized — see that property's doc comment for why `nil` means
+    /// that rather than "none."
+    @State private var enabledSaaSServices: Set<String> =
+        FeatureFlags.saasEnabledServices ?? Set(SaaSStatusService.monitoredServices.map(\.name))
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -49,8 +59,16 @@ struct PreferencesView: View {
             feature(
                 "SaaS Monitoring",
                 isOn: $saasMonitoringEnabled,
-                description: "Periodically checks Slack, Claude, and ChatGPT's public status pages. Reaches out to those services directly, not just your own network."
+                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, and Dropbox. Reaches out to those services directly, not just your own network."
             )
+
+            // Only shown once the feature itself is on — a per-service
+            // list for a disabled feature would just be confusing. Not
+            // its own `feature(...)` row since it isn't a single on/off
+            // switch — a real sub-preference under the one above.
+            if saasMonitoringEnabled {
+                saasServicePicker
+            }
 
             caption("Changes here take effect after restarting NMS.")
                 .fontWeight(.semibold)
@@ -73,6 +91,58 @@ struct PreferencesView: View {
             Toggle(title, isOn: isOn)
             caption(description)
         }
+    }
+
+    /// One checkbox per `SaaSStatusService.monitoredServices` entry, plus
+    /// Select All / Clear All for quickly narrowing to (or clearing) a
+    /// single service — useful when only one or two of the ten actually
+    /// matter to you, or when isolating one for testing. Indented under
+    /// the "SaaS Monitoring" toggle above, same visual nesting a
+    /// sub-preference implies without a second `.headline`.
+    @ViewBuilder
+    private var saasServicePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Services to monitor")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Button("Select All") { setAllSaaSServices(enabled: true) }
+                    .font(.system(size: 11))
+                Button("Clear All") { setAllSaaSServices(enabled: false) }
+                    .font(.system(size: 11))
+            }
+            ForEach(SaaSStatusService.monitoredServices, id: \.name) { service in
+                Toggle(service.name, isOn: saasServiceBinding(for: service.name))
+                    .font(.system(size: 11))
+            }
+        }
+        .padding(.leading, 16)
+    }
+
+    private func saasServiceBinding(for name: String) -> Binding<Bool> {
+        Binding(
+            get: { enabledSaaSServices.contains(name) },
+            set: { isOn in
+                if isOn {
+                    enabledSaaSServices.insert(name)
+                } else {
+                    enabledSaaSServices.remove(name)
+                }
+                persistSaaSServices()
+            }
+        )
+    }
+
+    private func setAllSaaSServices(enabled: Bool) {
+        enabledSaaSServices = enabled ? Set(SaaSStatusService.monitoredServices.map(\.name)) : []
+        persistSaaSServices()
+    }
+
+    /// `UserDefaults.set(_:forKey:)`, not `@AppStorage`, since `[String]`
+    /// isn't a type `@AppStorage` supports directly — see
+    /// `enabledSaaSServices`'s own doc comment.
+    private func persistSaaSServices() {
+        UserDefaults.standard.set(Array(enabledSaaSServices), forKey: FeatureFlags.saasEnabledServicesKey)
     }
 
     /// `.fixedSize(horizontal: false, vertical: true)` is the load-bearing

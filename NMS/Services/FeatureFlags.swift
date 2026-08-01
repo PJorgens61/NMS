@@ -30,6 +30,7 @@ enum FeatureFlags {
     static let comparisonWindowKey = "FeatureComparisonWindow"
     static let snmpDevicesKey = "FeatureSNMPDevices"
     static let saasMonitoringKey = "FeatureSaaSMonitoring"
+    static let saasEnabledServicesKey = "FeatureSaaSEnabledServices"
 
     /// The resizable "Open in Window" alternative to the popover — see
     /// `NMSApp`'s "nms-window" scene doc comment. Still explicitly
@@ -60,15 +61,35 @@ enum FeatureFlags {
     }
 
     /// Periodic checks against a small, fixed list of business SaaS
-    /// status pages (Slack, Claude, ChatGPT) — see
-    /// `SaaSStatusService`/`SaaSMonitoringViewModel` and DESIGN-NOTES.md's
-    /// "Business SaaS monitoring". Off by default for the same reason
-    /// `snmpDevices` is: this reaches out to third-party services
-    /// periodically, which a fresh install shouldn't do without explicit
-    /// opt-in, even though (unlike SNMP) it's a WAN fetch rather than LAN
-    /// probing. Read once at `SaaSMonitoringViewModel.init()`, same
-    /// restart-to-apply behavior as `snmpDevices`.
+    /// status pages — see `SaaSStatusService`/`SaaSMonitoringViewModel`
+    /// and DESIGN-NOTES.md's "Business SaaS monitoring". Off by default
+    /// for the same reason `snmpDevices` is: this reaches out to
+    /// third-party services periodically, which a fresh install shouldn't
+    /// do without explicit opt-in, even though (unlike SNMP) it's a WAN
+    /// fetch rather than LAN probing. Read once at
+    /// `SaaSMonitoringViewModel.init()`, same restart-to-apply behavior
+    /// as `snmpDevices`.
     static var saasMonitoring: Bool {
         defaults.bool(forKey: saasMonitoringKey)
+    }
+
+    /// Which of `SaaSStatusService.monitoredServices` are actually
+    /// checked, once `saasMonitoring` itself is on — a second, finer
+    /// layer under that one flag, for a real preference (which services
+    /// you care about) rather than a feature on/off switch.
+    ///
+    /// `nil` means "never customized" — every service is monitored, the
+    /// same as before this preference existed, so an install that never
+    /// opens `PreferencesView`'s SaaS section keeps today's behavior
+    /// exactly. Once the user touches any toggle there, this becomes an
+    /// explicit array (via `PreferencesView`'s manual `UserDefaults`
+    /// read/write — `[String]` isn't one of `@AppStorage`'s supported
+    /// types, unlike the plain `Bool` flags above), which can legitimately
+    /// be empty if every service gets unchecked. Read once at
+    /// `SaaSMonitoringViewModel.init()`, same restart-to-apply behavior as
+    /// every other flag here.
+    static var saasEnabledServices: Set<String>? {
+        guard let stored = defaults.array(forKey: saasEnabledServicesKey) as? [String] else { return nil }
+        return Set(stored)
     }
 }

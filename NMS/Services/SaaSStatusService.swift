@@ -22,8 +22,18 @@ struct SaaSStatusService {
     }
 
     struct MonitoredService {
+        /// Which parser this service's endpoint needs — a name-based
+        /// dispatch (`service.name == "Slack"`) stopped scaling once a
+        /// second non-Statuspage shape (Zendesk) showed up, so this is
+        /// explicit per service instead.
+        enum Shape {
+            case statuspage
+            case slack
+            case zendesk
+        }
         let name: String
         let endpoint: URL
+        let shape: Shape
     }
 
     struct CheckResult {
@@ -37,13 +47,22 @@ struct SaaSStatusService {
 
     /// Confirmed live via `curl`, not assumed from documentation — same
     /// discipline DESIGN-NOTES.md's own endpoint table was built with.
-    /// Claude and ChatGPT are both genuine Statuspage.io `/api/v2/summary.json`
-    /// endpoints; Slack's is a different, older API shape (see
-    /// `parseSlack` below) despite looking similar at a glance.
+    /// Every entry here except Slack and Zendesk is a genuine Statuspage.io
+    /// `/api/v2/summary.json` endpoint (Trello's is Atlassian-hosted but a
+    /// distinct subdomain from Jira/Confluence's, not the same page);
+    /// Slack's and Zendesk's are each a different shape despite looking
+    /// similar at a glance — see `parseSlack`/`parseZendesk` below.
     static let monitoredServices: [MonitoredService] = [
-        MonitoredService(name: "Slack", endpoint: URL(string: "https://slack-status.com/api/v2.0.0/current")!),
-        MonitoredService(name: "Claude", endpoint: URL(string: "https://status.claude.com/api/v2/summary.json")!),
-        MonitoredService(name: "ChatGPT", endpoint: URL(string: "https://status.openai.com/api/v2/summary.json")!)
+        MonitoredService(name: "Slack", endpoint: URL(string: "https://slack-status.com/api/v2.0.0/current")!, shape: .slack),
+        MonitoredService(name: "Claude", endpoint: URL(string: "https://status.claude.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "ChatGPT", endpoint: URL(string: "https://status.openai.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Jira/Confluence", endpoint: URL(string: "https://status.atlassian.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Zendesk", endpoint: URL(string: "https://status.zendesk.com/api/incidents/active")!, shape: .zendesk),
+        MonitoredService(name: "Zoom", endpoint: URL(string: "https://www.zoomstatus.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Trello", endpoint: URL(string: "https://trello.status.atlassian.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Asana", endpoint: URL(string: "https://status.asana.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Notion", endpoint: URL(string: "https://www.notion-status.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Dropbox", endpoint: URL(string: "https://status.dropbox.com/api/v2/summary.json")!, shape: .statuspage)
     ]
 
     func checkStatus(_ service: MonitoredService) async throws -> CheckResult {
@@ -59,7 +78,11 @@ struct SaaSStatusService {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw SaaSStatusError.unexpectedResponse
         }
-        return service.name == "Slack" ? try Self.parseSlack(data) : try Self.parseStatuspage(data)
+        switch service.shape {
+        case .statuspage: return try Self.parseStatuspage(data)
+        case .slack: return try Self.parseSlack(data)
+        case .zendesk: return try Self.parseZendesk(data)
+        }
     }
 
     /// The standard Statuspage.io v2 summary shape — confirmed live for
@@ -110,6 +133,39 @@ struct SaaSStatusService {
         return CheckResult(
             indicator: .major,
             description: names.isEmpty ? "Active incident reported" : names.joined(separator: ", ")
+        )
+    }
+
+    /// Zendesk's own active-incidents endpoint, not Statuspage — confirmed
+    /// live: `{"data": [...], "included": [...]}`, a JSON:API-shaped list
+    /// where `data` holds every currently active incident. **Only the
+    /// empty case (`data: []`, meaning no active incidents) has actually
+    /// been observed** — a real incident's exact `attributes` shape is
+    /// inferred from Zendesk's documented JSON:API convention
+    /// (`attributes.title`), not confirmed against a live one, the same
+    /// "hasn't been observed directly yet" gap `PrinterDiscoveryService`'s
+    /// own multi-reason parsing flagged for the same reason. Worth
+    /// rechecking the first time this actually renders a real Zendesk
+    /// incident. No severity grading in this shape either, same as Slack
+    /// — any active incident reports as `.major`.
+    private static func parseZendesk(_ data: Data) throws -> CheckResult {
+        struct ZendeskResponse: Decodable {
+            struct Incident: Decodable {
+                struct Attributes: Decodable {
+                    let title: String?
+                }
+                let attributes: Attributes?
+            }
+            let data: [Incident]
+        }
+        let decoded = try JSONDecoder().decode(ZendeskResponse.self, from: data)
+        guard !decoded.data.isEmpty else {
+            return CheckResult(indicator: .none, description: "All Systems Operational")
+        }
+        let titles = decoded.data.compactMap { $0.attributes?.title }
+        return CheckResult(
+            indicator: .major,
+            description: titles.isEmpty ? "Active incident reported" : titles.joined(separator: ", ")
         )
     }
 }
