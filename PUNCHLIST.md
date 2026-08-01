@@ -8,6 +8,36 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **SNMP Devices: detect a web server on the device, add a link if
+  found.** Requested directly. Real for a lot of what's already
+  discovered here — this network's own router, switch, and both APs
+  (see the SNMP Devices screenshots throughout `BUGS.md`) all plausibly
+  have an admin web UI. Rendering: an inline link on
+  `infrastructureRows`' first `HStack` line (`ContentView+Window.swift`
+  ~494), alongside `device.displayName`/`uptimeDescription` — the
+  natural spot, no new row needed.
+
+  Detection isn't a drop-in reuse of `HTTPCheckService` — that checks
+  one known endpoint for one expected body; this needs "does *anything*
+  answer on 80/443 for this arbitrary IP," a different, more open-ended
+  shape. Real open questions:
+  - **HTTPS is the common case for this exact hardware and it's a real
+    complication.** Router/switch/AP admin UIs overwhelmingly serve
+    self-signed certs — a strict HTTPS probe would report "no web
+    server" on most of them. Needs either accepting invalid certs for
+    this specific probe (a real, deliberate trust decision to write
+    down, not a default to fall into) or checking HTTP first and only
+    falling back to HTTPS opportunistically.
+  - **When does this run?** At first discovery only (cheap, one-time,
+    but stale if a web UI gets enabled/disabled later), or on every
+    SNMP scan (fresher, but a new per-device network round trip added
+    to every scan cycle, on top of the existing `snmpget` sweep).
+  - **Cheapest real signal**: a bare TCP connect to 80/443 (proves a
+    server process is listening, not that it's genuinely HTTP) versus
+    a real HTTP `HEAD`/`GET` (confirms the protocol, costs more time
+    and has the cert question above). Worth deciding which "detected"
+    actually means before building either.
+
 - [ ] **SaaS fault injection: already built, but three real gaps found
   while checking.** Asked "how to test SaaS services that rarely fail,
   can we inject faults" — turns out `FailureInjector.applySaaSChanges`
