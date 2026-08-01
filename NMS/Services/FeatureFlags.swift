@@ -31,19 +31,9 @@ enum FeatureFlags {
     /// `PreferencesView`'s `@AppStorage` toggles and the plain reads below
     /// share one source of truth rather than two copies of the same
     /// string that could quietly drift apart.
-    static let comparisonWindowKey = "FeatureComparisonWindow"
     static let snmpDevicesKey = "FeatureSNMPDevices"
     static let saasMonitoringKey = "FeatureSaaSMonitoring"
     static let saasEnabledServicesKey = "FeatureSaaSEnabledServices"
-
-    /// The resizable "Open in Window" alternative to the popover — see
-    /// `NMSApp`'s "nms-window" scene doc comment. Still explicitly
-    /// "not yet a replacement for the popover, just a side-by-side
-    /// alternative to evaluate," which is exactly the kind of thing this
-    /// type exists to keep off by default for a new install.
-    static var comparisonWindow: Bool {
-        defaults.bool(forKey: comparisonWindowKey)
-    }
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by

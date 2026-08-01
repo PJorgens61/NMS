@@ -40,7 +40,7 @@ rendered directly by GitHub — no separate build or deploy step, just push.
 - [Running it](#running-it)
 - [Developing across more than one Mac](#developing-across-more-than-one-mac)
 - [The popover](#the-popover)
-  - [Open in Window](#open-in-window)
+  - [Expert Mode](#expert-mode)
   - [Network Health](#network-health)
   - [Info](#info)
   - [Path to Internet](#path-to-internet)
@@ -93,23 +93,23 @@ screen sizes or macOS versions.
 - **Events**, full width.
 - A footer: **Refresh**, a camera icon (screenshot), a ladybug icon (Bug
   Report — a screenshot plus a state dump plus a comment field, for
-  describing what you're seeing), **Open in Window**, **Networks…**,
+  describing what you're seeing), **Expert Mode…**, **Networks…**,
   **Preferences…**, and **Quit**, with a small build-hash / store-size
   line and, when a debug override is active, an orange warning line
   beneath it.
 
-### Open in Window
+### Expert Mode
 
 `MenuBarExtra(.window)` forces a fixed-height popover with no scrolling,
 which means every screen-fit problem has to be solved by trimming
 content rather than letting the container adapt — a recurring source of
-work documented at length in `DESIGN-NOTES.md`. **Open in Window** opens
+work documented at length in `DESIGN-NOTES.md`. **Expert Mode** opens
 the same live data in a real, resizable window instead: each history
 section (Events, SNMP Devices, DHCP History, Speed Test, traceroute
 hops) scrolls independently in its own taller box, and an always-visible
-scrollbar on the right reaches whatever doesn't fit on screen. It's a
-comparison alternative alongside the popover for now, not a replacement
-— both stay open to the same underlying state.
+scrollbar on the right reaches whatever doesn't fit on screen. A
+permanent, always-available part of the app — not behind a feature flag
+the way it started out — both stay open to the same underlying state.
 
 The window also has sections the popover never will — the popover's
 fixed height is exactly the budget these shouldn't spend on every fresh
@@ -336,30 +336,30 @@ pruned — they're small, and their whole value is their age.
 
 ## Experimental features
 
-A couple of features aren't on by default for a fresh install, now that
-this runs on more than the two Macs it was developed on — friends testing
-it on their own machines get the stable, core experience unless they
-opt in. Unlike the debug tooling below, these work in *any* build
-(Release included), backed by plain `UserDefaults`:
+One feature isn't on by default for a fresh install, now that this runs
+on more than the two Macs it was developed on — friends testing it on
+their own machines get the stable, core experience unless they opt in.
+Unlike the debug tooling below, this works in *any* build (Release
+included), backed by plain `UserDefaults`:
 
 ```
-defaults write Thistle.NMS FeatureComparisonWindow -bool true
 defaults write Thistle.NMS FeatureSNMPDevices -bool true
 ```
 
-- **`FeatureComparisonWindow`** — the resizable "Open in Window"
-  alternative to the popover. Still genuinely experimental: see
-  `DESIGN-NOTES.md`'s "The MacBook Air height constraint" for the
-  ongoing comparison against the popover.
 - **`FeatureSNMPDevices`** — SNMP device discovery/monitoring. Off by
   default specifically because it's active network probing (SNMP
   sweeps) against whatever LAN the Mac is on — worth turning on only if
   you're comfortable with that on your own network. When off, the
   feature is fully inert (no sweeps, no polling), not just hidden from
-  the popover.
+  the popover. Toggling this in Preferences applies immediately, no
+  restart needed.
 
-Delete either key (`defaults delete Thistle.NMS <key>`) to go back to
-the default (off).
+Delete the key (`defaults delete Thistle.NMS FeatureSNMPDevices`) to go
+back to the default (off).
+
+Expert Mode (see above) used to live here too, behind
+`FeatureComparisonWindow` — that flag is gone; it's a permanent,
+always-on part of the app now, not an experiment.
 
 ## Debug tooling (DEBUG builds only)
 

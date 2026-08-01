@@ -76,17 +76,17 @@ struct ContentView: View {
 
     /// Convenience for the handful of places that genuinely branch on the
     /// *container* rather than on a section's declared layout: `body`'s
-    /// two top-level arrangements, and the footer's "Open in Window"
-    /// button hiding itself once you're already there. Section visibility
+    /// two top-level arrangements, and the footer's "Expert Mode" button
+    /// hiding itself once you're already there. Section visibility
     /// and box heights deliberately do **not** go through this — they read
     /// `SectionLayout` instead, so the popover's contents stay a closed,
     /// testable list.
     private var isInWindow: Bool { surface == .window }
 
-    /// Lets the footer's "Open in Window" button bring up the comparison
-    /// `Window` scene declared in `NMSApp` — see that scene for why it
-    /// exists (a resizable/scrollable alternative to this fixed-height
-    /// popover, added to compare side by side rather than replace outright).
+    /// Lets the footer's "Expert Mode" button bring up the `Window` scene
+    /// declared in `NMSApp` — see that scene for why it exists (every
+    /// diagnostic section in one resizable window, versus the popover's
+    /// deliberately narrower scope).
     @Environment(\.openWindow) private var openWindow
 
     // Not `private` — `communityRow`/`commitCommunity` live in
@@ -321,7 +321,7 @@ struct ContentView: View {
             // fought hardest, and DHCP History is scrollable history, not
             // read-at-a-glance current state — exactly the kind of section
             // that's cheap to lose from the popover (it's still one click
-            // away via Open in Window) but expensive to keep paying for in
+            // away via Expert Mode) but expensive to keep paying for in
             // every popover-height trim.
             if SectionLayout.dhcpHistory.appears(on: surface) {
                 Divider()
@@ -351,7 +351,7 @@ struct ContentView: View {
             }
     }
 
-    /// Refresh/Screenshot/Bug Report/Open in Window/Networks…/
+    /// Refresh/Screenshot/Bug Report/Expert Mode/Networks…/
     /// Preferences…/Quit, the build-hash/store-size line, and the
     /// DEBUG-overrides banner — plus `bugReportRow`, whose comment
     /// field is only reachable via a footer button, so it's pinned
@@ -408,25 +408,26 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Bug Report")
                 .accessibilityHint("Saves a screenshot and state dump along with a comment describing what you're seeing")
-                // Temporary, for comparing this fixed-height popover against
-                // a resizable/scrollable window (see `NMSApp`'s "nms-window"
-                // scene) — not a permanent footer addition. Gated by
-                // `FeatureFlags.comparisonWindow`, off by default for a
-                // fresh install, *and* `!isInWindow` — this button's whole
-                // job is opening the resizable window from the popover; a
-                // fixed `FeatureFlags.comparisonWindow` gate alone left it
-                // sitting in the window's own footer too, where clicking it
-                // just re-triggered opening the window you were already
-                // looking at. The inverse of the `isInWindow &&` gate every
-                // window-only *section* here uses (Wi-Fi, DHCP History,
-                // SNMP Devices, Printer Alerts) — those only belong inside
-                // the window; this button only belongs outside it.
-                if FeatureFlags.comparisonWindow && !isInWindow {
-                    Button("Open in Window") {
+                // A permanent part of the footer now, not the experimental
+                // "compare this against a resizable window" toggle it
+                // started as (see `NMSApp`'s "nms-window" scene) —
+                // `FeatureFlags.comparisonWindow` is gone entirely, along
+                // with its `PreferencesView` toggle. Still gated on
+                // `!isInWindow` alone: this button's whole job is opening
+                // Expert Mode *from* the popover, and without that guard
+                // it would also sit in the window's own footer, where
+                // clicking it just re-triggers opening the window you're
+                // already looking at. The inverse of the `isInWindow &&`
+                // gate every window-only *section* here uses (Wi-Fi, DHCP
+                // History, SNMP Devices, Printer Alerts) — those only
+                // belong inside the window; this button only belongs
+                // outside it.
+                if !isInWindow {
+                    Button("Expert Mode…") {
                         openWindowInFront("nms-window")
                     }
-                    .accessibilityLabel("Open in Window")
-                    .accessibilityHint("Opens the same content in a resizable, scrollable window")
+                    .accessibilityLabel("Expert Mode")
+                    .accessibilityHint("Opens the same content in a resizable window, with every diagnostic section — Events, SNMP Devices, DHCP History, Wi-Fi detail, Path to Internet, Speed Test, Printer Alerts")
                 }
                 Button("Networks…") {
                     openWindowInFront("known-networks")
@@ -1114,7 +1115,7 @@ struct ContentView: View {
     }
 
     /// Opens a window scene *and* actually puts it in front. Used by all
-    /// three footer buttons (Open in Window, Networks…, Preferences…).
+    /// three footer buttons (Expert Mode, Networks…, Preferences…).
     ///
     /// Three separate things conspire here, which is why the first
     /// attempt — a bare `NSApp.activate` immediately after `openWindow` —

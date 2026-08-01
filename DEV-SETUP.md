@@ -123,20 +123,24 @@ already covers what that looks like in Console.
 
 ## Feature flags: decide whether both machines match
 
-Two features are off by default (`UserDefaults`-backed, see the README's
+One feature is off by default (`UserDefaults`-backed, see the README's
 "Experimental features"):
 
 ```bash
-defaults write Thistle.NMS FeatureComparisonWindow -bool true
 defaults write Thistle.NMS FeatureSNMPDevices -bool true
 ```
 
-There's no requirement that both machines run the same set — a MacBook
-used for field testing away from a home LAN, for instance, has less use
-for `FeatureSNMPDevices` (it probes whatever network the Mac is actually
-on). Worth a deliberate choice either way rather than an accidental one,
-since a bug that "doesn't reproduce" on the other machine is sometimes
-just a flag difference.
+There's no requirement that both machines run the same setting — a
+MacBook used for field testing away from a home LAN, for instance, has
+less use for `FeatureSNMPDevices` (it probes whatever network the Mac
+is actually on). Worth a deliberate choice either way rather than an
+accidental one, since a bug that "doesn't reproduce" on the other
+machine is sometimes just a flag difference.
+
+Expert Mode (the resizable window alternative to the popover) used to
+be a second flag here, `FeatureComparisonWindow` — that's gone; it's a
+permanent, always-on part of the app on both machines now, nothing to
+keep in sync.
 
 ## Git workflow
 

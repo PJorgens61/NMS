@@ -565,9 +565,14 @@ struct NMSApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        // Comparison window, opened via the popover's "Open in Window"
-        // button (see `ContentView`) — not yet a replacement for the
-        // popover above, just a side-by-side alternative to evaluate.
+        // "Expert Mode," opened via the popover's own footer button (see
+        // `ContentView`) — every diagnostic section in one resizable
+        // window, versus the popover's deliberately narrower "can I work,
+        // what's restricted" scope (see `SectionLayout`'s audience-split
+        // doc comment). Formerly gated behind `FeatureFlags.comparisonWindow`
+        // as an experimental "side-by-side alternative to evaluate";
+        // that flag is gone entirely now — a permanent, always-available
+        // part of the app, not an opt-in.
         //
         // An outer scroll container turned out not to be optional: without
         // one, the window is floor-clamped to its full content height, and
@@ -584,17 +589,6 @@ struct NMSApp: App {
         // dependent on chaining working. Wheel-scrolling over the gaps
         // between tiles (and chaining out of a tile) still works too; the
         // scrollbar is just the guaranteed path now, not the only one.
-        // Deliberately an always-declared `Window` scene, gating its
-        // *content* rather than the scene itself — see
-        // `comparisonWindowContent`'s doc comment for why: a conditional
-        // `Scene` here crashed `swift-frontend` outright ("failed to
-        // produce diagnostic for expression"), a real type-checker
-        // failure, not something fixable by restructuring the Scene side.
-        // `FeatureFlags.comparisonWindow` still fully gates what a tester
-        // can actually see — the footer button that opens this window is
-        // hidden when the flag is off (see `ContentView`), so nothing
-        // routes here in the first place; an empty window existing but
-        // unreachable is a compiler workaround, not a real hole.
         Window("NMS", id: "nms-window") {
             comparisonWindowContent
         }
@@ -621,33 +615,23 @@ struct NMSApp: App {
         .windowResizability(.contentSize)
     }
 
-    /// Gates the comparison window's *content*, not the `Window` scene
-    /// itself — see the scene declaration's doc comment in `body` for why
-    /// a conditional `Scene` isn't the mechanism here. `FeatureFlags
-    /// .comparisonWindow` off means an empty window that's unreachable
-    /// anyway (the footer button that opens it is hidden in that case),
-    /// not a real content leak.
-    /// Deliberately just `contentView(surface: .window)` — a single,
-    /// direct call, same shape as the popover's own. An earlier version
-    /// of this reached in and composed `ContentView.scrollableContent`/
-    /// `.footerBar` as two separate children of a `VStack` declared here
-    /// instead, to pin the footer outside the scroll container. That
-    /// broke `@State` silently: `ContentView` was never actually placed
-    /// in the tree as one identified node, only fragments of its
-    /// computed output were, so nothing tied one render's mutated state
-    /// to the next — confirmed via a live bug report filed through the
-    /// exact path this broke (Bug Report producing no visible UI in the
-    /// window, while identical code worked in the popover). The
-    /// pinned-footer behavior itself is still here — moved into
-    /// `ContentView.body`'s own per-surface branch, where it can't
-    /// split state across two parents because there's only ever one.
-    @ViewBuilder
+    /// "Expert Mode"'s content — deliberately just `contentView(surface:
+    /// .window)`, a single, direct call, same shape as the popover's own.
+    /// An earlier version of this reached in and composed
+    /// `ContentView.scrollableContent`/`.footerBar` as two separate
+    /// children of a `VStack` declared here instead, to pin the footer
+    /// outside the scroll container. That broke `@State` silently:
+    /// `ContentView` was never actually placed in the tree as one
+    /// identified node, only fragments of its computed output were, so
+    /// nothing tied one render's mutated state to the next — confirmed
+    /// via a live bug report filed through the exact path this broke
+    /// (Bug Report producing no visible UI in the window, while identical
+    /// code worked in the popover). The pinned-footer behavior itself is
+    /// still here — moved into `ContentView.body`'s own per-surface
+    /// branch, where it can't split state across two parents because
+    /// there's only ever one.
     private var comparisonWindowContent: some View {
-        if FeatureFlags.comparisonWindow {
-            contentView(surface: .window)
-        } else {
-            EmptyView()
-        }
+        contentView(surface: .window)
     }
 
     /// macOS forces menu bar icons to render as monochrome "template"

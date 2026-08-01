@@ -19,10 +19,9 @@ struct PreferencesView: View {
     // this is the one place these values need to be *live*, so a toggle
     // updates immediately rather than requiring the view to be told to
     // re-render. Same underlying `UserDefaults.standard` store and the
-    // same key names (via `FeatureFlags.comparisonWindowKey`/
-    // `snmpDevicesKey`), so toggling here and reading via `FeatureFlags`
-    // elsewhere agree on the same value.
-    @AppStorage(FeatureFlags.comparisonWindowKey) private var comparisonWindowEnabled = false
+    // same key names (via `FeatureFlags.snmpDevicesKey`/etc.), so toggling
+    // here and reading via `FeatureFlags` elsewhere agree on the same
+    // value.
     @AppStorage(FeatureFlags.snmpDevicesKey) private var snmpDevicesEnabled = false
     // Default `true`, not `false` like its neighbors — see
     // `FeatureFlags.saasMonitoring`'s doc comment for why this one's on
@@ -51,12 +50,6 @@ struct PreferencesView: View {
             }
 
             feature(
-                "Open in Window",
-                isOn: $comparisonWindowEnabled,
-                description: "A resizable, scrollable alternative to the popover. Still genuinely experimental — not yet a replacement for it. Requires restarting NMS to take effect — unlike the two toggles below, this gates a whole window, not just a background timer."
-            )
-
-            feature(
                 "SNMP Devices",
                 isOn: $snmpDevicesEnabled,
                 description: "Active SNMP network probing against whatever LAN this Mac is on. Only turn this on if you're comfortable with that on your own network."
@@ -76,15 +69,14 @@ struct PreferencesView: View {
                 saasServicePicker
             }
 
-            // Specific to "Open in Window" now, not a blanket statement —
-            // SNMP Devices and SaaS Monitoring (including which services)
-            // both take effect live as of `FeatureFlags.snmpDevices`/
+            // Both toggles apply live as of `FeatureFlags.snmpDevices`/
             // `.saasMonitoring`/`.saasEnabledServices` observing
-            // `UserDefaults` changes directly; "Open in Window" gates a
-            // whole SwiftUI `Scene`, which is a meaningfully bigger lift
-            // to make live and hasn't been (see `PUNCHLIST.md`).
-            caption("\"Open in Window\" takes effect after restarting NMS. Everything else here applies immediately.")
-                .fontWeight(.semibold)
+            // `UserDefaults` changes directly — no restart caveat needed
+            // anymore now that "Open in Window" (the one thing that did
+            // need one, since it gated a whole SwiftUI `Scene`) is a
+            // permanent, always-on part of the app rather than a toggle
+            // here at all. See `ContentView`'s "Expert Mode" footer button.
+            caption("Changes here apply immediately, no restart needed.")
         }
         .padding(16)
         // Width fixed, height deliberately not: the window sizes to
