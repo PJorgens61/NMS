@@ -8,6 +8,27 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Shrink SNMP Devices and Printer Alerts' box heights.** Requested
+  directly: SNMP Devices down 25%, Printer Alerts down 50%.
+  `SectionLayout.boxHeight(on:)`:
+  - **SNMP Devices**: `200` → `150`. That 200 is explicitly taller than
+    its neighbors "because `sysDescr` wraps instead of truncating and
+    needs the extra room" (that type's own comment) — worth a live
+    check that a real wrapped `sysDescr` (the switch's is the longest
+    seen so far, two lines) still reads fully at 150 before landing on
+    it, not just trusting the arithmetic.
+  - **Printer Alerts**: `rowHeight * 3` (51) → half is `25.5`, not a
+    clean row multiple (`rowHeight` is 17, so 25.5 = 1.5 rows). That
+    height was already tuned once from a same-day Bug Report
+    ("Confirm Printer Alerts' new fixed-height box actually fits 2
+    printers live," below) specifically to keep a full row of headroom
+    past the 2-row boundary — a 50% cut lands *inside* that boundary
+    (1.5 rows can't show 2 full printer rows without scrolling), which
+    may be exactly what's wanted here (this app only has 1 real printer
+    to test against today) but is worth confirming isn't accidentally
+    re-triggering the gap that Bug Report flagged, given only 1 printer
+    is available to verify against either way.
+
 - [ ] **Blocked on the user: GCP OAuth client setup for "Sign in with
   Google" (Personalized Service Health).** Everything else for this
   feature (code, API research — see `DESIGN-NOTES.md`'s "Google Cloud,
