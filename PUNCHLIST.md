@@ -20,14 +20,24 @@ new ones as they come up.
   Detection isn't a drop-in reuse of `HTTPCheckService` — that checks
   one known endpoint for one expected body; this needs "does *anything*
   answer on 80/443 for this arbitrary IP," a different, more open-ended
-  shape. Real open questions:
-  - **HTTPS is the common case for this exact hardware and it's a real
-    complication.** Router/switch/AP admin UIs overwhelmingly serve
-    self-signed certs — a strict HTTPS probe would report "no web
-    server" on most of them. Needs either accepting invalid certs for
-    this specific probe (a real, deliberate trust decision to write
-    down, not a default to fall into) or checking HTTP first and only
-    falling back to HTTPS opportunistically.
+  shape.
+
+  **HTTPS/self-signed-cert question, resolved directly**: accept
+  invalid certs for the detection probe, matching what the user already
+  does by hand in a browser for exactly this kind of device. Scoped
+  narrowly, though — a custom `URLSessionDelegate` (`urlSession(_:
+  didReceive:completionHandler:)`, trusting unconditionally) used *only*
+  for this one probe, not applied to `URLSession.shared` or anything
+  else in the app, so nothing else here silently loses real cert
+  validation. Defensible specifically because these are LAN devices
+  SNMP already confirmed answer to the configured community string —
+  not an arbitrary internet host. The link itself still just opens in
+  the default browser (`NSWorkspace.open`), not rendered in-app, so the
+  user's own normal click-through still happens there too — NMS's
+  relaxed trust only ever covers the lightweight background "does
+  something answer here" check, never the actual page content.
+
+  Remaining open questions:
   - **When does this run?** At first discovery only (cheap, one-time,
     but stale if a web UI gets enabled/disabled later), or on every
     SNMP scan (fresher, but a new per-device network round trip added
