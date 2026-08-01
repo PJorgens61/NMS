@@ -30,10 +30,28 @@ struct SaaSStatusService {
             case statuspage
             case slack
             case zendesk
+            case googleIncidents
         }
         let name: String
         let endpoint: URL
         let shape: Shape
+        /// Overrides `generalStatusPageURL`'s default `scheme://host`
+        /// derivation. `nil` for every existing entry — confirmed to hold
+        /// for all ten of them, so this stays opt-in rather than a second
+        /// hand-typed URL everywhere. Needed for Google Workspace: its
+        /// `incidents.json` lives under `www.google.com`, but that bare
+        /// host is Google's search homepage, not a status page — the real
+        /// one is at a specific path on the same host. Google Cloud
+        /// doesn't need this; its endpoint host already *is*
+        /// `status.cloud.google.com`, the same page a person would visit.
+        let dashboardPath: String?
+
+        init(name: String, endpoint: URL, shape: Shape, dashboardPath: String? = nil) {
+            self.name = name
+            self.endpoint = endpoint
+            self.shape = shape
+            self.dashboardPath = dashboardPath
+        }
     }
 
     struct CheckResult {
@@ -71,7 +89,14 @@ struct SaaSStatusService {
         MonitoredService(name: "Trello", endpoint: URL(string: "https://trello.status.atlassian.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Asana", endpoint: URL(string: "https://status.asana.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Notion", endpoint: URL(string: "https://www.notion-status.com/api/v2/summary.json")!, shape: .statuspage),
-        MonitoredService(name: "Dropbox", endpoint: URL(string: "https://status.dropbox.com/api/v2/summary.json")!, shape: .statuspage)
+        MonitoredService(name: "Dropbox", endpoint: URL(string: "https://status.dropbox.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents),
+        MonitoredService(
+            name: "Google Workspace",
+            endpoint: URL(string: "https://www.google.com/appsstatus/dashboard/incidents.json")!,
+            shape: .googleIncidents,
+            dashboardPath: "/appsstatus/dashboard/"
+        )
     ]
 
     func checkStatus(_ service: MonitoredService) async throws -> CheckResult {
@@ -92,6 +117,7 @@ struct SaaSStatusService {
         case .statuspage: parsed = try Self.parseStatuspage(data)
         case .slack: parsed = try Self.parseSlack(data)
         case .zendesk: parsed = try Self.parseZendesk(data)
+        case .googleIncidents: parsed = try Self.parseGoogleIncidents(data, service: service)
         }
         return CheckResult(
             indicator: parsed.indicator,
@@ -115,7 +141,9 @@ struct SaaSStatusService {
     /// its status page, on the chance the page itself is up even though
     /// this particular fetch wasn't.
     static func generalStatusPageURL(for service: MonitoredService) -> String {
-        "\(service.endpoint.scheme ?? "https")://\(service.endpoint.host ?? service.endpoint.absoluteString)"
+        let base = "\(service.endpoint.scheme ?? "https")://\(service.endpoint.host ?? service.endpoint.absoluteString)"
+        guard let path = service.dashboardPath else { return base }
+        return base + path
     }
 
     /// The standard Statuspage.io v2 summary shape — confirmed live for
@@ -227,5 +255,67 @@ struct SaaSStatusService {
         }
         let titles = decoded.data.compactMap { $0.attributes?.title }
         return (.major, titles.isEmpty ? "Active incident reported" : titles.joined(separator: ", "), nil)
+    }
+
+    /// Google Cloud's and Google Workspace's shared `incidents.json` shape
+    /// — confirmed live for both, and structurally unlike every other
+    /// shape here: not a "current status" summary, a **rolling incident
+    /// history** (Google's own published schema at
+    /// `status.cloud.google.com/incidents.schema.json` confirms this
+    /// directly: `begin`/`created`/`modified`/`end`, not a single
+    /// top-level `status` object). "Currently healthy" isn't an explicit
+    /// value anywhere in the shape — it's the absence of any incident
+    /// with a missing `end`, confirmed live: both endpoints' full history
+    /// (4 and 50 entries respectively, at the time this was checked) had
+    /// zero incidents with a null `end`, i.e. today's real "all clear"
+    /// case for both.
+    ///
+    /// **Severity mapping is a real judgment call, not confirmed against
+    /// a live example of every case.** Google's schema documents
+    /// `severity` as "(high, medium)" — only two values, no `low` or
+    /// `critical` — and only one real incident (`severity: "medium"`) has
+    /// actually been observed through this parser. Mapped conservatively:
+    /// `high` → `.major`, `medium` → `.minor`, anything else (including
+    /// missing) → `.unknown` rather than guessing at a mapping this
+    /// hasn't been checked against. `status_impact` (e.g.
+    /// `SERVICE_DISRUPTION`) carries the same kind of signal but has no
+    /// documented enum in Google's own schema, so it's used for
+    /// description text only, not severity.
+    ///
+    /// If multiple incidents are ongoing at once (also unobserved, only
+    /// ever seen zero at a time so far), the most recently `modified` one
+    /// is reported — the rest are real but not surfaced, same trade-off
+    /// Statuspage's `incidents.first` makes elsewhere in this file.
+    private static func parseGoogleIncidents(_ data: Data, service: MonitoredService) throws -> (indicator: Indicator, description: String, specificURL: String?) {
+        struct Incident: Decodable {
+            let modified: String
+            let end: String?
+            let externalDesc: String?
+            let severity: String?
+            let uri: String?
+
+            enum CodingKeys: String, CodingKey {
+                case modified, end, severity, uri
+                case externalDesc = "external_desc"
+            }
+        }
+        let decoded = try JSONDecoder().decode([Incident].self, from: data)
+        let ongoing = decoded.filter { $0.end == nil }
+        guard let incident = ongoing.max(by: { $0.modified < $1.modified }) else {
+            return (.none, "All Systems Operational", nil)
+        }
+        let indicator: Indicator
+        switch incident.severity {
+        case "high": indicator = .major
+        case "medium": indicator = .minor
+        default: indicator = .unknown
+        }
+        let description = incident.externalDesc ?? "Active incident reported"
+        let specificURL = incident.uri.map { uri -> String in
+            let base = Self.generalStatusPageURL(for: service)
+            let normalizedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+            return "\(normalizedBase)/\(uri)"
+        }
+        return (indicator, description, specificURL)
     }
 }

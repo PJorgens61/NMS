@@ -8,33 +8,37 @@ new ones as they come up.
 
 ## Open
 
-- [ ] **Add Google Workspace, Google Cloud, and AWS to SaaS monitoring;
-  Microsoft 365 needs a decision first.** Scoped to *public* status
-  dashboards only — not each provider's tenant-specific health, which
-  needs real per-provider OAuth/IAM auth (AWS SigV4, Google OAuth2
-  service-account, Microsoft Graph app registration) and is a separate,
-  much heavier project, deliberately not this one. All endpoints below
-  checked directly (`curl`, live, this session), same discipline as the
-  rest of `DESIGN-NOTES.md`'s "Business SaaS monitoring" table:
-  - **Google Workspace**: `https://www.google.com/appsstatus/dashboard/incidents.json`
-    — JSON, confirmed live, real `application/json`. Not yet in
-    `DESIGN-NOTES.md`'s table (only Google Cloud was checked there);
-    add it alongside.
-  - **Google Cloud**: `https://status.cloud.google.com/incidents.json`
-    — already in `DESIGN-NOTES.md`, re-confirmed live.
-  - **AWS**: `https://status.aws.amazon.com/rss/<service>-<region>.rss`
-    — already in `DESIGN-NOTES.md`, re-confirmed live (tested
-    `ec2-us-east-1`). Per-service-per-region, not one aggregate feed —
-    needs a decision on which service/region slugs actually matter
-    before this is a single, no-config checkbox the way the others are.
-  - **Microsoft 365**: still no public, unauthenticated endpoint —
-    `DESIGN-NOTES.md` already confirmed `401` on the real API (Microsoft
-    Graph Service Communications) without an OAuth app registration.
-    Options, same three as Workday/ADP's existing gap: skip it, fall
-    back to a plain reachability check against a Microsoft 365 domain
-    (weaker signal, same shape as the Workday/ADP fallback already
-    designed), or treat it as the first candidate for the separate
-    tenant-auth project above. No pull toward one yet.
+- [x] ~~Add Google Workspace and Google Cloud to SaaS monitoring.~~
+  **Built.** Both added to `SaaSStatusService.monitoredServices` with a
+  new `.googleIncidents` `Shape` (a rolling incident-history array, not
+  a Statuspage-style current-status summary — see the parser's own doc
+  comment for how "currently healthy" is derived from it, and the real
+  judgment call in the severity mapping). Verified live end-to-end, not
+  just via `curl`: enabled `FeatureSaaSMonitoring`, ran a real check,
+  both reported `.none` / "All Systems Operational" with correct
+  status-page URLs — including Google Workspace's, which needed a small
+  explicit override (`MonitoredService.dashboardPath`) since its
+  `incidents.json` lives under `www.google.com`, a host that isn't
+  itself a status page the way every other entry's endpoint host is.
+
+- [ ] **Add AWS to SaaS monitoring — needs a scoping decision first.**
+  `https://status.aws.amazon.com/rss/<service>-<region>.rss` (RSS,
+  re-confirmed live, `ec2-us-east-1` tested) is real but per-service-
+  per-region, not one aggregate feed the way Google Cloud/Workspace are
+  — there's no single "AWS" entry to add without first deciding which
+  service/region slugs actually matter (e.g. just this house's actual
+  AWS usage, or a fixed starter set like EC2 us-east-1). Also a new
+  `Shape` case needed (RSS/XML parsing, unlike every existing entry).
+
+- [ ] **Microsoft 365 needs a decision before it can be added at all.**
+  No public, unauthenticated endpoint exists — `DESIGN-NOTES.md` already
+  confirmed `401` on the real API (Microsoft Graph Service
+  Communications) without an OAuth app registration. Options, same
+  three as Workday/ADP's existing gap: skip it, fall back to a plain
+  reachability check against a Microsoft 365 domain (weaker signal,
+  same shape as the Workday/ADP fallback already designed), or treat it
+  as the first candidate for the separate tenant-auth project in
+  `DESIGN-NOTES.md`. No pull toward one yet.
 
 - [ ] **Popover should roll up non-green SaaS statuses.** SaaS monitoring
   is window-only per `SectionLayout`'s audience split (popover = "can I
@@ -50,24 +54,6 @@ new ones as they come up.
   just a count; does it link/scroll to the window's SaaS section when
   clicked; does it appear at all when the feature flag is off (no,
   matching every other conditional section).
-
-- [ ] **Let users pick which SaaS services NMS actually monitors.**
-  `DESIGN-NOTES.md`'s "Business SaaS monitoring" table already has ~20
-  verified services, and it's growing (see the Google
-  Workspace/Cloud/AWS entry above) — polling all of them by default is
-  wasted network chatter for whichever ones a given user doesn't
-  actually use, and it directly undermines the "popover rollup" item
-  above: "1 SaaS service degraded" only reads as useful when it's
-  scoped to services the user cares about, not every service in the
-  table. Answers the open question already sitting in `DESIGN-NOTES.md`
-  ("full table above, or a smaller curated subset?").
-  Scope: a simple opt-in checklist in Preferences against the existing
-  curated/verified table — toggle Slack/Salesforce/AWS/etc. on or off,
-  off by default (or a small sensible-default set, TBD). Deliberately
-  **not** a free-text "add any status-page URL" field — that's a
-  materially bigger, separate feature (validating arbitrary Statuspage
-  shapes, handling ones that aren't Statuspage-compatible at all) and
-  not what was asked for here.
 
 - [ ] **Do we need a "dark mode" for the app?** Raised directly, not yet
   investigated. Worth checking what actually happens today first —
