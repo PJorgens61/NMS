@@ -995,30 +995,8 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.orange)
                 HStack {
-                    // `.textFieldStyle(.plain)` on the capture chain
-                    // (`ScreenshotViewModel`) wasn't enough on its own —
-                    // confirmed against a real capture, still the same
-                    // solid-yellow-bar-with-a-red-"prohibited"-glyph
-                    // glitch, not just an unstyled-but-legible field.
-                    // Whatever `ImageRenderer` is doing here goes deeper
-                    // than border chrome — plausibly trying to draw a
-                    // live insertion-point/field-editor for a field that
-                    // has no real focus/window context off-screen. Same
-                    // fix as every other `ImageRenderer` gap in this
-                    // file: don't ask it to render the broken control at
-                    // all. A plain `Text` has nothing native to fail to
-                    // draw, and needs no interaction during a capture
-                    // anyway.
-                    if isCapturingScreenshot {
-                        Text(bugReportDraft.isEmpty ? "What are you seeing?" : bugReportDraft)
-                            .font(.system(size: 11))
-                            .foregroundStyle(bugReportDraft.isEmpty ? .secondary : .primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        TextField("What are you seeing?", text: $bugReportDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11))
-                            .onSubmit { submitBugReport() }
+                    captureSafeTextField("What are you seeing?", text: $bugReportDraft) {
+                        submitBugReport()
                     }
                     Button("Submit") { submitBugReport() }
                         .accessibilityLabel("Submit bug report")
@@ -1212,5 +1190,42 @@ struct ContentView: View {
                 .truncationMode(.middle)
         }
         .font(.system(size: 12))
+    }
+
+    /// A `TextField` that swaps to a plain `Text` during a capture — see
+    /// `ScreenshotService`'s quirk 4: any `NSViewRepresentable`, a plain
+    /// `TextField` included even with `.textFieldStyle(.plain)`, renders
+    /// off-screen as a solid yellow bar with a red "prohibited" glyph
+    /// instead of its real content.
+    ///
+    /// Centralized here, mirroring how `scrollBox`/`tile(fixedHeight:)`
+    /// already centralize the equivalent guard for `NoBounceScrollView`,
+    /// after this exact branch was hand-rolled independently at two call
+    /// sites (`bugReportRow`, `communityRow`) and simply missing at a
+    /// third — the same "the capture branch is easy to forget, and
+    /// forgetting it fails silently" bug class, just for `TextField`
+    /// instead of a scroll container. Using this instead of a raw
+    /// `TextField` anywhere in this capture path makes forgetting the
+    /// guard structurally harder, not just documented.
+    ///
+    /// `placeholder` doubles as the `TextField`'s prompt and the
+    /// capture-mode `Text`'s empty-state copy — both existing call sites
+    /// already used the same string for each, so this doesn't change
+    /// behavior, only removes the duplicated branch.
+    // Not `private` — called from `ContentView+Window.swift`'s
+    // `communityRow`.
+    @ViewBuilder
+    func captureSafeTextField(_ placeholder: String, text: Binding<String>, onSubmit: @escaping () -> Void) -> some View {
+        if isCapturingScreenshot {
+            Text(text.wrappedValue.isEmpty ? placeholder : text.wrappedValue)
+                .font(.system(size: 11))
+                .foregroundStyle(text.wrappedValue.isEmpty ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .onSubmit(onSubmit)
+        }
     }
 }

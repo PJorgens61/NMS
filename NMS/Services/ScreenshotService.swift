@@ -83,6 +83,9 @@ struct ScreenshotService {
         guard (try? pngData.write(to: directory.appendingPathComponent(filename))) != nil else {
             return nil
         }
+        // See DebugArtifactRetention — this directory had no retention at
+        // all until now.
+        DebugArtifactRetention.pruneFiles(in: directory)
         return filename
     }
 

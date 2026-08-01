@@ -1083,3 +1083,75 @@ struct KnownNetworkFingerprintTests {
         #expect(KnownNetwork.routerMAC(fromFingerprint: withEmpty) == "aa:bb:cc:dd:ee:ff")
     }
 }
+
+// MARK: - Capture-mode guard audit
+
+/// Reads `ContentView.swift`/`ContentView+Window.swift` as plain text and
+/// counts real `TextField`/`NoBounceScrollView` construction sites,
+/// rather than rendering anything — this file's own header explains why:
+/// scoped deliberately to pure logic, no view-model construction,
+/// because `ContentView`'s dozen `@ObservedObject` dependencies each
+/// have real side effects at `init` (timers start, subprocesses run
+/// immediately) that a unit test must not trigger.
+///
+/// Exists to catch the recurring "the capture branch is easy to forget,
+/// and forgetting it fails silently" bug class structurally, after it
+/// hit `communityRow` uncaught (see `BUGS.md`'s history — no dedicated
+/// entry, found during a deferred code-review pass) despite the
+/// identical guard already existing at `bugReportRow`. Every `TextField`
+/// now goes through `ContentView.captureSafeTextField`, and every
+/// `NoBounceScrollView` through one of three already-audited call sites
+/// — a fourth raw construction site appearing anywhere in these two
+/// files means a new one was added without going through the
+/// established, capture-safe path, exactly the shape of mistake this
+/// guards against. Counts are pinned to today's audited total, same
+/// convention as `SectionLayout.popoverBoxBudget`: a deliberate
+/// regression guard, not a physical limit — growing past it should fail
+/// the build and force the trade-off to be made explicitly, not silently
+/// reopen the bug.
+@Suite("Capture-mode guard audit")
+struct CaptureModeGuardAuditTests {
+    private static let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+
+    private static func source(_ relativePath: String) -> String {
+        (try? String(contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)) ?? ""
+    }
+
+    private static func occurrenceCount(_ pattern: String, in text: String) -> Int {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return -1 }
+        return regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
+    }
+
+    @Test("every TextField goes through captureSafeTextField")
+    func onlyOneRawTextField() {
+        let contentView = Self.source("NMS/Views/ContentView.swift")
+        let contentViewWindow = Self.source("NMS/Views/ContentView+Window.swift")
+        #expect(!contentView.isEmpty, "ContentView.swift should have been readable")
+
+        // Word-boundary match so `captureSafeTextField(` itself doesn't
+        // count — only a bare `TextField(` construction.
+        let pattern = #"(?<![a-zA-Z])TextField\("#
+        let total = Self.occurrenceCount(pattern, in: contentView) + Self.occurrenceCount(pattern, in: contentViewWindow)
+        #expect(total == 1, "expected exactly one raw TextField (inside captureSafeTextField's own definition), found \(total)")
+    }
+
+    @Test("every NoBounceScrollView construction is one of the three already-audited call sites")
+    func onlyThreeRawNoBounceScrollViews() {
+        let contentView = Self.source("NMS/Views/ContentView.swift")
+        let contentViewWindow = Self.source("NMS/Views/ContentView+Window.swift")
+        #expect(!contentView.isEmpty, "ContentView.swift should have been readable")
+
+        // Matches both call shapes this type is actually constructed
+        // with: `NoBounceScrollView(persistentScrollbar:)` in `body`'s
+        // window branch, and the trailing-closure-only
+        // `NoBounceScrollView { ... }` in `tile(fixedHeight:)` and
+        // `scrollBox`.
+        let pattern = #"NoBounceScrollView\s*[({]"#
+        let inContentView = Self.occurrenceCount(pattern, in: contentView)
+        let inContentViewWindow = Self.occurrenceCount(pattern, in: contentViewWindow)
+        #expect(inContentView == 3, "expected 3 in ContentView.swift (body, tile(fixedHeight:), scrollBox), found \(inContentView)")
+        #expect(inContentViewWindow == 0, "expected 0 in ContentView+Window.swift — a new one here would need its own capture-mode audit")
+    }
+}

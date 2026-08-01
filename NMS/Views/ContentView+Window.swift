@@ -585,26 +585,8 @@ extension ContentView {
         if isEditingCommunity {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    // Same `ImageRenderer`/`NSViewRepresentable` glitch
-                    // `bugReportRow`'s `TextField` hit (a solid yellow bar
-                    // with a red "prohibited" glyph in place of real
-                    // content) — this field had the identical bug, just
-                    // never reported: it only shows during a capture if a
-                    // community-string edit happens to be in progress at
-                    // that exact moment, a much narrower window than Bug
-                    // Report's own comment field. Same fix: a plain `Text`
-                    // during capture, nothing native for `ImageRenderer` to
-                    // fail to draw.
-                    if isCapturingScreenshot {
-                        Text(communityDraft.isEmpty ? "public, private" : communityDraft)
-                            .font(.system(size: 11))
-                            .foregroundStyle(communityDraft.isEmpty ? .secondary : .primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        TextField("public, private", text: $communityDraft)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11))
-                            .onSubmit { commitCommunity() }
+                    captureSafeTextField("public, private", text: $communityDraft) {
+                        commitCommunity()
                     }
                     Button("Set") { commitCommunity() }
                         .accessibilityLabel("Set community strings")

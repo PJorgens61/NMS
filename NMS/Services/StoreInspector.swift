@@ -51,6 +51,15 @@ enum StoreInspector {
     static func dump(context: ModelContext, rowsPerTable: Int = 8, header: String? = nil) -> String? {
         #if DEBUG
         var text = "NMS store dump — \(Date())\n"
+        // Not a hypothetical concern: this file's own contents below
+        // include the real Wi-Fi SSID/BSSID, router and public IP
+        // addresses, and every SNMP device's reported name and firmware
+        // string. Fine sitting on this Mac for local debugging; less fine
+        // handed to someone else without a moment's thought first — worth
+        // saying plainly now that this app has an audience beyond one
+        // person (see `FeatureFlags`'s own "friends are installing this
+        // too" framing).
+        text += "Contains this network's real details (SSIDs, MAC/IP addresses, SNMP device info) — review before sharing.\n"
         if let header, !header.isEmpty {
             text += header
             if !header.hasSuffix("\n") { text += "\n" }
@@ -105,6 +114,9 @@ enum StoreInspector {
         guard (try? text.write(to: directory.appendingPathComponent(filename), atomically: true, encoding: .utf8)) != nil else {
             return nil
         }
+        // See DebugArtifactRetention — this directory had no retention at
+        // all until now.
+        DebugArtifactRetention.pruneFiles(in: directory)
         return filename
         #else
         return nil
