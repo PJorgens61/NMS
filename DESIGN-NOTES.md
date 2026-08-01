@@ -4697,3 +4697,123 @@ stays fixed, on every future run, deterministically.
    interleaving is understood — a **confirmation** tool, run on every
    build via the normal test suite, same as every other regression test
    in `NMSTests` already is.
+
+## ISP status pages: identifying the ISP without location, then a real finding about linking to it
+
+Raised directly, premised on location access — checked, and the
+premise needed correcting before the rest of the design made sense.
+
+### The premise, corrected: NMS doesn't use real coordinates today
+
+`LocationAuthorizationService` (confirmed reading the code) only
+requests/checks *authorization status* — there's no `requestLocation()`
+or coordinate reading anywhere. macOS gates the Wi-Fi SSID API behind
+Location permission, so this service exists purely to unlock that API,
+not to produce a lat/long. "Assume location granted" today gets a
+Wi-Fi network name, not a place.
+
+### A sharper existing signal: the public IP already fetched every round
+
+Identifying *which ISP* doesn't need geography as a middle step — a
+public IP directly identifies the organization that owns it via
+RDAP (the modern, structured successor to WHOIS), and `PublicIPViewModel`
+already fetches that IP every check round. Checked live, not assumed:
+
+```
+curl https://rdap.org/ip/<PUBLIC_IP>
+```
+
+`rdap.org` is a bootstrap service — it 302-redirects to whichever
+regional registry (ARIN/RIPE/APNIC/etc.) actually holds the record, so
+one URL works globally rather than needing region detection first.
+Followed for this household's own real public IP: redirected to
+`rdap.arin.net`, returned `application/rdap+json` with
+`entities[].vcardArray`'s `fn` field reading **"Sonic.net, LLC"** — the
+real, correct ISP, confirmed independently against this session's own
+earlier data (the Path to Internet section's edge hostname,
+`lo0.bng3.snfcca05.sonic.net`, already named the same provider). No API
+key, no auth, no permission prompt — this is strictly better than
+location for this specific question, not just a workaround for the
+corrected premise above.
+
+### Linking to the status page: a real, structural finding, not a clean table
+
+Attempted the same thing this file's SaaS status table did — build a
+verified table of ISP name → status page URL. It didn't work the same
+way, and *why* it didn't is itself the useful finding.
+
+**The SaaS ecosystem converged on shared platforms** (Statuspage.io
+above all — a dozen-plus entries in this file's own table are
+`<company>.statuspage.io` or `status.<company>.com` serving the same
+predictable JSON shape), which is exactly what made that table
+buildable: one shape, guessable conventions, verifiable in bulk.
+**Consumer ISPs have no such convention.** Confirmed directly, not
+assumed: two of four guessed major-ISP outage-tool URLs redirected
+somewhere else entirely rather than 404ing cleanly — Xfinity's guess
+landed on a generic `/support/` page, Verizon's on the site's own
+404 page (`/content/wcms/404.html`) — while the other two (AT&T,
+Spectrum) returned 200 at the guessed URL but weren't verified deeper
+than that. Every one of these is a bespoke corporate web property, not
+a shared platform; guessing the URL is unreliable in a way it simply
+wasn't for the Statuspage-era SaaS table.
+
+**This household's own real ISP was the one case fully verified**:
+Sonic.net's actual status page, found via search rather than guessed,
+is `sonicstatus.com` — real, public, no login (confirmed live, 200).
+But it's a WordPress site (`wp-json` link header present), not a
+structured feed — `sonicstatus.com/api/v2/summary.json` 404s, so
+there's nothing here for NMS to *poll*, only a URL worth *linking to*.
+That's a smaller, more honest feature than the SaaS table's shape: not
+"NMS checks your ISP's status," but "NMS gets you one click closer to
+checking it yourself" — filling the concrete gap the remediation-guide
+design above left open ("ISP Edge Router down → check your ISP's
+status page," with nowhere specific to point).
+
+### What this actually means for the feature
+
+- **Identify the ISP**: RDAP lookup on the already-known public IP,
+  verified working, no new permission needed. Real per-ISP work: a
+  small curated table mapping the RDAP-returned org name (`"Sonic.net,
+  LLC"`, `"Comcast Cable Communications, LLC"`, etc. — real-world
+  strings, not clean enum values) to a known status-page URL where one
+  exists, since the org name alone doesn't reliably predict the URL.
+- **Each ISP's entry needs individual verification before being
+  trusted**, the same discipline as every other endpoint in this
+  file — the two wrong guesses above are exactly why. Not a table to
+  build speculatively; a table to build one real, checked ISP at a
+  time, starting from whichever ISPs the two development machines
+  (Sonic here, whatever the iMac's is) actually use.
+- **A link, not a poll, for most entries** — several ISP outage tools
+  are address/zip-gated interactive pages, not machine-readable feeds
+  (the earlier-recommended answer: "check outages in your area" tools,
+  not a fully public status API the way SaaS services offer). The
+  realistic deliverable is a correct, one-click link next to a down
+  ISP Edge Router row, not a live-parsed health indicator the way
+  Slack/Google Cloud/etc. already are.
+
+### A real, verified starting table — San Francisco 94131, plus Starlink
+
+Requested directly, checked live rather than guessed this time (browser
+navigation, not just a status-code check) — the "one real, checked ISP
+at a time" approach above, applied:
+
+| ISP | Status page | Verified how |
+|---|---|---|
+| Sonic.net | `https://sonicstatus.com/` | Live, 200, public, no login. WordPress site, not a structured feed — link only, nothing to poll (`/api/v2/summary.json` 404s). |
+| AT&T | `https://www.att.com/outages/` | Live in-browser: a genuine "Find outages" flow, **address-based, no login required** for that path (a separate phone-verification flow exists for account-specific detail, not needed for the area check). |
+| Xfinity (Comcast) | `https://www.xfinity.com/support/statusmap` | Live in-browser, screenshotted: "Outage Map," **address-based, no login required** — "Sign In" is a nav option, not a gate on this page. Corrects an earlier wrong guess (`/support/status` 301-redirected to a generic support page, not this). |
+| MonkeyBrains | `https://www.monkeybrains.net/map/` | Live in-browser, screenshotted: a real interactive Leaflet map, hex-binned by active-issue-count, covering exactly the SF/East Bay service area — no address entry needed at all, no login. San-Francisco-local ISP (wireless, building-by-building, not universal coverage the way AT&T/Xfinity are), relevant specifically because the requested zip (94131) is in SF. |
+
+**Starlink doesn't fit this pattern at all — structurally, not by
+omission.** Checked directly: there's no fixed service area, so "check
+outages in your area" doesn't apply the way it does to wireline ISPs.
+What exists instead is a **local, unauthenticated gRPC API the dish
+itself serves** on the LAN, `192.168.100.1:9200` — `get_diagnostics`,
+`get_history`, `get_device_info`, `get_location` return real device
+telemetry directly (throughput, ping-drop rate, obstruction data,
+uptime, GPS position, software state), no cloud round-trip needed.
+This is a genuinely better fit for what NMS already does than the
+status-page model is: it's the same shape as SNMP-polling a router or
+switch, not a webpage to link to. If a Starlink household is ever in
+scope, that's the natural integration — a `StarlinkService` alongside
+`SNMPService`, not an entry in the ISP status-link table.
