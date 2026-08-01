@@ -155,6 +155,17 @@ struct NetworkReviewView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    // Hardcoded `enabled: true`, unlike every other
+                    // `appKitToolTip` call — safe only because nothing
+                    // currently renders this view through `ImageRenderer`.
+                    // PUNCHLIST.md's "Generate Report" button on Network
+                    // Review would change that: `AppKitToolTip` is an
+                    // `NSViewRepresentable`, the exact category
+                    // `ImageRenderer` substitutes a yellow "prohibited"
+                    // glyph for (see `ScreenshotService`'s quirk 4). Whoever
+                    // builds that button needs an `isCapturingScreenshot`
+                    // equivalent here first, or this tooltip breaks every
+                    // generated report on day one.
                     .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: true)
             }
         }
