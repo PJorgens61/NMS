@@ -6,6 +6,7 @@ struct ContentView: View {
     @ObservedObject var connectivity: ConnectivityViewModel
     @ObservedObject var networkIdentity: NetworkIdentityViewModel
     @ObservedObject var publicIP: PublicIPViewModel
+    @ObservedObject var ispIdentity: ISPIdentityViewModel
     @ObservedObject var dhcpLease: DHCPLeaseViewModel
     @ObservedObject var networkQuality: NetworkQualityViewModel
     @ObservedObject var screenshot: ScreenshotViewModel
@@ -735,6 +736,33 @@ struct ContentView: View {
                 row("Router", routerDisplay(info))
                 row("DNS Server", info.dnsServer ?? "—")
                 row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
+                // Omitted entirely rather than showing "—" while unknown —
+                // this is a best-effort RDAP lookup (see
+                // `ISPIdentityService`), not a check with a settled
+                // "nothing found yet" state worth displaying.
+                if let name = ispIdentity.organizationName {
+                    HStack {
+                        Text("ISP")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        // Absent for an ISP not in the curated table (e.g.
+                        // Astound — checked live, no public status page
+                        // exists) — the name still shows, just with no
+                        // link icon, which is the correct behavior here.
+                        if let url = ispIdentity.statusPageURL {
+                            externalLinkIcon(
+                                url: url,
+                                accessibilityLabel: "\(name) status page",
+                                accessibilityHint: "Opens \(name)'s status page in your browser"
+                            )
+                        }
+                        Text(name)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(.system(size: 12))
+                }
             }
         } else {
             Text("No active network connection")
@@ -826,7 +854,13 @@ struct ContentView: View {
                 label: OverallStatus.routerLabel,
                 detail: routerCheck.map(checkDetail) ?? "Not checked",
                 status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-                correlatedWithChange: routerCheck?.correlatedWithChange ?? false
+                correlatedWithChange: routerCheck?.correlatedWithChange ?? false,
+                // Always shown once the address is known, not gated behind
+                // a "does this actually serve a web UI" probe — the
+                // simpler answer the punchlist item raising this itself
+                // suggested, leaving that probe's self-signed-cert
+                // complexity to the separate SNMP Devices web-link item.
+                url: info?.routerAddress.map { "http://\($0)" }
             )
         }
 
@@ -927,6 +961,13 @@ struct ContentView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
+                    if let url = layer.url {
+                        externalLinkIcon(
+                            url: url,
+                            accessibilityLabel: "\(layer.label) admin page",
+                            accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
+                        )
+                    }
                     // Inline rather than on its own row: sized to one
                     // line of text, so it costs width but no height —
                     // the popover fits a 13" MacBook Air exactly.
@@ -1208,6 +1249,25 @@ struct ContentView: View {
                 .truncationMode(.middle)
         }
         .font(.system(size: 12))
+    }
+
+    /// Small "open in browser" icon button — first used by the SaaS
+    /// monitoring section (this app's first-ever use of `Link`, confirmed
+    /// safe under `ImageRenderer` capture); extracted here once Network
+    /// Health's Local Router row and Info's ISP row needed the identical
+    /// shape too, rather than a third near-copy of the same eight lines.
+    /// Not `private`, matching `row(_:_:)`'s own cross-file convention.
+    @ViewBuilder
+    func externalLinkIcon(url: String, accessibilityLabel: String, accessibilityHint: String) -> some View {
+        if let url = URL(string: url) {
+            Link(destination: url) {
+                Image(systemName: "arrow.up.right.square")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint(accessibilityHint)
+        }
     }
 
     /// A `TextField` that swaps to a plain `Text` during a capture — see

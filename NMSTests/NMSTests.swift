@@ -1241,6 +1241,76 @@ struct SaaSStatusParserTests {
     }
 }
 
+// MARK: - ISPIdentityService
+
+/// Fixture-based, no network. `sonicRegistrantEntity` is a trimmed real
+/// shape — captured live against this app's own actual public IP — of
+/// the field path `ISPIdentityService.parseRegistrantName` depends on:
+/// the entity tagged `"registrant"`, its `vcardArray`'s `"fn"` property.
+@Suite("ISPIdentityService")
+struct ISPIdentityServiceTests {
+    @Test("The real Sonic.net shape: a registrant entity's fn wins")
+    func realRegistrantShape() throws {
+        let json = Data(#"""
+        {"entities":[
+            {"handle":"SNIC","roles":["registrant"],"vcardArray":["vcard",[
+                ["version",{},"text","4.0"],
+                ["fn",{},"text","Sonic.net, LLC"],
+                ["kind",{},"text","org"]
+            ]]},
+            {"handle":"ABUSE546-ARIN","roles":["abuse"],"vcardArray":["vcard",[
+                ["fn",{},"text","Abuse Department"],
+                ["org",{},"text","Sonic.net, LLC"]
+            ]]}
+        ]}
+        """#.utf8)
+        #expect(try ISPIdentityService.parseRegistrantName(json) == "Sonic.net, LLC")
+    }
+
+    @Test("No entity tagged registrant falls back to the first entity")
+    func noRegistrantRoleFallsBackToFirst() throws {
+        let json = Data(#"""
+        {"entities":[
+            {"handle":"X","roles":["technical"],"vcardArray":["vcard",[["fn",{},"text","Some ISP LLC"]]]}
+        ]}
+        """#.utf8)
+        #expect(try ISPIdentityService.parseRegistrantName(json) == "Some ISP LLC")
+    }
+
+    @Test("No entities array at all throws rather than crashing")
+    func noEntitiesThrows() {
+        let json = Data(#"{"name":"SOME-BLK"}"#.utf8)
+        #expect(throws: ISPIdentityService.ISPIdentityError.self) {
+            try ISPIdentityService.parseRegistrantName(json)
+        }
+    }
+
+    @Test("An entity with no fn property throws rather than guessing")
+    func noFnPropertyThrows() {
+        let json = Data(#"""
+        {"entities":[{"roles":["registrant"],"vcardArray":["vcard",[["version",{},"text","4.0"]]]}]}
+        """#.utf8)
+        #expect(throws: ISPIdentityService.ISPIdentityError.self) {
+            try ISPIdentityService.parseRegistrantName(json)
+        }
+    }
+
+    @Test("Malformed JSON throws rather than crashing")
+    func malformedJSONThrows() {
+        let json = Data("not json".utf8)
+        #expect(throws: ISPIdentityService.ISPIdentityError.self) {
+            try ISPIdentityService.parseRegistrantName(json)
+        }
+    }
+
+    @Test("statusPageURL: a known organization hits, an unknown one (Astound -- checked live, no public status page found) returns nil")
+    func statusPageURLLookup() {
+        let service = ISPIdentityService()
+        #expect(service.statusPageURL(forOrganization: "Sonic.net, LLC") == "https://sonicstatus.com/")
+        #expect(service.statusPageURL(forOrganization: "Astound Broadband LLC") == nil)
+    }
+}
+
 // MARK: - Persistent-store fallback detection
 
 /// A tiny, throwaway model — deliberately not any of the app's 11 real

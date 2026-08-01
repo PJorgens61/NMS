@@ -748,17 +748,13 @@ extension ContentView {
                 // .CheckResult.url`), so "go check for yourself" is one
                 // click away regardless of current health. A dedicated
                 // icon button rather than making the description itself
-                // look clickable — the first use of `Link` anywhere in
-                // this app.
-                if let url = URL(string: status.url) {
-                    Link(destination: url) {
-                        Image(systemName: "arrow.up.right.square")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(status.name) status page")
-                    .accessibilityHint("Opens \(status.name)'s status page in your browser")
-                }
+                // look clickable — this app's first-ever use of `Link`,
+                // now shared via `externalLinkIcon` (`ContentView.swift`).
+                externalLinkIcon(
+                    url: status.url,
+                    accessibilityLabel: "\(status.name) status page",
+                    accessibilityHint: "Opens \(status.name)'s status page in your browser"
+                )
             }
             .font(.system(size: 12))
         }

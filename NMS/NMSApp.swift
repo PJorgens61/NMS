@@ -95,6 +95,7 @@ struct NMSApp: App {
     @StateObject private var connectivity: ConnectivityViewModel
     @StateObject private var networkIdentity: NetworkIdentityViewModel
     @StateObject private var publicIP: PublicIPViewModel
+    @StateObject private var ispIdentity: ISPIdentityViewModel
     @StateObject private var dhcpLease: DHCPLeaseViewModel
     @StateObject private var networkQuality: NetworkQualityViewModel
     @StateObject private var screenshot: ScreenshotViewModel
@@ -160,6 +161,9 @@ struct NMSApp: App {
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
         let publicIP = PublicIPViewModel(snapshotStore: store)
+        // No `snapshotStore` — identification for display only, no
+        // history table, no events to log. See `ISPIdentityViewModel`.
+        let ispIdentity = ISPIdentityViewModel()
         let dhcpLease = DHCPLeaseViewModel(snapshotStore: store, networkMonitor: networkMonitor)
         // No wiring into `wireDependencies` below, and no timer of its
         // own — deliberately never triggered automatically. See
@@ -191,6 +195,7 @@ struct NMSApp: App {
             connectivity: connectivity,
             networkIdentity: networkIdentity,
             publicIP: publicIP,
+            ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             screenshot: screenshot,
             wifiSSID: wifiSSID,
@@ -205,6 +210,7 @@ struct NMSApp: App {
         _connectivity = StateObject(wrappedValue: connectivity)
         _networkIdentity = StateObject(wrappedValue: networkIdentity)
         _publicIP = StateObject(wrappedValue: publicIP)
+        _ispIdentity = StateObject(wrappedValue: ispIdentity)
         _dhcpLease = StateObject(wrappedValue: dhcpLease)
         _networkQuality = StateObject(wrappedValue: networkQuality)
         _screenshot = StateObject(wrappedValue: screenshot)
@@ -218,6 +224,12 @@ struct NMSApp: App {
         // than waiting for the next topology change to fire a scan.
         lanDiscovery.scan()
         wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+        // Same reasoning — `publicIP.currentIP` may already be a cached
+        // value from last launch (`PublicIPViewModel.init()` reads
+        // `snapshotStore.latestPublicIP()`), in which case
+        // `onCurrentIPChanged` below would never fire this session since
+        // nothing actually *changed*.
+        ispIdentity.identify(ip: publicIP.currentIP)
     }
 
     /// Every cross-view-model connection in the app, split into four
@@ -258,6 +270,7 @@ struct NMSApp: App {
         connectivity: ConnectivityViewModel,
         networkIdentity: NetworkIdentityViewModel,
         publicIP: PublicIPViewModel,
+        ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
         screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
@@ -283,6 +296,7 @@ struct NMSApp: App {
             connectivity: connectivity,
             networkIdentity: networkIdentity,
             publicIP: publicIP,
+            ispIdentity: ispIdentity,
             traceroute: traceroute,
             snmp: snmp
         )
@@ -381,6 +395,7 @@ struct NMSApp: App {
         connectivity: ConnectivityViewModel,
         networkIdentity: NetworkIdentityViewModel,
         publicIP: PublicIPViewModel,
+        ispIdentity: ISPIdentityViewModel,
         traceroute: TracerouteViewModel,
         snmp: SNMPViewModel
     ) {
@@ -444,7 +459,15 @@ struct NMSApp: App {
         // only 30 seconds in in via the periodic timer rather than anything
         // noticing the fetch had resolved. This closes the last of
         // `ConnectivityViewModel`'s four dependencies.
-        publicIP.onCurrentIPChanged = { connectivity.runChecks() }
+        //
+        // Also the moment the ISP identity itself needs re-checking — a
+        // public IP change is exactly when the owning allocation (and so
+        // the registrant `ISPIdentityService.identify` would return)
+        // could have changed too.
+        publicIP.onCurrentIPChanged = {
+            connectivity.runChecks()
+            ispIdentity.identify(ip: publicIP.currentIP)
+        }
     }
 
     /// An upstream failure (e.g. a switch between the local router and the
@@ -543,6 +566,7 @@ struct NMSApp: App {
             connectivity: connectivity,
             networkIdentity: networkIdentity,
             publicIP: publicIP,
+            ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             networkQuality: networkQuality,
             screenshot: screenshot,

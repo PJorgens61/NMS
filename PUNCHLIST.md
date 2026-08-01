@@ -22,22 +22,44 @@ new ones as they come up.
   *identifier*, not just a variable name, so renaming it needs every
   call site updated together in one pass, not found piecemeal later.
 
-- [ ] **Network Health's Router row: add a web link too.** Requested
-  directly, same idea as the SNMP Devices entry below but simpler in
-  one real way: the router's IP is already known with certainty here
-  (`connectivity.checks.first { $0.label == OverallStatus.routerLabel
-  }`'s `target`, or `info.routerAddress` — same value `routerDisplay(_:)`
-  already shows in the Info tile), not something that needs discovering
-  the way an arbitrary SNMP device's presence does. Real open question
-  this raises that the SNMP Devices entry didn't have to: does *this*
-  row still run the same "detect a web server first" probe before
-  showing a link, or is a home router's admin UI close enough to
-  universal that it's worth just always showing the link and letting a
-  failed click-through (browser's own "can't connect") be the fallback,
-  skipping the probe entirely for this one case? If it does keep the
-  probe, this and the SNMP Devices item should share one detection
-  service rather than two copies of the same self-signed-cert-handling
-  logic.
+- [x] ~~Network Health's Router row: add a web link too.~~ **Built**,
+  alongside ISP identification below: `ConnectionLayer` gained an
+  optional `url`, set on the Local Router layer to `http://<routerAddress>`.
+  Resolved the open question directly — always show the link once the
+  address is known, no "detect a web server first" probe, letting a
+  failed click-through be the browser's own fallback. That probe's
+  self-signed-cert complexity stays scoped to the still-open SNMP
+  Devices item below, not shared with this simpler case.
+
+- [ ] **ISP identification: worth an event message for the edge cases
+  found while building it?** Raised directly after shipping RDAP-based
+  ISP identification (`ISPIdentityService`/`ISPIdentityViewModel`).
+  Looked at each candidate edge case; most don't actually have anything
+  observable to log:
+  - **A corporate network/proxy blocking the `rdap.org` lookup** — the
+    failure is silently swallowed today (`identify(ip:)`'s `try?`), same
+    "a parsing/fetch gap should be recoverable, not crash" posture
+    `SaaSStatusService`'s own catch branch already has. An event here
+    would mean logging *every* transient lookup failure, which this
+    codebase deliberately doesn't do elsewhere either (SaaS's `.unknown`
+    catch branch doesn't log an event; `WiFiSSIDViewModel` logs nothing
+    when Location authorization is simply denied) — the honest answer
+    is probably "no event," but flagged here rather than assumed.
+  - **The Local Router/ISP status-page link failing to actually load**
+    — genuinely unobservable: once `Link`/`NSWorkspace.open` hands off
+    to the default browser, this app has no way to know whether that
+    page loaded, 404'd, or the device wasn't there at all.
+  - **The pre-existing ISP Edge Router hop-detection never confirming a
+    hop on a complex multi-hop corporate WAN** — already has its own
+    graceful `.unknown`/"Not confirmed" state (`connectionLayersLowToHigh`),
+    not something new this feature introduced.
+  The one candidate that might actually be worth it: logging when the
+  identified organization *changes* (mirroring `PublicIPViewModel`'s own
+  `publicIPChanged` event) — a real, observable transition, unlike the
+  cases above. Not built yet; needs its own decision on whether that's
+  interesting enough to warrant a new `AppEventKind` pair for a fact
+  that, per the plan's own scope cut, isn't tied to any health/up-down
+  state.
 
 - [ ] **SNMP Devices: detect a web server on the device, add a link if
   found.** Requested directly. Real for a lot of what's already

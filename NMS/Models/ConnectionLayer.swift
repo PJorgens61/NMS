@@ -22,12 +22,18 @@ struct ConnectionLayer: Identifiable {
     /// Router, Internet, DNS, HTTP) — `false` for Interface/Network/ISP
     /// Router, which aren't derived from one.
     let correlatedWithChange: Bool
+    /// A web link relevant to this layer — `nil` for every layer except
+    /// Local Router, which sets this to its own LAN admin UI address once
+    /// known. Same "only some layers have something real to say" shape
+    /// `correlatedWithChange` already established, not a new pattern.
+    let url: String?
 
-    init(id: String, label: String, detail: String, status: LayerStatus, correlatedWithChange: Bool = false) {
+    init(id: String, label: String, detail: String, status: LayerStatus, correlatedWithChange: Bool = false, url: String? = nil) {
         self.id = id
         self.label = label
         self.detail = detail
         self.status = status
         self.correlatedWithChange = correlatedWithChange
+        self.url = url
     }
 }
