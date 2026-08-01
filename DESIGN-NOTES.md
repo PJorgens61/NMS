@@ -4953,26 +4953,58 @@ model powering Apple Intelligence, with built-in tool calling for
 exactly this shape of integration. Two things make it fit this app
 better than the MCP route:
 
-1. **Genuinely zero network dependency.** The on-device model needs no
-   connectivity at all — closer to actually solving the honest limit
-   above than any cloud-reachable option, MCP included, and closer than
-   even a local Ollama/LM Studio setup (which still needs a separate
-   running app).
+1. **Genuinely zero network dependency — on eligible hardware.** The
+   on-device model needs no connectivity at all — closer to actually
+   solving the honest limit above than any cloud-reachable option, MCP
+   included, and closer than even a local Ollama/LM Studio setup (which
+   still needs a separate running app). See the hardware-eligibility
+   caveat immediately below, though — "zero network dependency" and
+   "always available" are not the same claim, and this section's first
+   draft conflated them.
 2. **Zero new dependencies, first-party only.** Foundation Models and
    App Intents are both Apple frameworks — no hand-rolled JSON-RPC
    server, no third-party SDK, fitting this app's confirmed
    zero-dependency stance (see "Timer-scaling..." above) far better
    than standing up an MCP server would.
 
-**WWDC 2026 changed the calculus further, checked live**: Apple opened
-the framework to a public `LanguageModel` protocol any provider can
-implement — including **Anthropic's Claude by name** — through the
-*same* Swift API used for the on-device model. This isn't on-device
-*or* cloud anymore: one integration, two backends, chosen by what's
-actually reachable. The on-device model answers when nothing else is;
-Claude answers the same questions more capably once real connectivity
-exists. Apple also said the framework would be open-sourced later in
-summer 2026.
+**Hardware eligibility is a hard, permanent constraint, not a
+transient one — raised directly and confirmed live.** Apple Intelligence
+(and therefore the on-device half of this design) requires Apple
+Silicon; Intel Macs have no Neural Engine and cannot run it at all,
+full stop, not a degraded/slower experience. That's not hypothetical
+for this project specifically: **the iMac this app is developed on is
+Intel** (Core i5-8500, per this file's own "System requirements"
+section) — permanently ineligible, not temporarily unreachable the way
+"no internet right now" is. `SystemLanguageModel.default.availability`
+is the real, documented API for this, with exactly three cases:
+`.deviceNotEligible` (no Neural Engine, or an old A-series chip on
+iOS), `.appleIntelligenceNotEnabled` (eligible hardware, feature just
+off), `.modelNotReady` (still downloading). Apple's own guidance is to
+check this before ever attempting a session, not to discover it via a
+failed call.
+
+This means the routing design resolved just above ("Claude-first,
+automatic fallback to on-device") actually has **three** states to
+handle, not two: Claude reachable (use it), Claude unreachable but
+on-device eligible (fall back to it), and Claude unreachable *and*
+`.deviceNotEligible` — no fallback exists at all, and the honest limit
+from the top of this section applies unconditionally on that machine,
+not just during outages. Concretely for this project: the on-device
+fallback path can only ever be dogfooded on the MacBook (Apple Silicon,
+M1) — the iMac would always be on the Claude-or-nothing path, never
+able to exercise or verify the fallback branch itself. Worth deciding
+explicitly what the iMac's experience *is* in the no-Claude case —
+silence, an explicit "AI assistance unavailable on this Mac" state, or
+something else — rather than letting `.deviceNotEligible` fall through
+to a confusing generic error.
+
+**WWDC 2026 changed the calculus further for eligible hardware, checked
+live**: Apple opened the framework to a public `LanguageModel` protocol
+any provider can implement — including **Anthropic's Claude by name** —
+through the *same* Swift API used for the on-device model. This isn't
+on-device *or* cloud anymore, on hardware where both are options: one
+integration, two backends, chosen by what's actually reachable. Apple
+also said the framework would be open-sourced later in summer 2026.
 
 ### What NMS would actually expose
 
