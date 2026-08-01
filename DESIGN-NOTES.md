@@ -39,6 +39,8 @@ the reasoning, not a promise of the exact eventual shape.
 - [Two more bugs from the same class, found in a second real transition](#two-more-bugs-from-the-same-class-found-in-a-second-real-transition)
 - [Remediation guides: turning a detected problem into actionable advice](#remediation-guides-turning-a-detected-problem-into-actionable-advice)
 - [Timer-scaling as a stress test — not a fuzzer, a race-condition hunter](#timer-scaling-as-a-stress-test--not-a-fuzzer-a-race-condition-hunter)
+- [ISP status pages: identifying the ISP without location, then a real finding about linking to it](#isp-status-pages-identifying-the-isp-without-location-then-a-real-finding-about-linking-to-it)
+- [Testing races: the confirmation gap is systemic, and the real blocker is dependency injection](#testing-races-the-confirmation-gap-is-systemic-and-the-real-blocker-is-dependency-injection)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -4817,3 +4819,95 @@ status-page model is: it's the same shape as SNMP-polling a router or
 switch, not a webpage to link to. If a Starlink household is ever in
 scope, that's the natural integration — a `StarlinkService` alongside
 `SNMPService`, not an entry in the ISP status-link table.
+
+## Testing races: the confirmation gap is systemic, and the real blocker is dependency injection
+
+Follows directly from the "Discovery vs. confirmation" subsection
+above, checked rather than assumed: is the gap it named (a diagnosed
+race needs a narrow deterministic unit test, not a reuse of the
+stress ramp) actually being closed today? No — checked directly, it
+isn't closed for *any* race fixed so far, not just the two most recent
+ones.
+
+### The gap, confirmed
+
+`grep`ed the test suite for every known race fix: zero hits.
+`lastRequestedIsWiFi` (the Wi-Fi/Ethernet flap race, `42a5079`) has no
+test. Neither do today's two (`isChecking` on
+`SaaSMonitoringViewModel.checkAll`, `isRefreshingConfiguredPrinters` on
+`ConnectivityViewModel.refreshConfiguredPrinters`). `TracerouteViewModel`'s
+three staleness guards (`enrichHostnames`, `enrichRoundTrips`, the
+`run()`/`isRunning` guard) don't either, despite being the pattern
+everything else explicitly "mirrors." Every one of these was reasoned
+through and fixed correctly — none has anything holding it fixed going
+forward except not touching that code again.
+
+### Why it hasn't happened: two real blockers, not one
+
+**The test suite has zero `async` tests.** All 95 `@Test` functions
+(confirmed by count) target pure/static functions with explicit
+parameters — `isWithinTopologyChangeWindow(now:lastChangeAt:window:)`
+is the shape every single one follows. That's a deliberate pattern (see
+this file's own notes on avoiding `ModelContainer` setup in tests), and
+it's exactly why the suite runs 79 tests in ~0.08 seconds — but a race
+guard can't be tested that way. Proving `checkAll()` drops a second
+call while the first is in flight needs to actually *run* the async
+code and control the timing between two calls, which none of today's
+tests do.
+
+**Every service dependency in every view model is hardcoded, not
+injected — confirmed across the board, not just the two just fixed.**
+`ConnectivityViewModel` alone hardcodes four: `ConnectivityService`,
+`DNSResolutionService`, `HTTPCheckService`, `PrinterDiscoveryService`
+(only `snapshotStore` comes through `init()`). `SaaSMonitoringViewModel`
+hardcodes `SaaSStatusService` the same way. This is this app's
+consistent, deliberate style throughout — simple, no protocol
+abstraction layer — and it means a test for either race would need to
+make **real WAN requests or real subprocess calls** to exercise the
+code at all, which is slow, flaky, and non-deterministic in exactly the
+dimension (timing) the test is trying to control.
+
+### What actually closing this needs
+
+Not "write a test" — introduce a real seam first, for whichever
+service each race depends on:
+
+1. A protocol matching the relevant method (`SaaSStatusServicing`
+   wrapping `checkStatus(_:)`, say), the real service already
+   conforming to it for free (same method signature).
+2. The view model's `init()` accepting that protocol, defaulted to the
+   real concrete type — `init(snapshotStore:, service: SaaSStatusServicing
+   = SaaSStatusService())` — so every existing call site in `NMSApp.swift`
+   is unaffected and only a test needs to pass something different.
+3. A test-only fake whose response is **controllable timing**, not
+   just a canned value — able to hold one call artificially "in
+   flight" (e.g. via `withCheckedContinuation`, resumed manually by the
+   test) while a second call starts, so the test can force the exact
+   interleaving that caused each real bug rather than hoping it
+   reproduces.
+
+Sketched concretely for `checkAll()`'s guard, once that seam exists: a
+fake service where the *first* call's `checkStatus` blocks on a
+continuation the test holds; call `checkAll()`, then call it again
+before resuming the first continuation, then resume it; assert the
+second call never started a second fetch (or, more directly, that
+`apply(_:)` ran exactly once). That directly proves the guard rather
+than reasoning about it from the code, and — same value as any real
+regression test — would have caught the original gap immediately if it
+had existed before today's fix.
+
+### Open questions, not yet decided
+
+- **Worth the architectural cost for the races found so far (five,
+  across four view models), or does this wait until there are more?**
+  Introducing DI as a first-class pattern is bigger than any one test —
+  it's a style decision for the whole app, not a local change.
+- **Narrow or broad**: inject only the specific service each known race
+  touches, or treat this as the moment to make every hardcoded service
+  in every view model injectable at once? The narrow version is far
+  less invasive; the broad version means never having this exact
+  blocker again for the *next* race found.
+- **Does `NMSApp.swift`'s wiring get materially harder to read** once
+  several `init()`s carry a defaulted protocol parameter nobody at a
+  real call site ever overrides? Worth a real look at the diff before
+  deciding, not assumed either way.
