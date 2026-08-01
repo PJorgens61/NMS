@@ -41,6 +41,29 @@ new ones as they come up.
     hasn't been confirmed. Try Production first; Testing + weekly
     re-consent is a real, non-fatal fallback if it demands review.
 
+- [ ] **Add Wi-Fi signal strength to Network Health.** Requested
+  directly. Signal (RSSI/SNR, with a sparkline) already exists today —
+  `ContentView+Window.wifiSection`, window-only — this is about
+  surfacing it in **Network Health** too, which is one of the two tiles
+  that renders unconditionally on both the popover and the window
+  (`SectionLayout`'s doc comment: nothing about Network Health/Info is
+  surface-conditional). Two real open questions, not just a
+  copy-the-row job:
+  - Network Health's existing rows are all colored-dot
+    `ConnectionLayer`s with a health status (green/yellow/red) driven
+    by latency thresholds — does Wi-Fi signal get the same treatment
+    (needs a real "what RSSI counts as degraded" threshold decision,
+    unlike anything else in that list) or does it show as a plain data
+    row with no color, which would look inconsistent next to every
+    other row in that tile?
+  - This directly reopens the audience-split reasoning `SectionLayout`
+    already settled for the Wi-Fi section specifically ("everything
+    diagnostic... lives only in the window" — see that section's own
+    doc comment): is signal strength "can I work" material that
+    belongs on the popover, or diagnostic detail that was deliberately
+    scoped out of it? Worth a real answer, not an accidental
+    reopening of a decision that was made on purpose.
+
 - [x] ~~Add Google Workspace and Google Cloud to SaaS monitoring.~~
   **Built.** Both added to `SaaSStatusService.monitoredServices` with a
   new `.googleIncidents` `Shape` (a rolling incident-history array, not
