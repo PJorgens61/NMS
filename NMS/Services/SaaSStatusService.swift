@@ -90,6 +90,7 @@ struct SaaSStatusService {
         MonitoredService(name: "Asana", endpoint: URL(string: "https://status.asana.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Notion", endpoint: URL(string: "https://www.notion-status.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Dropbox", endpoint: URL(string: "https://status.dropbox.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Discord", endpoint: URL(string: "https://discordstatus.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents),
         MonitoredService(
             name: "Google Workspace",

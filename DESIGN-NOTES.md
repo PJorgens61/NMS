@@ -3107,6 +3107,7 @@ from documentation:
 | Asana | `https://status.asana.com/api/v2/summary.json` | JSON |
 | Notion | `https://www.notion-status.com/api/v2/summary.json` | JSON |
 | Dropbox | `https://status.dropbox.com/api/v2/summary.json` | JSON |
+| Discord | `https://discordstatus.com/api/v2/summary.json` | JSON |
 | Zendesk | `https://status.zendesk.com/api/incidents/active` | JSON (custom, not Atlassian-shaped) |
 | Intercom | `https://www.finstatus.com/api/v2/summary.json` | JSON (rebranded domain) |
 | Xero | `https://status.xero.com/api/v2/summary.json` | JSON |
