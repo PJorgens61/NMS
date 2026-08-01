@@ -51,6 +51,24 @@ new ones as they come up.
   clicked; does it appear at all when the feature flag is off (no,
   matching every other conditional section).
 
+- [ ] **Let users pick which SaaS services NMS actually monitors.**
+  `DESIGN-NOTES.md`'s "Business SaaS monitoring" table already has ~20
+  verified services, and it's growing (see the Google
+  Workspace/Cloud/AWS entry above) — polling all of them by default is
+  wasted network chatter for whichever ones a given user doesn't
+  actually use, and it directly undermines the "popover rollup" item
+  above: "1 SaaS service degraded" only reads as useful when it's
+  scoped to services the user cares about, not every service in the
+  table. Answers the open question already sitting in `DESIGN-NOTES.md`
+  ("full table above, or a smaller curated subset?").
+  Scope: a simple opt-in checklist in Preferences against the existing
+  curated/verified table — toggle Slack/Salesforce/AWS/etc. on or off,
+  off by default (or a small sensible-default set, TBD). Deliberately
+  **not** a free-text "add any status-page URL" field — that's a
+  materially bigger, separate feature (validating arbitrary Statuspage
+  shapes, handling ones that aren't Statuspage-compatible at all) and
+  not what was asked for here.
+
 - [ ] **Do we need a "dark mode" for the app?** Raised directly, not yet
   investigated. Worth checking what actually happens today first —
   `MenuBarExtra(.window)` and the plain `Window` scenes may already pick
