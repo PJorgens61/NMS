@@ -55,11 +55,12 @@ enum FeatureFlags {
     /// the UI section — `SNMPViewModel` itself doesn't scan or poll at
     /// all while this is off, not just hides what it finds.
     ///
-    /// Read once at `SNMPViewModel.init()`, not observed afterward —
-    /// toggling this in `PreferencesView` while NMS is already running
-    /// takes effect on the next restart, not immediately. See that view's
-    /// doc comment for why that's the deliberate v1 behavior rather than
-    /// a gap.
+    /// Live, not restart-required — `SNMPViewModel` observes
+    /// `UserDefaults.didChangeNotification` itself and starts/stops its
+    /// poll timer accordingly (`SNMPViewModel.activate()`/`deactivate()`).
+    /// Was restart-only in an earlier version of this app; fixed directly
+    /// once it turned out the "why" that gap's doc comments pointed to
+    /// was never actually written down anywhere.
     static var snmpDevices: Bool {
         defaults.bool(forKey: snmpDevicesKey)
     }
@@ -77,8 +78,10 @@ enum FeatureFlags {
     /// (not `.bool`) is checked first so an explicit prior opt-out
     /// (`-bool false`, from before this default flipped) is still
     /// honored — only a genuinely never-touched key defaults to on.
-    /// Read once at `SaaSMonitoringViewModel.init()`, same
-    /// restart-to-apply behavior as `snmpDevices`.
+    /// Live, not restart-required — same
+    /// observe-`UserDefaults.didChangeNotification`-and-start/stop-the-timer
+    /// shape `snmpDevices` uses, see `SaaSMonitoringViewModel.activate()`/
+    /// `deactivate()`.
     static var saasMonitoring: Bool {
         guard defaults.object(forKey: saasMonitoringKey) != nil else { return true }
         return defaults.bool(forKey: saasMonitoringKey)
@@ -96,9 +99,11 @@ enum FeatureFlags {
     /// explicit array (via `PreferencesView`'s manual `UserDefaults`
     /// read/write — `[String]` isn't one of `@AppStorage`'s supported
     /// types, unlike the plain `Bool` flags above), which can legitimately
-    /// be empty if every service gets unchecked. Read once at
-    /// `SaaSMonitoringViewModel.init()`, same restart-to-apply behavior as
-    /// every other flag here.
+    /// be empty if every service gets unchecked. Live, not restart-required
+    /// — `SaaSMonitoringViewModel.activeServices` is a computed property
+    /// re-read on every `checkAll()` round rather than resolved once, so a
+    /// change here reaches the *next* round automatically with no separate
+    /// live-update plumbing needed.
     static var saasEnabledServices: Set<String>? {
         guard let stored = defaults.array(forKey: saasEnabledServicesKey) as? [String] else { return nil }
         return Set(stored)

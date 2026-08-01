@@ -40,6 +40,13 @@ final class SNMPViewModel: ObservableObject {
     private weak var lanDiscovery: LANDiscoveryViewModel?
     private weak var traceroute: TracerouteViewModel?
     private var timer: Timer?
+    /// So `observeFeatureFlagChanges` can tell a real flip of
+    /// `FeatureFlags.snmpDevices` from `UserDefaults.didChangeNotification`
+    /// firing for an unrelated key — that notification carries no
+    /// information about *which* key changed, so this is compared against
+    /// the flag's current value on every post rather than trusted alone.
+    private var isActive = false
+    private var featureFlagObserver: NSObjectProtocol?
 
     private static let communitiesDefaultsKey = "NMS.snmpCommunities"
     /// Superseded by `communitiesDefaultsKey`; still read once so an
@@ -112,7 +119,25 @@ final class SNMPViewModel: ObservableObject {
         // poll timer, `scan()`/`poll()` no-op. Not just a UI hide, since
         // this is active network probing (SNMP sweeps) against whatever
         // LAN the Mac is on, which a tester hasn't necessarily approved.
-        guard FeatureFlags.snmpDevices else { return }
+        if FeatureFlags.snmpDevices {
+            activate()
+        }
+        observeFeatureFlagChanges()
+    }
+
+    deinit {
+        timer?.invalidate()
+        if let featureFlagObserver {
+            NotificationCenter.default.removeObserver(featureFlagObserver)
+        }
+    }
+
+    /// Everything `init()` used to do inline, gated on the flag being on —
+    /// factored out so toggling the flag on live (see
+    /// `observeFeatureFlagChanges`) can run the exact same startup
+    /// sequence a fresh launch would, not a second, drifted copy of it.
+    private func activate() {
+        isActive = true
         // Rehydrate previously-discovered devices instead of sweeping at
         // launch. A full /24 sweep takes ~16s and forks up to 32 processes;
         // running that during startup — alongside the LAN scan, traceroute,
@@ -123,6 +148,12 @@ final class SNMPViewModel: ObservableObject {
         // back when that ran at launch too. Known devices show (and start
         // being polled and pinged) immediately; the sweep itself is on
         // demand via the popover's "Scan" button.
+        //
+        // Also correct for a *live* toggle, not just launch: if this is
+        // running because the flag just flipped on mid-session rather than
+        // at `init()`, `devices` is already empty (never populated while
+        // off), so this rehydrates exactly the same way a fresh launch
+        // would rather than needing a separate code path.
         devices = snapshotStore.fetchSNMPDevices().map(Self.device(from:))
         timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.pollInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -142,8 +173,43 @@ final class SNMPViewModel: ObservableObject {
         rebuildDeviceList()
     }
 
-    deinit {
+    /// The flag flipping off live, mirroring `activate()`. Stops the timer
+    /// — no further probing, the actual safety property the flag exists
+    /// for — but deliberately leaves `devices` as-is rather than clearing
+    /// it: those were legitimately discovered while the feature was on,
+    /// and blanking the list the instant someone unchecks a box reads as
+    /// data loss, not as the feature turning off. `scan()`/`poll()` both
+    /// already re-check the flag themselves regardless of `isActive`, so
+    /// this isn't the only thing standing between the flag and a stray
+    /// probe — belt and suspenders, same as everywhere else in this file.
+    private func deactivate() {
+        isActive = false
         timer?.invalidate()
+        timer = nil
+    }
+
+    /// `UserDefaults.didChangeNotification` carries no information about
+    /// *which* key changed — it fires for any write to any default — so
+    /// every post is checked against `isActive` to detect an actual flip
+    /// of `FeatureFlags.snmpDevices` specifically, not assumed to mean
+    /// this one did. `[weak self]` avoids a retain cycle through
+    /// `NotificationCenter`'s own strong hold on the observer token;
+    /// `deinit` removes the token itself, since a weak closure alone
+    /// doesn't stop the center from calling into a dead observer's slot.
+    private func observeFeatureFlagChanges() {
+        featureFlagObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let shouldBeActive = FeatureFlags.snmpDevices
+            if shouldBeActive, !self.isActive {
+                self.activate()
+            } else if !shouldBeActive, self.isActive {
+                self.deactivate()
+            }
+        }
     }
 
     /// Accepts a comma-separated list. Order is preserved and meaningful:

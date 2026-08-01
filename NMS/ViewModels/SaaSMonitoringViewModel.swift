@@ -28,12 +28,25 @@ final class SaaSMonitoringViewModel: ObservableObject {
     private let service = SaaSStatusService()
     private let snapshotStore: SnapshotStore
     private var timer: Timer?
-    /// Resolved once at `init()` from `FeatureFlags.saasEnabledServices`
-    /// — every service if that preference has never been customized,
-    /// otherwise exactly the ones the user left checked (which can be
-    /// empty). Same restart-to-apply convention as every other
-    /// `FeatureFlags` read in this app; see that property's doc comment.
-    private let activeServices: [SaaSStatusService.MonitoredService]
+    /// Re-read on every `checkAll()` round rather than resolved once —
+    /// `nil` from `FeatureFlags.saasEnabledServices` means every service
+    /// (never customized), otherwise exactly the ones left checked (which
+    /// can be empty). A computed property rather than a stored `let`
+    /// specifically so a live change to the Preferences picker is picked
+    /// up by the *next* round automatically, with no separate live-update
+    /// plumbing needed — `checkAll()` already re-reads this fresh every
+    /// time it runs.
+    private var activeServices: [SaaSStatusService.MonitoredService] {
+        let allServices = SaaSStatusService.monitoredServices
+        guard let enabled = FeatureFlags.saasEnabledServices else { return allServices }
+        return allServices.filter { enabled.contains($0.name) }
+    }
+    /// So `observeFeatureFlagChanges` can tell a real flip of
+    /// `FeatureFlags.saasMonitoring` from `UserDefaults.didChangeNotification`
+    /// firing for an unrelated key — see `SNMPViewModel`'s identical
+    /// property for the full reasoning, mirrored here.
+    private var isActive = false
+    private var featureFlagObserver: NSObjectProtocol?
     /// Previous round's indicator per service name, so a transition (up →
     /// down, or back) logs once instead of every round a state persists —
     /// same convention every other event-logging check in this app
@@ -59,17 +72,29 @@ final class SaaSMonitoringViewModel: ObservableObject {
 
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
-        let allServices = SaaSStatusService.monitoredServices
-        if let enabled = FeatureFlags.saasEnabledServices {
-            activeServices = allServices.filter { enabled.contains($0.name) }
-        } else {
-            activeServices = allServices
-        }
         // Inert if the flag is off — no timer, no checks, not just a
         // hidden UI section. Same convention as `SNMPViewModel.init()`:
         // this reaches out to third parties periodically, which a fresh
         // install shouldn't do without explicit opt-in.
-        guard FeatureFlags.saasMonitoring else { return }
+        if FeatureFlags.saasMonitoring {
+            activate()
+        }
+        observeFeatureFlagChanges()
+    }
+
+    deinit {
+        timer?.invalidate()
+        if let featureFlagObserver {
+            NotificationCenter.default.removeObserver(featureFlagObserver)
+        }
+    }
+
+    /// Everything `init()` used to do inline, gated on the flag being on —
+    /// factored out so toggling the flag on live (see
+    /// `observeFeatureFlagChanges`) runs the exact same startup sequence a
+    /// fresh launch would. Mirrors `SNMPViewModel.activate()`.
+    private func activate() {
+        isActive = true
         // Accelerated by NMSPollSpeedup like the connectivity/SNMP/DHCP/
         // traceroute timers, unlike PublicIPViewModel's (whose cadence is
         // "partly politeness," nothing testable depends on its
@@ -85,8 +110,37 @@ final class SaaSMonitoringViewModel: ObservableObject {
         checkAll()
     }
 
-    deinit {
+    /// The flag flipping off live, mirroring `activate()`. Stops the
+    /// timer — no further outbound requests to any third party, the
+    /// actual reason this is off by default — but leaves `statuses` as
+    /// whatever it last reported rather than clearing it, same reasoning
+    /// `SNMPViewModel.deactivate()` gives for its own device list: this
+    /// data was legitimately fetched while the feature was on, and
+    /// blanking it the instant someone unchecks a box reads as data loss,
+    /// not as the feature turning off.
+    private func deactivate() {
+        isActive = false
         timer?.invalidate()
+        timer = nil
+    }
+
+    /// See `SNMPViewModel.observeFeatureFlagChanges()` for the full
+    /// reasoning — identical shape, watching `FeatureFlags.saasMonitoring`
+    /// instead.
+    private func observeFeatureFlagChanges() {
+        featureFlagObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let shouldBeActive = FeatureFlags.saasMonitoring
+            if shouldBeActive, !self.isActive {
+                self.activate()
+            } else if !shouldBeActive, self.isActive {
+                self.deactivate()
+            }
+        }
     }
 
     /// Checks every monitored service concurrently — same task-group

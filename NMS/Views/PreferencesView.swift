@@ -53,7 +53,7 @@ struct PreferencesView: View {
             feature(
                 "Open in Window",
                 isOn: $comparisonWindowEnabled,
-                description: "A resizable, scrollable alternative to the popover. Still genuinely experimental — not yet a replacement for it."
+                description: "A resizable, scrollable alternative to the popover. Still genuinely experimental — not yet a replacement for it. Requires restarting NMS to take effect — unlike the two toggles below, this gates a whole window, not just a background timer."
             )
 
             feature(
@@ -65,7 +65,7 @@ struct PreferencesView: View {
             feature(
                 "SaaS Monitoring",
                 isOn: $saasMonitoringEnabled,
-                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, and Dropbox. Reaches out to those services directly, not just your own network."
+                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, Google Cloud, and Google Workspace. Reaches out to those services directly, not just your own network."
             )
 
             // Only shown once the feature itself is on — a per-service
@@ -76,7 +76,14 @@ struct PreferencesView: View {
                 saasServicePicker
             }
 
-            caption("Changes here take effect after restarting NMS.")
+            // Specific to "Open in Window" now, not a blanket statement —
+            // SNMP Devices and SaaS Monitoring (including which services)
+            // both take effect live as of `FeatureFlags.snmpDevices`/
+            // `.saasMonitoring`/`.saasEnabledServices` observing
+            // `UserDefaults` changes directly; "Open in Window" gates a
+            // whole SwiftUI `Scene`, which is a meaningfully bigger lift
+            // to make live and hasn't been (see `PUNCHLIST.md`).
+            caption("\"Open in Window\" takes effect after restarting NMS. Everything else here applies immediately.")
                 .fontWeight(.semibold)
         }
         .padding(16)
