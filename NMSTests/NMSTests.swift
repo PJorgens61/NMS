@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import SwiftData
 @testable import NMS
 
 // Scoped deliberately to logic that is *pure* — no network, no SwiftData
@@ -1081,6 +1082,234 @@ struct KnownNetworkFingerprintTests {
         #expect(withEmpty != "aa:bb:cc:dd:ee:ff")
         #expect(KnownNetwork.subnet(fromFingerprint: withEmpty) == "")
         #expect(KnownNetwork.routerMAC(fromFingerprint: withEmpty) == "aa:bb:cc:dd:ee:ff")
+    }
+}
+
+// MARK: - SaaSStatusService parsers
+
+/// Fixture-based, no network — real JSON shapes, matched to what each
+/// vendor's endpoint was confirmed (via live `curl`) to actually send,
+/// documented in each `parseXXX` function's own doc comment. Exists
+/// because these parsers already caused a real shipped bug once:
+/// `77912bf` fixed OpenAI/Notion sending no `incidents` key at all
+/// (rather than `"incidents": []`) throwing `keyNotFound` and sticking
+/// both services at "Could not check status" forever despite a healthy
+/// 200. That fixture is `notionMissingIncidentsKey` below — this suite
+/// exists so the next vendor that does the same thing is caught here,
+/// not after shipping.
+@Suite("SaaSStatusService parsers")
+struct SaaSStatusParserTests {
+    @Test("Statuspage: healthy with an explicit empty incidents array (Claude's shape)")
+    func statuspageHealthyExplicitEmpty() throws {
+        let json = Data(#"{"status":{"indicator":"none","description":"All Systems Operational"},"incidents":[]}"#.utf8)
+        let result = try SaaSStatusService.parseStatuspage(json)
+        #expect(result.indicator == .none)
+        #expect(result.description == "All Systems Operational")
+        #expect(result.specificURL == nil)
+    }
+
+    @Test("Statuspage: healthy with the incidents key omitted entirely — the real 77912bf regression case")
+    func statuspageHealthyMissingKey() throws {
+        let json = Data(#"{"status":{"indicator":"none","description":"All Systems Operational"}}"#.utf8)
+        let result = try SaaSStatusService.parseStatuspage(json)
+        #expect(result.indicator == .none)
+        #expect(result.description == "All Systems Operational")
+    }
+
+    @Test("Statuspage: a real incident's name/shortlink win over the generic status description")
+    func statuspageWithIncident() throws {
+        let json = Data(#"""
+        {"status":{"indicator":"major","description":"Partial System Outage"},
+         "incidents":[{"name":"Degraded performance on Claude Sonnet 5","shortlink":"https://status.claude.com/incidents/abc123"}]}
+        """#.utf8)
+        let result = try SaaSStatusService.parseStatuspage(json)
+        #expect(result.indicator == .major)
+        #expect(result.description == "Degraded performance on Claude Sonnet 5")
+        #expect(result.specificURL == "https://status.claude.com/incidents/abc123")
+    }
+
+    @Test("Statuspage: an unrecognized indicator string reports unknown, not a crash or a silent healthy")
+    func statuspageUnrecognizedIndicator() throws {
+        let json = Data(#"{"status":{"indicator":"catastrophic","description":"???"},"incidents":[]}"#.utf8)
+        let result = try SaaSStatusService.parseStatuspage(json)
+        #expect(result.indicator == .unknown)
+    }
+
+    @Test("Slack: healthy (empty active_incidents)")
+    func slackHealthy() throws {
+        let json = Data(#"{"status":"ok","active_incidents":[]}"#.utf8)
+        let result = try SaaSStatusService.parseSlack(json)
+        #expect(result.indicator == .none)
+        #expect(result.description == "All Systems Operational")
+    }
+
+    @Test("Slack: an active incident always reports major, and carries its own title/url")
+    func slackActiveIncident() throws {
+        let json = Data(#"""
+        {"status":"critical","active_incidents":[{"title":"Messages delayed","url":"https://slack-status.com/incidents/xyz"}]}
+        """#.utf8)
+        let result = try SaaSStatusService.parseSlack(json)
+        #expect(result.indicator == .major)
+        #expect(result.description == "Messages delayed")
+        #expect(result.specificURL == "https://slack-status.com/incidents/xyz")
+    }
+
+    @Test("Slack: a title-less incident falls back to a generic description rather than failing")
+    func slackIncidentMissingTitle() throws {
+        let json = Data(#"{"status":"critical","active_incidents":[{"title":null,"url":null}]}"#.utf8)
+        let result = try SaaSStatusService.parseSlack(json)
+        #expect(result.indicator == .major)
+        #expect(result.description == "Active incident reported")
+        #expect(result.specificURL == nil)
+    }
+
+    @Test("Zendesk: healthy (empty data array)")
+    func zendeskHealthy() throws {
+        let json = Data(#"{"data":[],"included":[]}"#.utf8)
+        let result = try SaaSStatusService.parseZendesk(json)
+        #expect(result.indicator == .none)
+    }
+
+    @Test("Zendesk: multiple active incidents join their titles into one description")
+    func zendeskMultipleIncidents() throws {
+        let json = Data(#"""
+        {"data":[{"attributes":{"title":"API degraded"}},{"attributes":{"title":"Dashboard slow"}}]}
+        """#.utf8)
+        let result = try SaaSStatusService.parseZendesk(json)
+        #expect(result.indicator == .major)
+        #expect(result.description == "API degraded, Dashboard slow")
+        #expect(result.specificURL == nil, "Zendesk's shape has no per-incident URL — every row falls back to the general status page")
+    }
+
+    @Test("Google incidents: healthy when every incident in the history has already ended")
+    func googleIncidentsHealthy() throws {
+        let json = Data(#"""
+        [{"modified":"2026-07-25T13:16:55+00:00","end":"2026-07-16T12:25:00+00:00","external_desc":"resolved","severity":"high"}]
+        """#.utf8)
+        let service = SaaSStatusService.MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents)
+        let result = try SaaSStatusService.parseGoogleIncidents(json, service: service)
+        #expect(result.indicator == .none)
+        #expect(result.description == "All Systems Operational")
+    }
+
+    @Test("Google incidents: an ongoing (no end) incident maps high severity to major")
+    func googleIncidentsOngoingHighSeverity() throws {
+        let json = Data(#"""
+        [{"modified":"2026-07-25T13:16:55+00:00","end":null,"external_desc":"Cooling failure in europe-west4-a","severity":"high","uri":"incidents/abc"}]
+        """#.utf8)
+        let service = SaaSStatusService.MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents)
+        let result = try SaaSStatusService.parseGoogleIncidents(json, service: service)
+        #expect(result.indicator == .major)
+        #expect(result.description == "Cooling failure in europe-west4-a")
+        #expect(result.specificURL == "https://status.cloud.google.com/incidents/abc")
+    }
+
+    @Test("Google incidents: medium severity maps to minor, and an unrecognized/missing severity maps to unknown rather than a guess")
+    func googleIncidentsSeverityMapping() throws {
+        let mediumJSON = Data(#"[{"modified":"2026-07-25T13:16:55+00:00","end":null,"severity":"medium"}]"#.utf8)
+        let unknownJSON = Data(#"[{"modified":"2026-07-25T13:16:55+00:00","end":null,"severity":"low"}]"#.utf8)
+        let missingJSON = Data(#"[{"modified":"2026-07-25T13:16:55+00:00","end":null}]"#.utf8)
+        let service = SaaSStatusService.MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents)
+        #expect(try SaaSStatusService.parseGoogleIncidents(mediumJSON, service: service).indicator == .minor)
+        #expect(try SaaSStatusService.parseGoogleIncidents(unknownJSON, service: service).indicator == .unknown)
+        #expect(try SaaSStatusService.parseGoogleIncidents(missingJSON, service: service).indicator == .unknown)
+    }
+
+    @Test("Google incidents: with two incidents ongoing at once, the most recently modified one wins")
+    func googleIncidentsMostRecentlyModifiedWins() throws {
+        let json = Data(#"""
+        [{"modified":"2026-07-20T00:00:00+00:00","end":null,"external_desc":"older, stays hidden","severity":"medium"},
+         {"modified":"2026-07-25T13:16:55+00:00","end":null,"external_desc":"newer, should win","severity":"high"}]
+        """#.utf8)
+        let service = SaaSStatusService.MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents)
+        let result = try SaaSStatusService.parseGoogleIncidents(json, service: service)
+        #expect(result.description == "newer, should win")
+        #expect(result.indicator == .major)
+    }
+
+    @Test("Google incidents: the specific-incident URL is built against dashboardPath when the endpoint host isn't itself a status page (Google Workspace)")
+    func googleIncidentsURLUsesDashboardPath() throws {
+        let json = Data(#"[{"modified":"2026-07-25T13:16:55+00:00","end":null,"severity":"high","uri":"incidents/xyz"}]"#.utf8)
+        let service = SaaSStatusService.MonitoredService(
+            name: "Google Workspace",
+            endpoint: URL(string: "https://www.google.com/appsstatus/dashboard/incidents.json")!,
+            shape: .googleIncidents,
+            dashboardPath: "/appsstatus/dashboard/"
+        )
+        let result = try SaaSStatusService.parseGoogleIncidents(json, service: service)
+        #expect(result.specificURL == "https://www.google.com/appsstatus/dashboard/incidents/xyz")
+    }
+}
+
+// MARK: - Persistent-store fallback detection
+
+/// A tiny, throwaway model — deliberately not any of the app's 11 real
+/// SwiftData models. Reproducing the *literal* historical bug (a schema
+/// gaining a new non-optional stored property on top of existing rows —
+/// see `BUGS.md`'s "The persistent store fails to open") needs two
+/// different compiled versions of the same class, which one test run
+/// can't construct. What's tested instead is the actual guarantee that
+/// matters: `NMSApp.openStoreWithFallback` must detect *any* store-open
+/// failure and report it, never silently swallow one the way the
+/// two-day bug's single `print()` did.
+@Model
+private final class FallbackTestModel {
+    var id: String
+    init(id: String) { self.id = id }
+}
+
+@Suite("NMSApp.openStoreWithFallback")
+struct StoreFallbackTests {
+    private static func scratchURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("NMSTests-\(UUID().uuidString)")
+            .appendingPathComponent("scratch.store")
+    }
+
+    @Test("a valid, openable path reports no fallback reason")
+    func validStoreOpensCleanly() throws {
+        let url = Self.scratchURL()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let schema = Schema([FallbackTestModel.self])
+        let result = NMSApp.openStoreWithFallback(schema: schema, url: url)
+        #expect(result.fallbackReason == nil)
+
+        // Not just "didn't report a reason" — confirm the container is
+        // actually the real, persistent one, not silently in-memory
+        // despite a nil reason (the exact failure mode this whole path
+        // exists to prevent).
+        let context = ModelContext(result.container)
+        context.insert(FallbackTestModel(id: "test"))
+        try context.save()
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("a store that fails to open is detected and reported, not silently swallowed")
+    func corruptStoreFallsBackAndReports() throws {
+        let url = Self.scratchURL()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        // Garbage bytes, not a real SwiftData/SQLite store — guaranteed
+        // to fail to open, the same category of failure (store exists
+        // on disk but can't be opened as-is) as a genuine migration
+        // mismatch, without needing to construct one.
+        try Data("not a real store".utf8).write(to: url)
+
+        let schema = Schema([FallbackTestModel.self])
+        let result = NMSApp.openStoreWithFallback(schema: schema, url: url)
+
+        #expect(result.fallbackReason != nil, "a corrupt store must be reported, not silently accepted")
+        #expect(result.fallbackReason?.isEmpty == false)
+
+        // The fallback container must still be genuinely usable — the
+        // whole point of falling back at all — even though nothing
+        // written to it will persist.
+        let context = ModelContext(result.container)
+        context.insert(FallbackTestModel(id: "test"))
+        #expect(throws: Never.self) { try context.save() }
     }
 }
 
