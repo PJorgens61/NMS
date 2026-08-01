@@ -5026,10 +5026,25 @@ property, different (and currently more fragmented) client ecosystem.
   Shortcuts for free); MCP stays relevant if reaching *external* Claude
   clients (Claude Desktop on the same Mac, say) matters independently
   of on-device fallback.
-- **Does routing between on-device and Claude need to be automatic**
-  (try on-device, escalate to Claude if reachable and the query looks
-  complex) **or manual** (a Preferences toggle, matching this app's
-  existing "the user decides" convention rather than NMS guessing)?
+- ~~Does routing between on-device and Claude need to be automatic or
+  manual?~~ **Resolved, requested directly: automatic, and Claude-first
+  — the reverse priority from this section's first draft.** Prefer the
+  more capable backend whenever it's actually reachable, fall back to
+  on-device only when it isn't, not the other way around. Both backends
+  conform to the same `LanguageModel` protocol (the WWDC 2026 update
+  this section already covers), so the orchestration is unremarkable:
+  try Claude, catch failure, fall back to on-device.
+  A real, elegant tie-in worth building on rather than a new probe:
+  NMS already computes live connectivity state every check round
+  (`ConnectionLayer`'s Internet/DNS/HTTP checks, `OverallStatus`) — the
+  orchestration layer can consult that *already-current* state as a
+  near-instant pre-check (genuinely down → skip straight to on-device,
+  no timeout eaten) rather than always attempting Claude first and
+  waiting to fail. The actual attempt-and-catch-fallback still covers
+  the narrower case that pre-check can't: general internet fine but
+  Anthropic specifically unreachable. NMS ends up using the exact
+  signal it already tracks for its core purpose to decide which AI
+  backend answers.
 - **Does an intent's answer ever get logged as its own `AppEventRecord`**
   — same question "Remediation guides" left open for a fired guide, and
   probably the same answer, for the same reason (durable history, not
