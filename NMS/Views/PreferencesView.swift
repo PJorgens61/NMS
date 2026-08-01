@@ -108,10 +108,18 @@ struct PreferencesView: View {
 
     /// One checkbox per `SaaSStatusService.monitoredServices` entry, plus
     /// Select All / Clear All for quickly narrowing to (or clearing) a
-    /// single service — useful when only one or two of the ten actually
-    /// matter to you, or when isolating one for testing. Indented under
-    /// the "SaaS Monitoring" toggle above, same visual nesting a
-    /// sub-preference implies without a second `.headline`.
+    /// single service — useful when only one or two of the thirteen
+    /// actually matter to you, or when isolating one for testing.
+    /// Indented under the "SaaS Monitoring" toggle above, same visual
+    /// nesting a sub-preference implies without a second `.headline`.
+    ///
+    /// Two columns, not one long list — requested directly once the list
+    /// grew past what fit comfortably in a single glance (13 services as
+    /// of the Discord/Google Cloud/Google Workspace additions, up from
+    /// the original 10). `LazyVGrid` over a plain `HStack` of two
+    /// `VStack`s: a fixed name-based split would need rebalancing by hand
+    /// every time a service is added or removed, where the grid just
+    /// reflows on its own.
     @ViewBuilder
     private var saasServicePicker: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -124,9 +132,20 @@ struct PreferencesView: View {
                 Button("Clear All") { setAllSaaSServices(enabled: false) }
                     .font(.system(size: 11))
             }
-            ForEach(SaaSStatusService.monitoredServices, id: \.name) { service in
-                Toggle(service.name, isOn: saasServiceBinding(for: service.name))
-                    .font(.system(size: 11))
+            LazyVGrid(
+                columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
+                alignment: .leading,
+                spacing: 4
+            ) {
+                ForEach(SaaSStatusService.monitoredServices, id: \.name) { service in
+                    Toggle(service.name, isOn: saasServiceBinding(for: service.name))
+                        .font(.system(size: 11))
+                        // Truncate rather than wrap — "Jira/Confluence" and
+                        // "Google Workspace" are the longest names, and at
+                        // half the pane's already-fixed 380pt width, a wrap
+                        // would misalign the checkbox column between rows.
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.leading, 16)
