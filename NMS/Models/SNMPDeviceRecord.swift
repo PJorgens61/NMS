@@ -40,6 +40,22 @@ final class SNMPDeviceRecord {
     /// See `AppEventRecord.networkFingerprint` — same scoping, same `nil`
     /// meaning.
     var networkFingerprint: String?
+    /// A detected admin web UI — see `DeviceWebDetectionService`. Plain
+    /// optional, not defaulted like `community` above needed to be:
+    /// SwiftData already treats an optional's absence on existing rows as
+    /// `nil` with no migration risk, the same reason `sysName` and
+    /// `networkFingerprint` above never needed one either. Persisted
+    /// (unlike `SNMPDevice.webURL` being purely transient before this)
+    /// so the link shows immediately on the next launch instead of
+    /// waiting out a fresh probe every single time — see
+    /// `SNMPViewModel.activate()`, which seeds its own in-memory cache
+    /// from this on rehydration.
+    var webURL: String?
+    /// A resolved reverse-DNS (PTR) domain name — see
+    /// `DeviceWebDetectionService`'s sibling, `ReverseDNSService`, called
+    /// from `SNMPViewModel.enrichHostnames`. Same plain-optional,
+    /// no-migration-risk shape as `webURL` just above.
+    var hostname: String?
 
     /// The name worth showing: hostname when the device reports one,
     /// otherwise the address. Mirrors `SNMPDevice.displayName` — this

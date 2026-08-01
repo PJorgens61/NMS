@@ -8,6 +8,42 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **SNMP device web-detection prefers HTTP over HTTPS — a real
+  security tradeoff, flagged directly, not yet reconsidered.**
+  `DeviceWebDetectionService.detectWebURL` tries HTTP first: confirmed
+  live that this network's printer "succeeds" against its HTTPS port in
+  this probe's lenient trust-all `URLSession`, but real browsers
+  (Safari, Brave) refuse or warn on that same connection — plausibly
+  outdated TLS the probe doesn't check for. HTTP works cleanly, so it
+  now wins by default. Not specific to this printer or household —
+  consumer/prosumer LAN gear commonly ships with a self-signed cert and
+  a stale TLS stack, across NMS's whole userbase. The tradeoff this
+  accepts: a user who'd rather have an encrypted link even to a
+  self-signed/outdated-TLS device (better than plaintext, in their own
+  judgment) now silently gets an unencrypted one instead whenever both
+  answer — the choice isn't surfaced anywhere. Options worth real
+  consideration later, none built: show which protocol a link actually
+  uses (not just a bare icon); a preference to prefer HTTPS when
+  available despite the friction; or actually checking the negotiated
+  TLS version/cert validity to decide, rather than "HTTP always wins if
+  it answers at all."
+
+- [ ] **macOS notifications for sustained outages? Raised, not yet
+  designed.** The idea: push a system notification (not just the
+  popover/Events log, which only get seen if someone's already
+  looking) for a real, sustained problem. Biggest risk identified up
+  front: this network is demonstrably flap-prone (dozens of "became
+  unreachable/reachable again" Events-log entries in a few minutes of
+  ordinary testing this session) — naively notifying on every
+  Events-log entry would be noisy enough to train someone to ignore it
+  fast. The useful version would almost certainly need to reuse
+  `ConnectivityViewModel`'s existing sustained-vs-transient filtering
+  (`isWithinTopologyChangeWindow`/`shouldSuppressAsLocalInterference`)
+  rather than hooking raw event logging, and probably scope to just
+  `OverallStatus.critical` (router/internet/DNS/HTTP actually down),
+  not SNMP restarts or printer blips. Nothing designed or built yet —
+  needs its own real pass before starting.
+
 - [ ] **Rename "Expert Mode"'s internal Swift symbols to match its
   UI name.** Deliberately deferred when the UI-facing rename landed
   (`3078a33`) — the button label, accessibility text, and every prose
@@ -61,45 +97,31 @@ new ones as they come up.
   that, per the plan's own scope cut, isn't tied to any health/up-down
   state.
 
-- [ ] **SNMP Devices: detect a web server on the device, add a link if
-  found.** Requested directly. Real for a lot of what's already
-  discovered here — this network's own router, switch, and both APs
-  (see the SNMP Devices screenshots throughout `BUGS.md`) all plausibly
-  have an admin web UI. Rendering: an inline link on
-  `infrastructureRows`' first `HStack` line (`ContentView+Window.swift`
-  ~494), alongside `device.displayName`/`uptimeDescription` — the
-  natural spot, no new row needed.
+- [x] ~~SNMP Devices: detect a web server on the device, add a link if
+  found.~~ **Built** (`DeviceWebDetectionService`). Both open questions
+  resolved directly: probes once at first discovery only (not every
+  poll — a device's web UI toggling later within the same session won't
+  be picked up until the address is forgotten by a full rescan), and
+  "detected" means a real HTTP response on a candidate port, not a bare
+  TCP connect. Tries HTTPS, then HTTP, then HTTPS on port `4343` — this
+  network's own real Aruba APs use that non-standard admin port; see
+  `DESIGN-NOTES.md`'s "SNMP device web-detection" entry for the finding
+  and why it isn't generalized into a vendor-pattern registry yet. Same
+  self-signed-cert handling this item had already resolved (a dedicated
+  `URLSession` with a trust-all delegate, never `URLSession.shared`).
+  Reuses `externalLinkIcon`, the same helper built for the Local
+  Router/ISP links.
 
-  Detection isn't a drop-in reuse of `HTTPCheckService` — that checks
-  one known endpoint for one expected body; this needs "does *anything*
-  answer on 80/443 for this arbitrary IP," a different, more open-ended
-  shape.
-
-  **HTTPS/self-signed-cert question, resolved directly**: accept
-  invalid certs for the detection probe, matching what the user already
-  does by hand in a browser for exactly this kind of device. Scoped
-  narrowly, though — a custom `URLSessionDelegate` (`urlSession(_:
-  didReceive:completionHandler:)`, trusting unconditionally) used *only*
-  for this one probe, not applied to `URLSession.shared` or anything
-  else in the app, so nothing else here silently loses real cert
-  validation. Defensible specifically because these are LAN devices
-  SNMP already confirmed answer to the configured community string —
-  not an arbitrary internet host. The link itself still just opens in
-  the default browser (`NSWorkspace.open`), not rendered in-app, so the
-  user's own normal click-through still happens there too — NMS's
-  relaxed trust only ever covers the lightweight background "does
-  something answer here" check, never the actual page content.
-
-  Remaining open questions:
-  - **When does this run?** At first discovery only (cheap, one-time,
-    but stale if a web UI gets enabled/disabled later), or on every
-    SNMP scan (fresher, but a new per-device network round trip added
-    to every scan cycle, on top of the existing `snmpget` sweep).
-  - **Cheapest real signal**: a bare TCP connect to 80/443 (proves a
-    server process is listening, not that it's genuinely HTTP) versus
-    a real HTTP `HEAD`/`GET` (confirms the protocol, costs more time
-    and has the cert question above). Worth deciding which "detected"
-    actually means before building either.
+  Also fixed a related gap found while testing this: `SNMPViewModel`
+  only ever discovered devices via the popover's manual "Scan" button —
+  a first-time user enabling the feature saw an empty list forever
+  unless they found and clicked it. `activate()` now sweeps
+  automatically the one time there's nothing rehydrated from history,
+  accepting the one-time launch-time-contention risk that comment
+  already documented (see that function) rather than the ongoing "every
+  launch" version of that risk. The button stays — nothing else
+  triggers a fresh sweep, so it's still the only way to find a device
+  added to the LAN after that first discovery.
 
 - [ ] **SaaS fault injection: already built, but three real gaps found
   while checking.** Asked "how to test SaaS services that rarely fail,

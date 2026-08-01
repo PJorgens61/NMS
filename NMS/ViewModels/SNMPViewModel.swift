@@ -35,6 +35,33 @@ final class SNMPViewModel: ObservableObject {
     @Published private(set) var communities: [String]
 
     private let service = SNMPService()
+    private let webDetectionService = DeviceWebDetectionService()
+    private let reverseDNSService = ReverseDNSService()
+    /// Only ever holds a *confirmed* result — an address stays absent
+    /// (and so keeps getting retried on the next poll, via
+    /// `detectWebServers`'s `newAddresses` filter) until a probe actually
+    /// succeeds. Deliberately not "probed once, done regardless of
+    /// outcome": confirmed live that a probe landing mid-flap on this
+    /// network's own well-documented Wi-Fi/Ethernet instability can fail
+    /// all five devices in one round with nothing wrong with any of
+    /// them — caching that failure permanently would have been a
+    /// standing false negative, not the "once, at first discovery"
+    /// cadence `PUNCHLIST.md`'s "SNMP Devices: detect a web server" item
+    /// actually intended (avoid re-probing a device whose answer is
+    /// *known*, not give up after one unlucky round). A device that
+    /// genuinely has no web server does get retried every poll
+    /// indefinitely as a result — accepted, since each attempt is a
+    /// handful of fast LAN connection attempts, not a real ongoing cost.
+    ///
+    /// Seeded from `SNMPDeviceRecord.webURL` at `activate()` — a device
+    /// confirmed in an earlier session isn't re-probed just because this
+    /// particular `SNMPViewModel` instance's own cache starts empty.
+    private var webURLByAddress: [String: String] = [:]
+    /// Same shape and reasoning as `webURLByAddress`, for
+    /// `enrichHostnames`'s reverse-DNS lookups instead of the web
+    /// probe — an address with no PTR record just gets retried every
+    /// poll rather than caching a permanent "no hostname."
+    private var hostnameByAddress: [String: String] = [:]
     private let snapshotStore: SnapshotStore
     private weak var networkMonitor: NetworkMonitorViewModel?
     private weak var lanDiscovery: LANDiscoveryViewModel?
@@ -155,6 +182,21 @@ final class SNMPViewModel: ObservableObject {
         // off), so this rehydrates exactly the same way a fresh launch
         // would rather than needing a separate code path.
         devices = snapshotStore.fetchSNMPDevices().map(Self.device(from:))
+        // Seeded from what's already confirmed on disk, so a device
+        // whose web server was found in an earlier session isn't
+        // needlessly re-probed this launch just because this fresh
+        // `SNMPViewModel` instance's own cache starts empty — the
+        // rehydrated `devices` above already carries the answer via
+        // `Self.device(from:)`, this just lets `detectWebServers`'
+        // `newAddresses` filter see it too.
+        for device in devices {
+            if let webURL = device.webURL {
+                webURLByAddress[device.ipAddress] = webURL
+            }
+            if let hostname = device.hostname {
+                hostnameByAddress[device.ipAddress] = hostname
+            }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.pollInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.poll()
@@ -171,6 +213,21 @@ final class SNMPViewModel: ObservableObject {
         // merge wouldn't happen until the first poll 60s later — observed
         // directly in the log, `arp -n -a` starting 1ms *after* this ran.
         rebuildDeviceList()
+
+        // Nothing to rehydrate — either the very first time this feature
+        // has ever been turned on, or the persisted store was wiped —
+        // means there's also nothing for `poll()`'s timer above to ever
+        // poll: without this, a first-time user would see an empty list
+        // forever unless they separately found and clicked the manual
+        // "Scan" button. This is the one case worth the launch-time-
+        // contention risk the doc comment above warns about (a one-time
+        // cost on first activation, not a recurring one — every later
+        // launch already has something to rehydrate). A network already
+        // fully explored keeps today's behavior exactly: rehydrate + poll,
+        // no automatic sweep.
+        if devices.isEmpty {
+            scan()
+        }
     }
 
     /// The flag flipping off live, mirroring `activate()`. Stops the timer
@@ -337,6 +394,20 @@ final class SNMPViewModel: ObservableObject {
             }
         }
 
+        // Once, at first discovery — not every poll. See
+        // `webURLByAddress`'s own doc comment for the accepted staleness
+        // tradeoff this implies. Computed separately from the hostname
+        // one below — a device can have one confirmed without the other
+        // (e.g. a real web server but no PTR record, or vice versa).
+        let addressesNeedingWebProbe = devices.map(\.ipAddress).filter { webURLByAddress[$0] == nil }
+        if !addressesNeedingWebProbe.isEmpty {
+            detectWebServers(for: addressesNeedingWebProbe)
+        }
+        let addressesNeedingHostname = devices.map(\.ipAddress).filter { hostnameByAddress[$0] == nil }
+        if !addressesNeedingHostname.isEmpty {
+            enrichHostnames(for: addressesNeedingHostname)
+        }
+
         var loggedAny = false
         for device in found {
             switch snapshotStore.recordSNMPDevice(device) {
@@ -367,6 +438,90 @@ final class SNMPViewModel: ObservableObject {
         }
         if loggedAny {
             onEventLogged?()
+        }
+    }
+
+    /// Probes every newly-seen address concurrently — same `withTaskGroup`
+    /// shape `SaaSMonitoringViewModel.checkAll()`/`ConnectivityService
+    /// .check(targets:)` already use, so N probes are bounded by the
+    /// slowest one, not their sum. No explicit `@MainActor` hop needed
+    /// inside — this type is itself `@MainActor`, so a plain (non-detached)
+    /// `Task {}` created from one of its methods inherits that isolation,
+    /// same as `PublicIPViewModel.check()`'s own `Task {}`.
+    private func detectWebServers(for addresses: [String]) {
+        let service = webDetectionService
+        Task {
+            await withTaskGroup(of: (address: String, url: String?).self) { group in
+                for address in addresses {
+                    group.addTask { (address, await service.detectWebURL(forAddress: address)) }
+                }
+                for await result in group {
+                    // Only a *successful* probe is cached permanently — a
+                    // `nil` here means "couldn't reach it this round,"
+                    // which on this network in particular can just mean
+                    // the probe landed mid-flap (confirmed live: all five
+                    // devices came back nil once, exactly coinciding with
+                    // an `interfaceChanged` event, and none ever retried
+                    // since — a real bug, not a genuine "no web server").
+                    // Leaving the address absent from `webURLByAddress`
+                    // means the next poll's `newAddresses` filter picks it
+                    // back up automatically; only a real success stops
+                    // this permanently, matching "once, at first
+                    // discovery" 's actual intent (don't keep re-probing a
+                    // device once its answer is known) rather than its
+                    // literal first implementation (don't keep probing a
+                    // device once *anything* comes back, transient
+                    // failure included).
+                    if let url = result.url {
+                        webURLByAddress[result.address] = url
+                        // Persisted so the link shows immediately on the
+                        // *next* launch instead of waiting out a fresh
+                        // probe every time — see `SNMPDeviceRecord.webURL`.
+                        snapshotStore.updateSNMPDeviceWebURL(address: result.address, url: url)
+                    }
+                    // Guards against a device having been removed by a
+                    // subsequent full rescan while this probe was in
+                    // flight — same staleness guard
+                    // `TracerouteViewModel.enrichHostnames` already uses
+                    // for its own post-hoc per-item enrichment.
+                    if let index = devices.firstIndex(where: { $0.ipAddress == result.address }) {
+                        devices[index].webURL = result.url
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reverse-DNS enrichment for newly-seen addresses — same shape as
+    /// `TracerouteViewModel.enrichHostnames`, which this mirrors almost
+    /// exactly: `ReverseDNSService.hostname(for:)` is a blocking POSIX
+    /// call bounded by its own internal timeout, so it's dispatched onto
+    /// `DispatchQueue.global` rather than awaited directly, then hops
+    /// back to the main actor to patch results in. Requested directly —
+    /// "list the domain name and IP address for each" — useful for a
+    /// network engineer correlating a device's actual DNS identity
+    /// against its SNMP-reported `sysName`, which is often just a short
+    /// local label ("router") rather than a real hostname.
+    private func enrichHostnames(for addresses: [String]) {
+        let service = reverseDNSService
+        for address in addresses {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let hostname = service.hostname(for: address) else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.hostnameByAddress[address] = hostname
+                    // Persisted so the domain name shows immediately on
+                    // the next launch instead of waiting out a fresh
+                    // lookup every time — see `SNMPDeviceRecord.hostname`.
+                    self.snapshotStore.updateSNMPDeviceHostname(address: address, hostname: hostname)
+                    // Same staleness guard `detectWebServers` above uses —
+                    // a device may have been removed by a subsequent full
+                    // rescan while this lookup was in flight.
+                    if let index = self.devices.firstIndex(where: { $0.ipAddress == address }) {
+                        self.devices[index].hostname = hostname
+                    }
+                }
+            }
         }
     }
 
@@ -424,10 +579,32 @@ final class SNMPViewModel: ObservableObject {
                 return SubnetCalculator.isOnSameSubnet(device.ipAddress, as: localIP, subnetMask: mask) != false
             }
         let macs = macByAddress()
-        devices = Self.mergingSharedMACs(kept, macByAddress: macs)
+        var rebuilt = Self.mergingSharedMACs(kept, macByAddress: macs)
             .sorted {
                 (SubnetCalculator.packedIPv4($0.ipAddress) ?? 0) < (SubnetCalculator.packedIPv4($1.ipAddress) ?? 0)
             }
+        // `Self.device(from:)` above already reads `webURL` from the
+        // persisted record (`kept`), so a value confirmed in an *earlier*
+        // session already survives this rebuild on its own. This loop is
+        // only for a value confirmed *this* session, possibly moments
+        // ago: `detectWebServers` patches `devices` directly, in memory,
+        // and this function reconstructs `devices` from scratch after
+        // *every* `apply()` (via its `defer`) and every completed LAN
+        // scan — without checking the cache too, that patch would be
+        // silently wiped the next time this ran, before the persisted
+        // write even lands. Only overwrite when the cache actually has
+        // something newer; an address it hasn't (re)confirmed yet keeps
+        // whatever the persisted record already said, rather than being
+        // blanked out just because this session hasn't touched it.
+        for index in rebuilt.indices {
+            if let cached = webURLByAddress[rebuilt[index].ipAddress] {
+                rebuilt[index].webURL = cached
+            }
+            if let cached = hostnameByAddress[rebuilt[index].ipAddress] {
+                rebuilt[index].hostname = cached
+            }
+        }
+        devices = rebuilt
         refreshARPIfMergeDataIsStale(kept: kept, macs: macs, localIP: localIP, mask: mask)
         // Keeps every alias row's persisted state as fresh as its primary
         // — see `SnapshotStore.syncAliasFreshness`. Runs on every rebuild
@@ -607,7 +784,9 @@ final class SNMPViewModel: ObservableObject {
             sysName: record.sysName,
             uptimeTicks: record.uptimeTicks,
             community: record.community,
-            polledAt: record.lastSeenAt
+            polledAt: record.lastSeenAt,
+            webURL: record.webURL,
+            hostname: record.hostname
         )
     }
 

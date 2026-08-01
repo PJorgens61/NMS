@@ -513,6 +513,20 @@ extension ContentView {
                     Spacer()
                     Text(device.uptimeDescription)
                         .foregroundStyle(.secondary)
+                    // After the text, not before — `uptimeDescription`'s
+                    // width varies per device ("up 41d 4h" vs "up 4d 0h"),
+                    // and this HStack's trailing group is flush-right, so
+                    // an icon placed *before* varying-width text shifts
+                    // horizontally row to row. Trailing-most keeps it at a
+                    // constant position, matching the SaaS section's own
+                    // (already correct) icon-after-text order.
+                    if let webURL = device.webURL {
+                        externalLinkIcon(
+                            url: webURL,
+                            accessibilityLabel: "\(device.displayName) admin page",
+                            accessibilityHint: "Opens \(device.displayName)'s web interface in your browser"
+                        )
+                    }
                 }
                 .font(.system(size: 12))
                 // No lineLimit here, deliberately — sysDescr (a raw
@@ -520,16 +534,17 @@ extension ContentView {
                 // many lines as it needs instead of truncating, unlike
                 // the single-line convention used elsewhere in this
                 // popover.
-                // Addresses shown only when there's more than one — a
-                // single address is already implied by the row and would
-                // just cost a line.
-                if !device.aliasAddresses.isEmpty {
-                    Text(device.addressDescription)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                // Always shown, not just when there's more than one
+                // address — requested directly ("list the domain name
+                // and IP address for each... useful for network
+                // engineers"): `displayName` above is often just
+                // `sysName`, a short SNMP-configured label ("router"),
+                // not the device's actual DNS identity or IP.
+                Text(device.addressLine)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text(device.sysDescr)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)

@@ -42,6 +42,21 @@ struct SNMPDevice: Equatable, Identifiable {
     /// both wasteful and noisy on someone else's console.
     let community: String
     let polledAt: Date
+    /// A detected admin web UI, patched in after the fact by
+    /// `SNMPViewModel.detectWebServers` — `var`, unlike every field above,
+    /// since it starts `nil` and is set once discovery's own web probe
+    /// resolves, same shape `TracerouteHop.hostname` uses for its own
+    /// post-hoc DNS enrichment. `nil` means "not probed yet" or "probed,
+    /// nothing found" — `SNMPViewModel` tracks that distinction itself.
+    var webURL: String? = nil
+    /// A resolved reverse-DNS (PTR) domain name, patched in after the
+    /// fact by `SNMPViewModel.enrichHostnames` — same shape as `webURL`
+    /// above, and the same pattern `TracerouteHop.hostname` already uses
+    /// via `ReverseDNSService`. Distinct from `sysName`: that's the
+    /// device's own configured SNMP name (often a short local label like
+    /// "router"), this is whatever the network's actual DNS/mDNS resolver
+    /// says for the address, which can differ or be absent entirely.
+    var hostname: String? = nil
 
     /// The name worth showing: hostname when the device reports one,
     /// otherwise the address.
@@ -60,6 +75,17 @@ struct SNMPDevice: Equatable, Identifiable {
     /// isn't knowable from ARP or SNMP, so the honest answer is to show all
     /// of them.
     var addressDescription: String { allAddresses.joined(separator: ", ") }
+
+    /// The resolved DNS hostname (when there is one) alongside every
+    /// address — requested directly ("list the domain name and IP
+    /// address for each... useful for network engineers"), distinct from
+    /// `displayName`/`sysName` above: those are the device's own
+    /// SNMP-configured name, often just a short local label ("router"),
+    /// not necessarily its real DNS identity.
+    var addressLine: String {
+        guard let hostname else { return addressDescription }
+        return "\(hostname) · \(addressDescription)"
+    }
 
     var uptimeInterval: TimeInterval {
         TimeInterval(uptimeTicks) / 100

@@ -654,6 +654,39 @@ final class SnapshotStore {
         return restarted ? .restarted : .unchanged
     }
 
+    /// Separate from `recordSNMPDevice` because web detection resolves
+    /// asynchronously, well after the SNMP poll that discovered or
+    /// re-confirmed the device already upserted its own row — folding
+    /// this into that method would mean persisting `nil` every round
+    /// (the freshly-polled `SNMPDevice` never carries a `webURL` of its
+    /// own; only `SNMPViewModel`'s in-memory patch does). Silent no-op if
+    /// the device's row is somehow gone by the time this resolves (e.g. a
+    /// network switch mid-probe) — nothing to update.
+    func updateSNMPDeviceWebURL(address: String, url: String) {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.ipAddress == address && $0.networkFingerprint == fingerprint }
+        )
+        descriptor.fetchLimit = 1
+        guard let existing = (try? context.fetch(descriptor))?.first else { return }
+        existing.webURL = url
+        try? context.save()
+    }
+
+    /// Same reasoning as `updateSNMPDeviceWebURL` just above, for the
+    /// same reason: `ReverseDNSService`'s lookup resolves asynchronously,
+    /// after `recordSNMPDevice` already upserted this round's row.
+    func updateSNMPDeviceHostname(address: String, hostname: String) {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<SNMPDeviceRecord>(
+            predicate: #Predicate { $0.ipAddress == address && $0.networkFingerprint == fingerprint }
+        )
+        descriptor.fetchLimit = 1
+        guard let existing = (try? context.fetch(descriptor))?.first else { return }
+        existing.hostname = hostname
+        try? context.save()
+    }
+
     /// Keeps an alias address's row from looking permanently dead once its
     /// physical device gets folded into a primary elsewhere by
     /// `SNMPViewModel.mergingSharedMACs` — the primary is the only address

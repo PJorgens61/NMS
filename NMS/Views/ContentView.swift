@@ -296,6 +296,13 @@ struct ContentView: View {
                     Text("SNMP Devices")
                         .font(.headline)
                     Spacer()
+                    // No longer the only way to populate this list —
+                    // `SNMPViewModel.activate()` now sweeps automatically
+                    // the first time this feature has nothing rehydrated
+                    // from history. This stays for the case that leaves:
+                    // forcing a fresh sweep to find a device added to the
+                    // LAN after that first discovery, which nothing else
+                    // triggers.
                     Button(snmp.isScanning ? "Scanning…" : "Scan") {
                         snmp.scan()
                     }

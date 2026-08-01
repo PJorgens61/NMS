@@ -5210,3 +5210,28 @@ conclusion, different specific reason: they don't fill this gap either.
 Reinforces lever 2 above rather than replacing it: grounding against
 *this network's own real evidence* beats reaching for someone else's
 domain-specific model trained on a different domain entirely.
+
+## SNMP device web-detection: vendor-specific admin ports beyond 80/443
+
+Built alongside `DeviceWebDetectionService` (`PUNCHLIST.md`'s "SNMP
+Devices: detect a web server, add a link if found"). The probe tries
+HTTPS, then HTTP, then a third candidate — checked live, not assumed —
+because the first two don't cover every real device on this network.
+
+**This network's own Aruba APs (AP1/AP2, `sysDescr` "AOS-8 (MODEL:
+535)") use port `4343`** for their admin UI rather than 80/443 —
+confirmed by the same live-verification discipline this file's other
+tables were built with. In practice this session, both APs actually
+answered directly on `https://<ip>/` (443) without needing the 4343
+fallback at all — plausibly a redirect or a secondary listener also
+present on 443 — so 4343 exists as a safety net for a device that has
+truly nothing on the two standard ports, not as the primary path.
+
+**Deliberately not generalized into a vendor-pattern-to-port registry**
+(e.g. matching `sysDescr` substrings like "Aruba"/"AOS-8" to their own
+port list) — with exactly one known non-standard-port case, that would
+be guessing at a shape for a pattern that doesn't exist yet. The
+trigger for building that for real is a second genuine vendor-specific
+port turning up, not this one; until then the flat three-candidate list
+in `DeviceWebDetectionService.detectWebURL` costs nothing extra for a
+device that doesn't use whichever candidate doesn't apply to it.
