@@ -312,9 +312,10 @@
   <nav class="hop-nav" id="trace">
     <a href="#hop-1">1 remote-workers</a>
     <a href="#hop-2">2 field-technicians</a>
-    <a href="#hop-3">3 corporate-it</a>
-    <a href="#hop-4">4 swift-programmers</a>
-    <a href="#hop-5">5 opensource-fans</a>
+    <a href="#hop-3">3 homelab-enthusiasts</a>
+    <a href="#hop-4">4 corporate-it</a>
+    <a href="#hop-5">5 swift-programmers</a>
+    <a href="#hop-6">6 opensource-fans</a>
   </nav>
 
   <section class="hop" id="hop-1">
@@ -324,8 +325,8 @@
         <h2>"Is it me, or is it everyone?"</h2>
         <p class="lede">A call drops. A page won't load. Your team's Slack goes quiet mid-sentence. You don't have an IT department down the hall — you have a menu bar and a guess. NMS turns the guess into an answer, in the time it takes to glance up.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> One colored dot: green means every layer is healthy, red tells you exactly which one isn't.</li>
-          <li><span class="mark">→</span> Distinguishes "your Wi-Fi dropped" from "your ISP is down" from "the site itself is down" — three very different next steps.</li>
+          <li><span class="mark">→</span> Is your Wi-Fi actually ready for that Zoom call? Check signal strength and latency before you join, not after it drops.</li>
+          <li><span class="mark">→</span> "Why does the Wi-Fi feel slow today?" — a real answer (weak signal, a saturated link, high latency), not a shrug.</li>
           <li><span class="mark">→</span> Also checks the status pages Slack, Google, Notion, and a dozen other SaaS tools publish themselves — so a real outage on their end never gets mistaken for a problem on yours.</li>
           <li><span class="mark">→</span> A quiet history of every outage, so "the internet's been flaky all week" stops being a feeling and starts being a timestamped fact.</li>
         </ul>
@@ -345,12 +346,12 @@
     <div class="hop-trace"><span class="n">2</span> field-technicians.lan <span class="rtt">1.2 ms</span></div>
     <div class="hop-grid">
       <div>
-        <h2>Walk onto any network already knowing its shape.</h2>
-        <p class="lede">You show up to a site you've never seen. NMS sweeps the subnet, finds every switch, access point, and router that speaks SNMP, traces the real path out to the internet, and identifies the ISP on the other end of it — all before you start pulling cables.</p>
+        <h2>Scope out a customer's network in a flash.</h2>
+        <p class="lede">You show up to a site you've never seen. NMS sweeps the subnet, finds every switch, access point, and router that speaks SNMP, traces the real path out to the internet, and identifies the ISP on the other end of it — all before you touch a single cable.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> Recognizes each network by fingerprint and keeps its own history separate — DHCP leases included, so you see what actually got handed out without digging through the router's own web UI, and this site never gets confused with the last one.</li>
-          <li><span class="mark">→</span> Discovers SNMP devices on the LAN and watches for restarts or firmware/software changes between visits.</li>
-          <li><span class="mark">→</span> One click to a device's own admin page once NMS finds it's running a web server — no more guessing IPs.</li>
+          <li><span class="mark">→</span> Detects what changed since your last visit — a restart, a firmware update, a device that wasn't there before.</li>
+          <li><span class="mark">→</span> Every SNMP device's software version and system uptime, at a glance — no digging through each one's own admin page first.</li>
+          <li><span class="mark">→</span> Recognizes each network by fingerprint and keeps its own history separate — DHCP leases included, so you see what actually got handed out, and this site never gets confused with the last one.</li>
         </ul>
       </div>
       <div class="panel">
@@ -364,15 +365,38 @@
   </section>
 
   <section class="hop" id="hop-3">
-    <div class="hop-trace"><span class="n">3</span> corporate-it.internal <span class="rtt">3.8 ms</span></div>
+    <div class="hop-trace"><span class="n">3</span> homelab-enthusiasts.lab <span class="rtt">2.4 ms</span></div>
+    <div class="hop-grid">
+      <div>
+        <h2>Break things on purpose. Just know when you actually did.</h2>
+        <p class="lede">A new VLAN, a Docker network spun up at 2am, a router firmware flash that seemed fine — homelabs change constantly, and half the fun is finding out what breaks. NMS runs as a continuous smoke test in the background, so when something regresses, you know within a poll cycle instead of the next time you notice a device's gone quiet.</p>
+        <ul class="feat-list">
+          <li><span class="mark">→</span> A continuous smoke test of your own network — DNS, DHCP, the gateway, every device you've told it to watch — running the whole time you're editing configs.</li>
+          <li><span class="mark">→</span> See exactly what changed right before something broke — a topology change correlated against the failure, not a coincidence you have to spot yourself.</li>
+          <li><span class="mark">→</span> One more Mac watching, zero setup — no separate monitoring stack to stand up before you can trust it.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Network Health</div>
+        <div><span class="dot dot-ok" style="display:inline-block;margin-right:6px;"></span><span class="k">Router</span> — 3 ms</div>
+        <div><span class="dot dot-ok" style="display:inline-block;margin-right:6px;"></span><span class="k">Internet</span> — 11 ms</div>
+        <div><span class="dot dot-bad" style="display:inline-block;margin-right:6px;"></span><span class="k">DNS</span> — unreachable</div>
+        <div><span class="dot dot-bad" style="display:inline-block;margin-right:6px;"></span><span class="k">pihole.lan</span> — unreachable</div>
+        <div style="margin-top:0.6rem; opacity:0.75;">Correlated with a topology change 90 seconds earlier — the VLAN edit, not a mystery.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hop" id="hop-4">
+    <div class="hop-trace"><span class="n">4</span> corporate-it.internal <span class="rtt">3.8 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>A quiet, always-on second pair of eyes.</h2>
         <p class="lede">NMS doesn't replace your monitoring stack — it sits on the machines closest to the actual problem, remembering every network they've ever joined, and correlating a slowdown against whatever changed right before it.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> Lives on the remote employee's own Mac, so they can see their Wi-Fi is fine but the VPN gateway isn't — before the Zoom call actually drops, not as a ticket in your queue afterward.</li>
+          <li><span class="mark">→</span> Helps your remote users support their own home networks — they see their Wi-Fi is fine but the VPN gateway isn't, before it becomes a ticket in your queue.</li>
           <li><span class="mark">→</span> Flags when a failure lines up with a recent topology change, instead of leaving you to notice the coincidence yourself.</li>
-          <li><span class="mark">→</span> Runs entirely locally. No account, no cloud service, nothing about your network ever leaves the machine — a real answer for anyone who has to ask.</li>
+          <li><span class="mark">→</span> No account, no cloud, no telemetry — everything runs on the Mac it's installed on. The source is fully open, so your security team can verify that directly instead of taking a vendor's word for it.</li>
         </ul>
       </div>
       <div class="panel">
@@ -384,16 +408,16 @@
     </div>
   </section>
 
-  <section class="hop" id="hop-4">
-    <div class="hop-trace"><span class="n">4</span> swift-programmers.dev <span class="rtt">6.1 ms</span></div>
+  <section class="hop" id="hop-5">
+    <div class="hop-trace"><span class="n">5</span> swift-programmers.dev <span class="rtt">6.1 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Built the way you'd want a Mac utility built.</h2>
         <p class="lede">SwiftUI for the interface, SwiftData for local persistence, and nothing else — no third-party dependencies at all. Where macOS already ships a tool that does the job right, NMS shells out to it instead of reinventing it.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> DNS lookups go straight through <code class="inline">getaddrinfo</code>; HTTP and throughput checks use <code class="inline">URLSession</code>; interface state comes from SystemConfiguration.</li>
-          <li><span class="mark">→</span> <code class="inline">ping</code>, <code class="inline">traceroute</code>, <code class="inline">snmpget</code> — the same BSD tools Darwin inherited from 4.2BSD networking, not reimplemented.</li>
-          <li><span class="mark">→</span> A design-notes file documenting the reasoning behind the non-obvious calls, kept in the repo alongside the code that made them.</li>
+          <li><span class="mark">→</span> Modern Apple technologies for the interface and logic — SwiftUI, SwiftData, Swift concurrency throughout.</li>
+          <li><span class="mark">→</span> BSD tools doing the actual network work on the backend — <code class="inline">ping</code>, <code class="inline">traceroute</code>, <code class="inline">snmpget</code>, the same ones Darwin inherited from 4.2BSD networking.</li>
+          <li><span class="mark">→</span> No dependencies. None. Not one third-party package.</li>
         </ul>
       </div>
       <div class="panel">
@@ -407,8 +431,8 @@
     </div>
   </section>
 
-  <section class="hop" id="hop-5">
-    <div class="hop-trace"><span class="n">5</span> opensource-fans.net <span class="rtt">9.4 ms</span></div>
+  <section class="hop" id="hop-6">
+    <div class="hop-trace"><span class="n">6</span> opensource-fans.net <span class="rtt">9.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Every decision, written down — including the honest parts.</h2>
