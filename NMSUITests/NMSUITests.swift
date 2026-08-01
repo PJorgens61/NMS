@@ -2,33 +2,52 @@
 //  NMSUITests.swift
 //  NMSUITests
 //
-//  Created by Paul Jorgensen on 7/22/26.
-//
 
 import XCTest
 
 final class NMSUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
+    override func tearDownWithError() throws {}
 
+    /// Replaces the Xcode-generated `testExample()`, which launched the
+    /// app and asserted nothing at all — real noise, not real coverage
+    /// (see DESIGN-NOTES.md's "Testing races" section for how this was
+    /// found: checked directly, every line still matched the unmodified
+    /// template).
+    ///
+    /// Leans on `MenuBarLabel`'s existing `#if DEBUG` auto-open-window
+    /// behavior (`NMSApp.swift`) rather than driving the actual menu-bar
+    /// status item — `MenuBarExtra` icons live outside the app's own
+    /// window hierarchy and are notoriously unreliable to query via
+    /// `XCUIApplication.statusItems` across macOS versions. UI tests
+    /// build and run Debug by default, so that auto-open already fires
+    /// on launch; this test only needs to wait for it and check real
+    /// content, not drive the click itself.
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testWindowOpensWithRealContent() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        // Generous timeout — the window auto-open is itself deferred one
+        // run loop turn (see `MenuBarLabel`'s doc comment), and the first
+        // real content only appears once the launch-time connectivity
+        // round resolves.
+        let networkHealthTile = app.staticTexts["Network Health"]
+        XCTAssertTrue(
+            networkHealthTile.waitForExistence(timeout: 10),
+            "Network Health tile should appear once the auto-opened window renders real content"
+        )
+
+        // A second, independent anchor — the footer, not the tile grid —
+        // so this doesn't just prove one lucky text match rendered but
+        // the whole window (header through footer) came up intact.
+        XCTAssertTrue(app.buttons["Quit"].exists, "footer should be present alongside the tile grid")
+
+        app.terminate()
     }
 
     @MainActor
