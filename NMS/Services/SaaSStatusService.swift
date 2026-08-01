@@ -140,11 +140,20 @@ struct SaaSStatusService {
                 let shortlink: String?
             }
             let status: Status
-            let incidents: [Incident]
+            /// Optional, not `[Incident]` — confirmed live that OpenAI's and
+            /// Notion's `summary.json` omit this key entirely when nothing's
+            /// active, rather than sending `"incidents": []` the way
+            /// Claude's does. A non-optional array made `JSONDecoder` throw
+            /// `keyNotFound` for those two every round, which surfaced as a
+            /// permanent `.unknown` ("Could not check status") despite the
+            /// endpoint itself returning a healthy 200 — same tenant-to-
+            /// tenant shape drift this file already tracks for Slack/
+            /// Zendesk, just within "Statuspage" instead of between vendors.
+            let incidents: [Incident]?
         }
         let decoded = try JSONDecoder().decode(Summary.self, from: data)
         let indicator = Indicator(rawValue: decoded.status.indicator) ?? .unknown
-        if let incident = decoded.incidents.first {
+        if let incident = decoded.incidents?.first {
             return (indicator, incident.name, incident.shortlink)
         }
         return (indicator, decoded.status.description, nil)
