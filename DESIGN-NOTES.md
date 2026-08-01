@@ -5052,3 +5052,58 @@ property, different (and currently more fragmented) client ecosystem.
 - **Scope past read-only.** Every intent sketched above is a read; does
   this ever grow a genuinely actionable one (re-run a check, clear an
   injected failure) or deliberately stay observation-only?
+
+### Evaluating the three approaches against each other, using fault injection as ground truth
+
+Raised directly as a follow-on: can `FailureInjector`/`script/scenarios.sh`
+be used to evaluate the hand-curated remediation guides *and* Claude
+*and* the on-device model, and compare them. Yes, and it's a
+genuinely strong fit — reasoned through, not yet built.
+
+**Why fault injection specifically is the right harness.** The hard
+part of evaluating any diagnosis (human, rule-based, or model-based) is
+not knowing the *correct* answer to score against — a real, organic
+outage's root cause is itself often uncertain. `FailureInjector`
+sidesteps that entirely: injecting a specific fault means the ground
+truth is known with certainty, by construction. That turns "did the
+advice-giver figure out what's actually wrong" from a guess into a real,
+scoreable check, and reuses `script/scenarios.sh`'s existing
+inject-and-assert pattern rather than needing new infrastructure.
+
+**A real contamination risk, caught before being built rather than
+after.** `FailureInjector`'s outputs are deliberately tagged
+`[injected]` (e.g. `"[injected] Simulated outage"`) specifically so a
+human never mistakes a test for a real incident. If that tag reaches an
+LLM verbatim, the model could read "this is synthetic" directly and
+short-circuit past actually reasoning from symptoms — an easy way for
+an eval to look like it's working while measuring nothing real. The tag
+needs stripping before a scenario reaches Claude or the on-device model;
+fine, and correct, to leave in for anything human-facing (the existing
+Events log, `script/scenarios.sh`'s own assertions).
+
+**This produces two different *kinds* of check, not one uniform eval:**
+
+- **Hand-curated guides are scored deterministically.** Given a known
+  injected condition, either the correct guide fires or it doesn't —
+  structurally just a regression test with extra steps, the same shape
+  as everything already in `NMSTests`, no genuine "quality" axis to
+  measure since the mapping is fixed by hand in the first place.
+- **Claude and the on-device model get a genuine quality comparison.**
+  Same injected ground truth, same diagnostic data delivered through
+  the same App Intents either backend would use, scored on real,
+  distinct axes: **correctness** (did it name the actual injected
+  fault), **specificity** (a real, actionable recommendation vs. a
+  generic-sounding one indistinguishable from guessing), and
+  **consistency** (does the same model give the same answer across
+  repeated runs of the identical scenario — a question that doesn't
+  even apply to a hand-curated guide, which is deterministic by
+  construction, but very much applies to any LLM).
+
+**What this is actually worth**: a concrete, repeatable way to find out
+whether the capability gap flagged earlier in this section (on-device
+vs. Claude on complex multi-step reasoning) is real *for this specific,
+narrow task* rather than reasoning about it in the abstract from general
+benchmarks. It's entirely possible the gap matters far less for "which
+of these five known fault patterns is this" than it does for
+open-ended, unconstrained reasoning — this harness is what would
+actually show that, one way or the other.
