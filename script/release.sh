@@ -2,6 +2,10 @@
 #
 # Build, sign, notarize, and staple a distributable NMS.app.
 #
+# Runs script/test-max.sh (NMSTests + NMSUITests + script/scenarios.sh) as a
+# preflight step before archiving -- a release is exactly the case that tier
+# exists for. See script/test-quick.sh/test-max.sh for the two named tiers.
+#
 # One-time prerequisites (see README, "Signed and notarized releases"):
 #
 #   1. A "Developer ID Application" certificate in your login keychain.
@@ -54,6 +58,15 @@ xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" --limit 1 >/dev/nu
     || fail "keychain profile '$NOTARY_PROFILE' not found or not valid.
   Create it with 'xcrun notarytool store-credentials \"$NOTARY_PROFILE\" ...'
   (see the header of this script), or set NOTARY_PROFILE to an existing one."
+
+# --- Test --------------------------------------------------------------------
+# The max tier, not quick -- a release is exactly the "complex change or
+# distribution build" case script/test-max.sh exists for. Runs before the
+# archive step below, not after: minutes spent notarizing a build that was
+# going to fail its own test suite anyway is minutes wasted.
+
+step "Running the max test tier (script/test-max.sh)"
+"$PROJECT_DIR/script/test-max.sh"
 
 # --- Build -----------------------------------------------------------------
 # 'archive' rather than 'build': a plain build narrows to the host arch even

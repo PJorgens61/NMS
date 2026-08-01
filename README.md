@@ -649,30 +649,46 @@ crafted value ending up in an argument.
 
 ## Tests
 
-Two suites, covering deliberately different ground:
+Three suites, covering deliberately different ground, organized into two
+named tiers so a build only pays for the coverage it actually needs:
 
 ```bash
-xcodebuild test -project NMS.xcodeproj -scheme NMS -destination "platform=macOS" -only-testing:NMSTests
-script/scenarios.sh
+script/test-quick.sh   # NMSTests only — a simple change, seconds
+script/test-max.sh     # NMSTests + NMSUITests + script/scenarios.sh — a
+                        # complex change, or before script/release.sh
+                        # (which runs this tier itself as a preflight step)
 ```
 
-**`NMSTests`** (38 tests, Swift Testing, runs in about a second) covers
-the logic that is *pure* — no network, no SwiftData container, no
+**`NMSTests`** (95 tests, Swift Testing, runs in well under a second)
+covers the logic that is *pure* — no network, no SwiftData container, no
 `@MainActor` view model construction, so it runs anywhere including CI:
 `SubnetCalculator`'s sweep-size guard and subnet math, `IPClassifier`'s
 RFC 1918 / CGNAT / link-local boundaries, `OverallStatus`'s severity
-tiers, `StoreSizeService`'s WAL-sidecar summing, and the two pieces of
-logic most consequential to get wrong —
+tiers, `StoreSizeService`'s WAL-sidecar summing, `SaaSStatusService`'s
+per-vendor JSON parsers (fixture-based — this is what caught the real
+OpenAI/Notion shape-drift bug, `77912bf`, and is what would catch the
+next one), `NMSApp.openStoreWithFallback`'s failure-detection guarantee,
+and the two pieces of logic most consequential to get wrong —
 `ConnectivityViewModel.isLikelyLocalPingFailure` (a false positive
 silently swallows a real outage) and `SNMPViewModel.mergingSharedMACs`
 (the VRRP shared-MAC merge).
 
-Both of those were `private` and are now `nonisolated static`, which is
-a genuine improvement rather than a testing concession: neither reads
-any instance state, so inheriting `@MainActor` from the enclosing class
-bought nothing, and the signature now says so.
+Several of those were `private` and are now `nonisolated static`/`static`,
+which is a genuine improvement rather than a testing concession: none
+read any instance state, so keeping them unreachable from `NMSTests`
+bought nothing except making a real regression untestable.
 
-**`script/scenarios.sh`** covers what unit tests can't — the live
+**`NMSUITests`** (4 tests, XCTest, about a minute) launches the real app
+and checks real content renders (`testWindowOpensWithRealContent`), plus
+a launch-performance benchmark and screenshot sweep
+(`NMSUITestsLaunchTests`). That sweep has a real, deliberately-accepted
+side effect worth knowing about before running `test-max.sh`: it
+toggles this Mac's system appearance to cover both light and dark —
+see that file's own doc comment for why an automatic restore isn't
+reliable (a TCC "Automation" permission gap), and switch back by hand
+via Control Center if a run doesn't leave things how it found them.
+
+**`script/scenarios.sh`** covers what neither suite above can — the live
 behaviour of a running app against a real network, driven through the
 failure-injection keys.
 
