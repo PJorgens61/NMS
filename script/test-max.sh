@@ -5,12 +5,6 @@
 # behavior) or before building a release for distribution (script/release.sh
 # runs this tier itself as a preflight step -- see that script).
 #
-# Heads-up: NMSUITestsLaunchTests' launch-screenshot sweep genuinely toggles
-# this Mac's system appearance (light/dark) to cover both -- a real,
-# deliberately-accepted side effect (see NMSUITestsLaunchTests.swift's own
-# doc comment), not a bug. If a run doesn't leave your Mac in the appearance
-# it started in, switch back via Control Center or System Settings.
-#
 # script/scenarios.sh needs a real network and takes about a minute; the two
 # xcodebuild suites together take about the same. Budget a couple of minutes
 # total, not the sub-second cost of test-quick.sh.
