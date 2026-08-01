@@ -4647,3 +4647,53 @@ explicitly chose not to build, not a reuse of what's there today.
   (window-foregrounding, the popover height budget) — a breaking point
   found here is plausibly not the same number on both machines, worth
   deciding whether that's even in scope to compare.
+
+### Discovery vs. confirmation: reusable sequences aren't one thing
+
+Asked directly as a follow-on: can this become a set of reusable,
+repeatable test sequences to confirm a bug fix stays fixed. Yes — but
+the honest answer splits in two, because "discover an unknown problem"
+and "confirm a diagnosed one stays fixed" want different tools, not the
+same ramp reused twice.
+
+**Deterministic fault scenarios already have exactly this pattern.**
+`script/scenarios.sh` already drives named injection keys
+(`FailureInjector`'s connectivity/interface-down/DHCP/SNMP/SaaS cases)
+and asserts on the results, repeatably, in about a minute — a SaaS
+outage or an SNMP restart is a fixed value change, not a timing
+question, so re-running the same named scenario reliably reproduces
+the same state every time. Extending this list with more named
+scenarios (including ones a stress-test ramp turns up, once understood)
+is straightforward and costs nothing new to build — same mechanism,
+more entries.
+
+**Race conditions are the harder, more honest case — the ramp finds
+them, but doesn't reliably *re*-find them.** A race depends on the
+precise relative timing between two async operations; that dependency
+is exactly *why* the speedup ramp was needed to surface one in the
+first place, not a fixed sequence of calls at normal speed. Re-running
+the same high-speed ramp again gives a good *chance* of reproducing the
+same race — useful for an empirical "did this fix make it rarer" check
+— but not the guarantee a deterministic scenario test gives. Promising
+"repeatable" for this category specifically would oversell what timer
+compression alone can do.
+
+**The real confirmation tool for an already-diagnosed race is
+different in kind, not a reuse of the ramp**: once the exact
+interleaving is understood — as it now is for the Wi-Fi/Ethernet flap
+race (`42a5079`, GitHub issue #6) — write a narrow, deterministic unit
+test that forces that exact interleaving directly. For that specific
+bug: start `refresh(isWiFi: true)`'s authorization request, call
+`refresh(isWiFi: false)` before it completes, let the deferred `Task`
+resolve, assert `currentSSID` stayed `nil` rather than getting
+re-populated. No speedup dial involved at all — the ramp's job was
+finding the race once; a test like this is what actually guarantees it
+stays fixed, on every future run, deterministically.
+
+**So, concretely, two complementary pieces, not one feature:**
+1. The speedup ramp (previous section) — a **discovery** tool, run
+   occasionally/exploratorily, probabilistic by nature for races.
+2. A per-diagnosed-race deterministic unit test, written once the
+   interleaving is understood — a **confirmation** tool, run on every
+   build via the normal test suite, same as every other regression test
+   in `NMSTests` already is.
