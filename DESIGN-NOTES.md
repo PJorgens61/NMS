@@ -37,6 +37,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Double-NAT / CGNAT detection, from a real trace at Martha's](#double-natcgnat-detection-from-a-real-trace-at-marthas)
 - [The cadence bug found in a screenshot: a real outage's recovery, delayed by its own heuristic](#the-cadence-bug-found-in-a-screenshot-a-real-outages-recovery-delayed-by-its-own-heuristic)
 - [Two more bugs from the same class, found in a second real transition](#two-more-bugs-from-the-same-class-found-in-a-second-real-transition)
+- [Remediation guides: turning a detected problem into actionable advice](#remediation-guides-turning-a-detected-problem-into-actionable-advice)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -4428,3 +4429,110 @@ without issue. As with the cadence fix, not verified against a fresh
 live repro — a second real network switch mid-session wasn't available
 while building this; both fixes are proven against the real incident
 data captured in each of the four screenshots across the two incidents.
+
+## Remediation guides: turning a detected problem into actionable advice
+
+Raised directly, alongside a demo-mode idea ("show off how NMS would
+advise a user to fix specific problems") — but the advice itself is the
+real, standalone feature; a demo mode is just a way to *show* it once it
+exists (see `FailureInjector`'s existing fault-injection keys and
+`script/scenarios.sh`'s scripted-walkthrough pattern for how that half
+would work, once there's something worth demoing).
+
+### Scope: a curated set of high-confidence mappings, not a general troubleshooter
+
+Discussed directly and deliberately narrowed. The risk with this feature
+isn't effort, it's confidence: a wrong or generic-sounding suggestion
+("try restarting your router") for a case that only superficially
+matches costs more trust than showing nothing. `ConnectionLayer` already
+distinguishes *where* a failure sits with real evidence, which is most
+of what a remediation guide needs — the design here is to build a small,
+named list of patterns this app can already tell apart cleanly, each
+paired with one specific piece of advice, rather than a general "explain
+any failure" engine that would eventually have to guess.
+
+Same instinct that kept the historical health score above to plain
+percentile/MTBF/MTTR stats instead of an anomaly-detection model:
+legible and explainable beats clever and opaque, especially for
+something that's about to tell a person what to go do.
+
+### Candidate patterns, each grounded in evidence this app already has
+
+Not exhaustive — a starting list, each cross-checked against real code
+rather than assumed:
+
+- **Router down, everything downstream also down.** `ConnectionLayer`
+  already separates `localRouter`/`network` from `peRouter`/`internet`/
+  `dns`/`http` (`OverallStatus.swift`'s label constants). Router down
+  with the rest cascading is the local-hardware case → suggest a power
+  cycle.
+- **DNS down, "Internet" (raw-IP reachability) still healthy.**
+  `ConnectivityViewModel.checks` already probes these as two genuinely
+  separate things — "Internet" pings a raw IP (`1.1.1.1`), "DNS"
+  resolves a real hostname (a random `apple.com` subdomain, confirmed
+  live in this session's own log captures) — so this isn't inferred,
+  it's two already-distinguished real checks. DNS-specific failure with
+  raw connectivity intact → suggest a different DNS server (1.1.1.1/
+  8.8.8.8) or checking the router's DHCP-assigned DNS.
+- **ISP Edge Router down, everything local healthy.** `peRouterLabel`
+  down while `localRouter`/`network` (and the LAN's own SNMP-monitored
+  switch/APs) are fine → the problem is outside this network entirely.
+  Advice here is different in kind from the others — nothing local to
+  fix, the honest guide is "check your ISP's status page or contact
+  support," not a troubleshooting step.
+- **Double-NAT/CGNAT detected.**
+  `TracerouteViewModel.leadingNonInternetHopCount` > 1 (see that
+  section above) — already built, already real. Doesn't explain an
+  *outage*, explains a standing limitation: port forwarding won't work
+  as expected. Advice: bridge mode on the first router, or ask the ISP
+  for a public IP.
+- **SNMP-detected device restart, explaining a past outage
+  retroactively.** `SNMPViewModel`'s `.restarted`/`.softwareChanged`
+  event cases (confirmed in code) already know *why* a device dropped
+  off — this isn't a guess needing a guide so much as surfacing
+  evidence that already exists but currently only reaches the Events
+  log text, not a structured "here's what happened" callout.
+- **Weak Wi-Fi signal.** Ties directly to the two Wi-Fi punchlist items
+  above (RSSI sparkline on Network Health's Network row) — once that
+  exists, a real low-RSSI reading is a legitimate pattern: suggest
+  moving closer to the AP or checking for interference. Blocked on that
+  work landing first, not buildable in isolation.
+- **A monitored SaaS service reporting a real outage while the core
+  network is fully healthy.** `SaaSStatusService`/`SaaSMonitoringViewModel`
+  already isolate this case structurally — the advice is simply "not
+  your network, nothing to fix here, wait it out," which is still worth
+  saying explicitly rather than leaving a red SaaS indicator to compete
+  for attention with an actually-actionable local problem.
+
+### A real guardrail already built, that this must respect
+
+`ConnectivityViewModel.isWithinTopologyChangeWindow`/
+`shouldSuppressAsLocalInterference` already exist specifically to avoid
+treating transient noise right after a network change as a genuine
+problem (see the "cadence bug"/"two more bugs" sections above — real
+incidents this app got wrong before these existed). A remediation guide
+must never fire advice for a layer currently suppressed as likely
+interference — advising someone to power-cycle their router because of
+a blip that's already been identified as noise would be a strictly
+worse version of the exact mistake those fixes corrected.
+
+### Open questions, not yet decided
+
+- **Where does the advice live?** Attached inline to the relevant
+  `ConnectionLayer` row (contextual, but Network Health is already a
+  tight space — see the MacBook Air height constraint section), a
+  dedicated banner above the tile grid, or a new section entirely?
+- **Static text per pattern, or does it carry live specifics** (e.g.
+  "your router at 10.0.0.1" using data already on hand, versus a
+  generic "your router")? The latter reads more convincingly but is
+  more to get right per pattern.
+- **Does a fired guide get logged as its own `AppEventRecord`**, so
+  "NMS told you to check your DNS server at 3:15pm" is itself part of
+  the durable history, the same way every other real event is?
+- **One guide at a time, or can multiple fire simultaneously** (e.g.
+  DNS down *and* weak Wi-Fi signal at once) — and if multiple, does
+  severity or evidence-confidence decide which one leads?
+- **Dismissible per-incident, or does it just clear itself once the
+  underlying `ConnectionLayer` recovers** — same "does it need its own
+  state" question the active-overrides banner already worked through
+  once for a different feature.
