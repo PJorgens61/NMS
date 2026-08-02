@@ -112,6 +112,60 @@ network-change handler (`NMSApp.swift:368-372`), the same direct-call
 pattern launch already uses — rather than depending solely on
 `onCurrentIPChanged`'s value-change guard to eventually re-trigger it.
 
+### Confirmed ISP Edge Router hop isn't scoped per network — a stale confirmation from one network silently carries over to the next
+
+- **Status**: Open
+- **Severity**: Medium — misleading, not crashing: the ISP Edge Router
+  row can show green/"confirmed" on a network where nothing was ever
+  actually confirmed, with no way to tell from the UI alone.
+- **Found in build**: `ec9b878+dirty`, read from the app's own recent
+  `bugReportCaptured` events.
+- **First reported**: field-tested live, moving from Martha's on
+  Church St. to a coffee shop ("noecafe") — asked directly whether Path
+  to Internet had auto-selected the right hop there, then confirmed
+  directly that it hadn't, in the sense that mattered.
+
+**`TracerouteViewModel.monitoredHopNumber` is a single, global
+`UserDefaults` value** (`NMS.monitoredHopNumber`, `TracerouteViewModel
+.swift:74,78`) — unlike every other piece of comparable state in this
+app (SNMP devices, DHCP history, Events, provider-edge history), which
+is all scoped per network via `networkFingerprint`. Confirmed directly
+via `defaults read Thistle.NMS NMS.monitoredHopNumber` → `3`, and via
+`ui-state.log`:
+
+```
+17:09:07  monitoredHopNumber = 2     (home network — single-NAT, hop 2 is the real edge)
+17:54:07  monitoredHopNumber = nil  (cleared while transitioning to Martha's)
+17:54:11  monitoredHopNumber = 3    (manually re-confirmed at Martha's — double-NAT, hop 3 is the real edge there)
+```
+
+That `3` is still what's stored now, on a third, unrelated network
+(the coffee shop) — nothing cleared or re-asked when the network
+changed again. **It happens to still read correctly here only by
+coincidence**: this coffee shop's trace independently turns out to have
+the same shape as Martha's (two private hops, first public address at
+hop 3) — confirmed by comparing both real traces directly, not
+assumed. Had this network's topology been shaped differently (say, a
+simple single-NAT setup where hop 2 is the real edge, or a longer
+corporate-style chain), hop 3 would have silently been monitored and
+shown as "confirmed" regardless of whether it was actually the ISP
+edge on *this* network at all.
+
+**Root cause, by inspection**: `monitorHop(_:)` writes directly to a
+fixed `UserDefaults` key with no `networkFingerprint` tagging, and
+`init` reads that same fixed key back on every launch
+(`TracerouteViewModel.swift:76-78`) — there's no per-network table the
+way `SNMPDeviceRecord`/`AppEventRecord` already use, just one persisted
+integer, global across every network this Mac ever joins.
+
+**Likely fix, not yet attempted**: scope `monitoredHopNumber` per
+`networkFingerprint`, the same pattern already established elsewhere
+in this codebase (see DESIGN-NOTES.md's "Per-network device scoping"),
+so confirming a hop on one network never applies it to another —
+falling back to `suggestedEdgeHop`/"Not confirmed" on any network where
+nothing's been explicitly confirmed yet, rather than whatever the last
+network's confirmation happened to be.
+
 ### Footer buttons truncate ("Expert Mod…", "Networks…") in the popover
 
 - **Status**: Open
