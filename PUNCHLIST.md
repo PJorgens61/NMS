@@ -8,6 +8,19 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Add GitHub to the SaaS monitoring list.** Requested directly.
+  GitHub's status page (`githubstatus.com`) is Atlassian Statuspage-hosted
+  like most of the existing list, so this should be a plain
+  `MonitoredService(name: "GitHub", endpoint: URL(string:
+  "https://www.githubstatus.com/api/v2/summary.json")!, shape:
+  .statuspage)` entry in `SaaSStatusService.monitoredServices` — confirm
+  the exact endpoint/shape live via `curl` first, per this file's own
+  discipline (`SaaSStatusService`'s doc comment: "confirmed live via
+  `curl`, not assumed from documentation"), the same way every other
+  entry in that list was verified. Also update
+  `PreferencesView.swift`'s "Periodically checks the public status pages
+  of..." description text to include it.
+
 - [ ] **The in-app Screenshot/Bug Report capture doesn't render the same
   layout the live app uses — raised directly ("the screenshots don't
   seem to work... i can do manual screenshots faster"), and just caused
