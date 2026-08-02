@@ -8,6 +8,50 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Track known per-ISP hop patterns to speed up/sharpen
+  recognition on future connections, instead of re-deriving everything
+  from scratch on every trace.** Raised directly, prompted by exactly
+  the finding right above: `10.1.10.1`/`docsis-gateway.hsd1.ca.comcast.net`
+  showed up as hop 2 on two real, physically different Comcast
+  connections this session (Martha's, then a coffee shop). Recognizing
+  that pattern on sight — "this specific address/hostname shape is
+  Comcast's own DOCSIS infrastructure, not a customer's extra router" —
+  would let `multipleNATLayersDetected` say something more specific and
+  confident than today's necessarily hedged "could be an extra router
+  of yours, or your ISP's — can't tell which from this alone," at least
+  for ISPs/patterns already known.
+
+  **Two different shapes this could take, real tradeoff between them**:
+  - **A small, static, curated table shipped with the app** — same
+    precedent as `SaaSStatusService.monitoredServices`: a hardcoded
+    list, built from real findings (this session's two Comcast data
+    points would be the first real entries), each one verified against
+    an actual connection before being added, not guessed. Works
+    immediately, even the first time a user's ever on that ISP —
+    but only as current and complete as whatever's been manually
+    curated, and needs updating as ISPs change their own infrastructure.
+  - **Local, per-installation learning** — since this Mac's own
+    `SnapshotStore` already tracks history across networks
+    (`KnownNetwork`, `ProviderEdgeRecord`), it could notice "I've seen
+    this exact hop address paired with this RDAP organization before,
+    on a different network" without any curated list at all. Zero
+    maintenance, but only helps after *this* installation has already
+    encountered the pattern once itself — no help on a brand-new ISP or
+    a fresh install, unlike the curated table.
+
+  Not mutually exclusive — the curated table could ship a useful
+  starting set for common ISPs, while local learning fills in whatever
+  isn't already known. Both plug into the same two places: sharpening
+  `multipleNATLayersDetected`'s message text for recognized patterns,
+  and as a confidence signal for the RDAP-organization-walk
+  auto-configuration idea elsewhere in this file — recognizing "this
+  hop is known ISP infrastructure" is a real, independent data point
+  when deciding whether an org-name change actually marks the ISP edge.
+  Not proposing to build either shape yet — this is still just the
+  idea, prompted by real, repeated evidence that at least one such
+  pattern (Comcast's) is stable enough across locations to be worth
+  recognizing at all.
+
 - [ ] **A "Corporate" mode feature flag — avoids probes that could trip
   a security alarm on an actively managed network, and separately
   changes the ISP-detection logic.** Raised directly. Two distinct
@@ -93,6 +137,24 @@ new ones as they come up.
   translation point is invisible to traceroute, farther out than
   anything reached, even though only "2 hops" of private addressing
   were counted.
+
+  **Confirmed a second time, at a different real location (a coffee
+  shop, "noecafe"), same ISP — this is a recognized, recurring Comcast
+  pattern, not a one-off**: hop 2 there was `10.1.10.1`, hostname
+  `docsis-gateway.hsd1.ca.comcast.net` — the *exact same private address*
+  as Martha's hop 2, a completely different physical connection. That's
+  real evidence Comcast reuses `10.1.10.1` as a standardized internal
+  label for the DOCSIS gateway's management interface across many
+  subscriber connections, not a shared customer-facing NAT pool — while
+  the actual public IP one hop further out differed between the two
+  locations (`96.120.89.157` at the cafe vs. `96.120.90.213` at
+  Martha's), confirming each connection still gets its own distinct
+  public identity. Worth noting directly: `10.1.10.1` itself is an
+  ordinary RFC1918 address, not in the CGNAT-reserved range
+  (`100.64.0.0/10`) `IPClassifier.isCGNAT` checks for — so this
+  correctly stays the hedged "could be an extra router of yours, or
+  your ISP's" message today, not the confirmed-CGNAT one, which is the
+  right call given what these two real traces actually show.
 
   **Both pieces of data this needs already exist in the app,
   unconnected**: `TracerouteViewModel.hops` (each hop's address) and
