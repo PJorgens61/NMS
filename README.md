@@ -358,6 +358,15 @@ current status description, and a link icon straight to that service's
 status page. Which services are checked is configurable in
 Preferences — see "Experimental features" below.
 
+**"Your Own Sites"** (also in Preferences) adds any URL you choose, in
+a visually separate group below the curated list. A different, weaker
+signal on purpose: there's no real status API for an arbitrary site, so
+this is a plain reachability check ("did it answer at all"), not a
+parsed vendor incident — and unlike the curated list, it's genuinely
+network-dependent (a restrictive network can make a perfectly healthy
+site look unreachable), so a failure here deliberately never logs an
+Events entry the way a curated-list outage does.
+
 ### Correlation
 
 A connectivity failure gets a `*` when it lands within 90 seconds (either
@@ -417,6 +426,10 @@ defaults write Thistle.NMS FeatureSaaSMonitoring -bool false
   with no customization checks every service in the list; once any
   box is touched, newly-added services stop being included
   automatically until re-checked (or "Select All" is clicked again).
+  A second sub-preference, `FeatureUserAddedSaaSSites`, holds your own
+  added URL+nickname pairs (JSON-encoded, since it isn't a plain
+  `[String]`) — see "SaaS Status" above for how those are checked
+  differently from the curated list.
 
 Delete a key (e.g. `defaults delete Thistle.NMS FeatureSNMPDevices`) to
 go back to its default.

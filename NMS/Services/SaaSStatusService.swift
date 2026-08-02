@@ -42,6 +42,13 @@ struct SaaSStatusService {
             case slack
             case zendesk
             case googleIncidents
+            /// A user-added site (`SaaSMonitoringViewModel
+            /// .checkUserAddedSites`), not one of the curated table above
+            /// — there's no real status API to parse, just "did the
+            /// request succeed." See `checkStatus`'s dispatch for why
+            /// that's enough on its own: reaching this case at all means
+            /// the shared 200-check already passed.
+            case reachabilityOnly
         }
         let name: String
         let endpoint: URL
@@ -129,15 +136,28 @@ struct SaaSStatusService {
         // response times.
         request.timeoutInterval = 5
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse else {
             throw SaaSStatusError.unexpectedResponse
         }
+
+        // Handled first and separately: a user-added site needs the
+        // status code itself as its whole signal (any 2xx counts, not
+        // just exactly 200 the way a real status API's JSON body does),
+        // and no body parsing at all, unlike every curated shape below.
+        if service.shape == .reachabilityOnly {
+            guard (200...299).contains(http.statusCode) else { throw SaaSStatusError.unexpectedResponse }
+            return CheckResult(indicator: .none, description: "Reachable", url: service.endpoint.absoluteString)
+        }
+
+        guard http.statusCode == 200 else { throw SaaSStatusError.unexpectedResponse }
         let parsed: (indicator: Indicator, description: String, specificURL: String?)
         switch service.shape {
         case .statuspage: parsed = try Self.parseStatuspage(data)
         case .slack: parsed = try Self.parseSlack(data)
         case .zendesk: parsed = try Self.parseZendesk(data)
         case .googleIncidents: parsed = try Self.parseGoogleIncidents(data, service: service)
+        case .reachabilityOnly:
+            preconditionFailure("reachabilityOnly is handled and returned above, before this switch")
         }
         return CheckResult(
             indicator: parsed.indicator,

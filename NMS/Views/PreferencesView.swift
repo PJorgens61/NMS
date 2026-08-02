@@ -40,6 +40,13 @@ struct PreferencesView: View {
     /// that rather than "none."
     @State private var enabledSaaSServices: Set<String> =
         FeatureFlags.saasEnabledServices ?? Set(SaaSStatusService.monitoredServices.map(\.name))
+    /// A user's own added sites — separate list, separate interaction
+    /// shape from the checkbox picker above (add/remove new entries
+    /// rather than toggle existing ones). Same plain-`@State`-plus-manual-
+    /// `UserDefaults`-write reasoning as `enabledSaaSServices`.
+    @State private var userAddedSites: [FeatureFlags.UserAddedSaaSSite] = FeatureFlags.userAddedSaaSSites
+    @State private var newSiteNickname = ""
+    @State private var newSiteURLText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -69,6 +76,7 @@ struct PreferencesView: View {
             // switch — a real sub-preference under the one above.
             if saasMonitoringEnabled {
                 saasServicePicker
+                userAddedSitesSection
             }
 
             // Both toggles apply live as of `FeatureFlags.snmpDevices`/
@@ -173,6 +181,92 @@ struct PreferencesView: View {
     /// `enabledSaaSServices`'s own doc comment.
     private func persistSaaSServices() {
         UserDefaults.standard.set(Array(enabledSaaSServices), forKey: FeatureFlags.saasEnabledServicesKey)
+    }
+
+    /// A user's own sites, checked for plain reachability rather than a
+    /// real status page — see `SaaSMonitoringViewModel
+    /// .checkUserAddedSites`'s doc comment for why these are reported
+    /// separately in the live UI, not folded into the curated list above:
+    /// this is a weaker, network-dependent signal ("is this domain
+    /// answering right now"), not a real vendor incident, and showing it
+    /// identically to the curated table would overstate its confidence.
+    /// Indented under "SaaS Monitoring" the same way the curated picker
+    /// is, since it's a sub-preference of the same toggle, not a separate
+    /// feature.
+    @ViewBuilder
+    private var userAddedSitesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Your own sites")
+                .font(.system(size: 11, weight: .semibold))
+            caption("Checked for plain reachability only — not a real status page, just \"did it answer.\"")
+
+            ForEach(userAddedSites) { site in
+                HStack {
+                    Text(site.nickname)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(site.url)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button {
+                        removeUserAddedSite(site)
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(site.nickname)")
+                    .accessibilityIdentifier("preferences.saas.userSite.remove.\(site.id)")
+                }
+                .font(.system(size: 11))
+            }
+
+            HStack {
+                TextField("Nickname", text: $newSiteNickname)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("preferences.saas.userSite.nickname")
+                TextField("https://example.com", text: $newSiteURLText)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("preferences.saas.userSite.url")
+                Button("Add") { addUserAddedSite() }
+                    .disabled(!isNewSiteValid)
+                    .accessibilityIdentifier("preferences.saas.userSite.add")
+            }
+            .font(.system(size: 11))
+        }
+        .padding(.leading, 16)
+    }
+
+    /// A real `http`/`https` URL specifically — `URL(string:)` alone
+    /// accepts far more than that (a bare word with no scheme parses
+    /// successfully as a relative reference), which would silently save
+    /// something `URLSession` can't actually fetch.
+    private var isNewSiteValid: Bool {
+        !newSiteNickname.trimmingCharacters(in: .whitespaces).isEmpty
+            && URL(string: newSiteURLText)?.scheme.map { $0 == "http" || $0 == "https" } == true
+    }
+
+    private func addUserAddedSite() {
+        guard isNewSiteValid else { return }
+        userAddedSites.append(
+            FeatureFlags.UserAddedSaaSSite(
+                url: newSiteURLText.trimmingCharacters(in: .whitespaces),
+                nickname: newSiteNickname.trimmingCharacters(in: .whitespaces)
+            )
+        )
+        newSiteNickname = ""
+        newSiteURLText = ""
+        persistUserAddedSites()
+    }
+
+    private func removeUserAddedSite(_ site: FeatureFlags.UserAddedSaaSSite) {
+        userAddedSites.removeAll { $0.id == site.id }
+        persistUserAddedSites()
+    }
+
+    private func persistUserAddedSites() {
+        FeatureFlags.setUserAddedSaaSSites(userAddedSites)
     }
 
     /// `.fixedSize(horizontal: false, vertical: true)` is the load-bearing

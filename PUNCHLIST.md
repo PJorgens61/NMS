@@ -366,39 +366,43 @@ new ones as they come up.
   `DeviceWebDetectionService`, `ISPIdentityService`/`ISPIdentityViewModel`,
   `SaaSMonitoringViewModel`, and `SaaSStatusService` itself — all added.
 
-- [ ] **Let users add their own website(s) to monitor, via Preferences.**
-  Explicitly requested — reverses a scope cut made earlier this session
-  (a prior punchlist entry, since removed as redundant, deliberately
-  ruled this out as "materially bigger, separate feature"). Different
-  problem from the curated table above: a random user-supplied URL
-  can't be assumed to be Statuspage-shaped JSON the way every curated
-  entry is, so this needs the **reachability-only** fallback
-  `DESIGN-NOTES.md` already designed for Workday/ADP/M365 but never
-  actually built — a plain `HTTPCheckService`-style up/down check
-  against a URL, not real status-page parsing. This would be the first
-  real implementation of that shape.
-  Shape of the work:
-  - A new `SaaSStatusService.MonitoredService.Shape` case (e.g.
-    `.reachabilityOnly`) whose "parser" is just "did the request
-    succeed" — `.none` on 2xx, `.unknown` (not `.major`/`.critical`;
-    a failed fetch to a URL with no real status API doesn't carry
-    Statuspage's severity grading) otherwise, matching how the
-    Workday/ADP/M365 fallback was already scoped in design.
-  - Preferences UI: a distinct add/remove list (URL entry + optional
-    nickname, validated as a real URL before saving), separate from the
-    existing curated-table checklist — these are two different
-    interaction shapes (toggle existing vs. add new), not one list.
-  - Storage: `UserDefaults`, same mechanism `saasEnabledServices`
-    already uses for `[String]` (not `@AppStorage`-compatible) — likely
-    a `[String: String]` or small `Codable` struct array (URL +
-    nickname) rather than a bare string array.
-  - Does a user-added entry get folded into the same
-    `SaaSMonitoringViewModel.statuses` list as the curated ones (one
-    unified Events/rollup treatment), or does "reachability only, no
-    real status API" need its own visually distinct row so it isn't
-    mistaken for a higher-confidence status-page-backed check — same
-    open question `DESIGN-NOTES.md` already raised for Workday/ADP/M365
-    specifically.
+- [x] ~~Let users add their own website(s) to monitor, via
+  Preferences.~~ **Built.** The three open questions this item raised
+  all got resolved during implementation, not left open:
+  - New `Shape.reachabilityOnly` case — reuses `checkStatus`'s existing
+    fetch entirely (no new HTTP code), just handled before the shared
+    `== 200` guard since it accepts any 2xx and needs no body parsing:
+    `.none`/"Reachable" on success, `.unknown` on anything else (via
+    the caller's existing catch branch, unchanged).
+  - Storage: `FeatureFlags.UserAddedSaaSSite` (`Codable`, `url` +
+    `nickname`), JSON-encoded into `UserDefaults` `Data` under
+    `FeatureUserAddedSaaSSites` — the `[String: String]`-or-`Codable`-array
+    question resolved as the latter.
+  - **Visually distinct, not folded into the curated list** — a new
+    `SaaSMonitoringViewModel.userAddedStatuses`, checked by its own
+    `checkUserAddedSites()` on the same timer cadence but *never*
+    logging Events transitions the way `apply()` does for the curated
+    list. That's not an oversight, it's the point: per DESIGN-NOTES.md's
+    "Does this vary by network?", a plain reachability check is
+    genuinely network-dependent (a restrictive network can fail it with
+    nothing wrong at the site), so logging a down/recovered pair here
+    could misreport "blocked on this network" as "this site went down
+    and came back" once roaming elsewhere. Rendered in the live UI as a
+    separate "Your Own Sites" group below the curated rows, same
+    reasoning.
+  - Preferences UI: a real add ( nickname + URL, `http`/`https`-validated
+    before the button enables) / remove list, separate from the curated
+    checkboxes above it.
+
+  **Honest gap: the add/remove UI itself wasn't click-verified live** —
+  `System Events`' `entire contents` walk was unreliable this session
+  (see `CLAUDE.md`) and repeated retries didn't resolve it. Build is
+  clean, the full test suite passes, and the actual check *logic*
+  (`FeatureFlags` storage round-trip, `SaaSStatusService.checkStatus`'s
+  `.reachabilityOnly` path, `SaaSMonitoringViewModel
+  .checkUserAddedSites`) was traced by hand rather than guessed at, but
+  a real click-through of the Preferences form itself is still worth
+  doing manually before fully trusting it.
 
 - [ ] **Popover should roll up non-green SaaS statuses.** SaaS monitoring
   is window-only per `SectionLayout`'s audience split (popover = "can I

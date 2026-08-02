@@ -34,6 +34,7 @@ enum FeatureFlags {
     static let snmpDevicesKey = "FeatureSNMPDevices"
     static let saasMonitoringKey = "FeatureSaaSMonitoring"
     static let saasEnabledServicesKey = "FeatureSaaSEnabledServices"
+    static let userAddedSaaSSitesKey = "FeatureUserAddedSaaSSites"
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by
@@ -97,5 +98,37 @@ enum FeatureFlags {
     static var saasEnabledServices: Set<String>? {
         guard let stored = defaults.array(forKey: saasEnabledServicesKey) as? [String] else { return nil }
         return Set(stored)
+    }
+
+    /// A user's own site, checked for plain reachability rather than a
+    /// real vendor status page — see `SaaSMonitoringViewModel
+    /// .checkUserAddedSites`'s doc comment for why this is deliberately a
+    /// separate, simpler check than the curated list above. `Identifiable`
+    /// by `url` since that's the one field a user can't leave blank or
+    /// duplicate meaningfully; `nickname` is just a display label.
+    struct UserAddedSaaSSite: Codable, Identifiable, Equatable {
+        var id: String { url }
+        let url: String
+        let nickname: String
+    }
+
+    /// `[Codable]` isn't one of `@AppStorage`'s supported types (same
+    /// reason `saasEnabledServices` above is a plain array, not `[String]`
+    /// either) — stored as JSON `Data` instead, empty array on any
+    /// decode failure (a corrupted or pre-migration value) rather than
+    /// crashing or surfacing an error nobody would see.
+    static var userAddedSaaSSites: [UserAddedSaaSSite] {
+        guard
+            let data = defaults.data(forKey: userAddedSaaSSitesKey),
+            let sites = try? JSONDecoder().decode([UserAddedSaaSSite].self, from: data)
+        else {
+            return []
+        }
+        return sites
+    }
+
+    static func setUserAddedSaaSSites(_ sites: [UserAddedSaaSSite]) {
+        guard let data = try? JSONEncoder().encode(sites) else { return }
+        defaults.set(data, forKey: userAddedSaaSSitesKey)
     }
 }

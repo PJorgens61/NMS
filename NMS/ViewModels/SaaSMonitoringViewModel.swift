@@ -24,6 +24,14 @@ final class SaaSMonitoringViewModel: ObservableObject {
     @Published private(set) var statuses: [ServiceStatus] = [] {
         didSet { UIStateLogger.log("SaaSMonitoringViewModel.statuses", statuses) }
     }
+    /// The user's own added sites (Preferences), checked for plain
+    /// reachability — deliberately a separate published list from
+    /// `statuses` above, not merged in, so the UI can render them
+    /// visually distinct from the curated table. See
+    /// `checkUserAddedSites`'s doc comment for why.
+    @Published private(set) var userAddedStatuses: [ServiceStatus] = [] {
+        didSet { UIStateLogger.log("SaaSMonitoringViewModel.userAddedStatuses", userAddedStatuses) }
+    }
 
     private let service = SaaSStatusService()
     private let snapshotStore: SnapshotStore
@@ -55,6 +63,9 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// round — a real gap, since nothing prompted an immediate one the
     /// way toggling the feature on/off already does via `activate()`.
     private var lastKnownEnabledServices: Set<String>?
+    /// Same reasoning as `lastKnownEnabledServices`, for the user-added
+    /// site list instead of the curated selection.
+    private var lastKnownUserAddedSites: [FeatureFlags.UserAddedSaaSSite] = []
     private var featureFlagObserver: NSObjectProtocol?
     /// Previous round's indicator per service name, so a transition (up →
     /// down, or back) logs once instead of every round a state persists —
@@ -68,6 +79,9 @@ final class SaaSMonitoringViewModel: ObservableObject {
     /// `NetworkQualityViewModel`, `PublicIPViewModel`, `DHCPLeaseViewModel`)
     /// already guards this way; this one didn't.
     private var isChecking = false
+    /// Same reasoning as `isChecking`, for `checkUserAddedSites`'s own
+    /// independent task group.
+    private var isCheckingUserAdded = false
 
     /// A third-party API on the other end, same reasoning
     /// `PublicIPViewModel.checkInterval` gives for its own 300s: politeness
@@ -105,6 +119,7 @@ final class SaaSMonitoringViewModel: ObservableObject {
     private func activate() {
         isActive = true
         lastKnownEnabledServices = FeatureFlags.saasEnabledServices
+        lastKnownUserAddedSites = FeatureFlags.userAddedSaaSSites
         // Accelerated by NMSPollSpeedup like the connectivity/SNMP/DHCP/
         // traceroute timers, unlike PublicIPViewModel's (whose cadence is
         // "partly politeness," nothing testable depends on its
@@ -115,9 +130,11 @@ final class SaaSMonitoringViewModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.checkInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkAll()
+                self?.checkUserAddedSites()
             }
         }
         checkAll()
+        checkUserAddedSites()
     }
 
     /// The flag flipping off live, mirroring `activate()`. Stops the
@@ -159,6 +176,9 @@ final class SaaSMonitoringViewModel: ObservableObject {
             } else if self.isActive, FeatureFlags.saasEnabledServices != self.lastKnownEnabledServices {
                 self.lastKnownEnabledServices = FeatureFlags.saasEnabledServices
                 self.checkAll()
+            } else if self.isActive, FeatureFlags.userAddedSaaSSites != self.lastKnownUserAddedSites {
+                self.lastKnownUserAddedSites = FeatureFlags.userAddedSaaSSites
+                self.checkUserAddedSites()
             }
         }
     }
@@ -251,6 +271,63 @@ final class SaaSMonitoringViewModel: ObservableObject {
         }
         if loggedAny {
             onEventLogged?()
+        }
+    }
+
+    /// Checks the user's own added sites (Preferences) for plain
+    /// reachability — deliberately separate from `checkAll()`/`apply()`
+    /// above rather than merged into the curated list's task group, for
+    /// a real reason, not just code organization: per DESIGN-NOTES.md's
+    /// "Does this vary by network?", a vendor's own status-page result
+    /// is a global fact (true everywhere at once), but a plain
+    /// reachability check to an arbitrary site is genuinely
+    /// network-dependent — a restrictive office network or a captive
+    /// portal can make this fail with nothing actually wrong with the
+    /// site itself. Logging an Events entry the way `apply()` does for
+    /// the curated list would risk exactly the misreport DESIGN-NOTES.md
+    /// warned about: "blocked here" read as "this site is down," then
+    /// "recovered" once roaming to a network where it was never blocked
+    /// — a false transition pair for a site that never actually changed.
+    /// So this never logs anything and never tracks a previous-indicator
+    /// transition; `userAddedStatuses` is purely a live, in-the-moment
+    /// reading.
+    ///
+    /// Reuses `SaaSStatusService.checkStatus` for the actual fetch (via
+    /// the `.reachabilityOnly` shape) — same task-group shape as
+    /// `checkAll()`, just without the parts that shape doesn't need.
+    func checkUserAddedSites() {
+        guard !isCheckingUserAdded else { return }
+        let sites = FeatureFlags.userAddedSaaSSites
+        guard !sites.isEmpty else {
+            userAddedStatuses = []
+            return
+        }
+        let monitored = sites.compactMap { site -> SaaSStatusService.MonitoredService? in
+            guard let url = URL(string: site.url) else { return nil }
+            return SaaSStatusService.MonitoredService(name: site.nickname, endpoint: url, shape: .reachabilityOnly)
+        }
+        isCheckingUserAdded = true
+        let service = self.service
+        Task { @MainActor [weak self] in
+            let results = await withTaskGroup(of: (offset: Int, status: ServiceStatus).self) { group in
+                for (index, site) in monitored.enumerated() {
+                    group.addTask {
+                        do {
+                            let result = try await service.checkStatus(site)
+                            return (index, ServiceStatus(name: site.name, indicator: result.indicator, description: result.description, url: result.url))
+                        } catch {
+                            return (index, ServiceStatus(name: site.name, indicator: .unknown, description: "Not reachable", url: site.endpoint.absoluteString))
+                        }
+                    }
+                }
+                var ordered = [ServiceStatus?](repeating: nil, count: monitored.count)
+                for await result in group {
+                    ordered[result.offset] = result.status
+                }
+                return ordered.compactMap { $0 }
+            }
+            self?.isCheckingUserAdded = false
+            self?.userAddedStatuses = results
         }
     }
 }
