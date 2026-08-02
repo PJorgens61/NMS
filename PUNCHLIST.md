@@ -8,6 +8,130 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **A local Wi-Fi stress test: many concurrent MTU-sized ping
+  streams to the local router for ~1 second, plus TCP/UDP ideas for
+  testing further out.** Raised directly, motivated by validating the
+  local Wi-Fi specifically *before* trusting any test that crosses the
+  internet — several test networks used this session had slow DSL,
+  where an internet-facing test can't tell you whether a problem is
+  local or upstream. Small networks in particular have no one
+  monitoring them, so a self-triggered local check has real value on
+  its own. The local router is already a known address with no new
+  discovery work (`traceroute` hop 1 / `NetworkIdentityViewModel`'s
+  recognized gateway).
+
+  **Concurrency, not flood mode, is the actual mechanism — resolved
+  directly over the course of this discussion.** The first instinct
+  (`ping -f`, true kernel flood mode) is a dead end: it requires root,
+  which this app doesn't have and shouldn't ask for. The real design
+  is **N independent concurrent streams, each just repeated `ping -c 1
+  -s 1472 -D`** (`-s 1472` for a full 1500-byte MTU after the 28-byte
+  IP+ICMP header, `-D` so an oversized packet fails loudly instead of
+  silently fragmenting) — each stream fires its next packet the
+  instant its own previous reply lands, independent of every other
+  stream, for a fixed ~1 second window. No `-f`, no elevated
+  privileges, at any concurrency.
+
+  **Why concurrency is what makes this work at all**: a single ping
+  stream is fundamentally round-trip-time-bound, not bandwidth-bound —
+  at a typical ~2ms local RTT, one stream tops out around 500 packets/
+  sec, which at MTU size is only ~6 Mbps, nowhere near enough to
+  stress a real Wi-Fi link. N independent concurrent streams multiply
+  that roughly linearly (~20 streams ≈ 120 Mbps) since each is its own
+  independent request/reply chain — the only reason this approach can
+  generate meaningful load at all. There's no fixed load-percentage
+  target here (raised and then explicitly dropped as a requirement) —
+  the point is generating *real, sustained* load for about a second
+  and seeing how the link responds, not hitting a specific number.
+
+  **What this can and can't actually reveal — worth being precise
+  about, prompted by a comparison to classic T-1 BERT (bit-error-rate)
+  testing with specialized bit patterns.** This is a real, useful, but
+  *different* mechanism, not the same technique: BERT uses deliberately
+  chosen worst-case bit patterns (all-1s, alternating, pseudorandom) to
+  stress specific physical-layer failure modes; `ping`'s payload is
+  just an incrementing byte pattern, not a designed stress pattern. It
+  doesn't replicate BERT. What concurrent MTU-sized load genuinely does
+  expose that small pings don't: packet loss/corruption specifically
+  under sustained large-frame load — a marginal Wi-Fi signal often
+  handles small packets fine while dropping or retransmitting large
+  ones once the link is loaded, a real and different failure mode from
+  what one small ping can show.
+
+  **Chased down directly: is there an 802.11-specific "best" ping
+  payload bit pattern the way BERT has one for T-1? No — and the
+  reason is a genuine, checked-not-assumed answer, not a shrug.**
+  Every 802.11 payload passes through a mandatory PLCP scrambler (a
+  length-127 PRBS, polynomial x⁷+x⁴+1) that XORs every payload bit with
+  a pseudo-random sequence before it ever reaches the PHY/modulation
+  stage — the standard's own built-in equivalent of what BERT patterns
+  manually engineer for unscrambled serial lines. Whatever content
+  `ping` puts in its payload gets whitened into essentially the same
+  statistical bit distribution before transmission regardless, so
+  payload-content tuning is a dead end at this layer; there's no lever
+  available for the app to pull here. Independent confirmation from
+  the other direction: ["Are All Bits
+  Equal?"](https://ieeexplore.ieee.org/document/6361252/) (IEEE
+  Trans. Networking, also on
+  [ResearchGate](https://www.researchgate.net/publication/260353749_Are_All_Bits_Equal-Experimental_Study_of_IEEE_80211_Communication_Bit_Errors))
+  found 802.11 bit errors correlate with *position within the frame*
+  (a roughly linear relationship, plus some hardware-dependent
+  patterns), not with bit value — consistent with the scrambler already
+  washing out content-dependent effects. This actually validates the
+  design above rather than changing it: MTU-sized packets matter
+  because they're larger and spend longer on air (more exposure to a
+  fade or interference burst mid-transmission), not because of what's
+  in them — size and volume are the real, available knobs, which is
+  exactly what concurrent MTU-sized streams already target.
+
+  **Two practical limits to design around, not just build past**:
+  1. **Process-spawn overhead becomes the real ceiling at high
+     concurrency.** Each stream is a real subprocess
+     (`Process()`/fork+exec, the same mechanism `ConnectivityService`
+     already uses) — above some concurrency count, the test starts
+     measuring this Mac's own process-spawn rate instead of the Wi-Fi
+     link. 20-30 concurrent streams for ~1 second is almost certainly
+     fine; hundreds probably isn't. Needs an empirical check on real
+     hardware before picking a default.
+  2. **Still worth a clear "this generates real traffic" framing**,
+     even bounded to ~1 second and root-free — this app's first
+     feature whose whole point is deliberately loading the network
+     rather than quietly observing it, the same category of "needs an
+     explicit yes" already flagged for the external-firewall-checker
+     idea further down, just at a much smaller/safer scale (1 second,
+     LAN-only, no elevated privileges) than a sustained flood would be.
+
+  **What the test should actually report**: aggregate sent/received
+  counts across every stream (loss %) and RTT distribution (min/avg/
+  max, maybe stddev) during the burst — that's the real diagnostic
+  payoff, not just confirmation that load was generated.
+
+  **TCP/UDP, for testing further out than the local hop — separate
+  from the local Wi-Fi test above, and less developed.** TCP/UDP echo
+  (RFC 862/863) is confirmed dead on modern equipment — raised
+  directly ("I think that idea is no longer supported"), matches this
+  app's own existing HTTP-based approach elsewhere. What actually works
+  instead:
+  - **TCP**: no echo needed — open a real connection to something
+    guaranteed to answer and push/pull a bulk transfer, timed. This is
+    exactly `NetworkQualityService`'s existing probe/full-transfer
+    shape, just pointed at a LAN target (a router's admin HTTPS port,
+    confirmed reachable via the same web-detection work
+    `DeviceWebDetectionService` already does) rather than Cloudflare's
+    endpoint.
+  - **UDP**: trivial to send, but proves only "can send," not
+    "arrived" — no built-in delivery confirmation, so measuring loss
+    needs a cooperating receiver. Nothing on a stock router does this;
+    the external firewall/ACL checker idea further down is the one
+    already-sketched mechanism that could, repurposed for load/loss
+    measurement instead of port-reachability.
+
+  **Still not decided**: whether the TCP/UDP half ships standalone or
+  waits on the external-checker project (for UDP's receive-side
+  requirement specifically) — a scoping question raised and not yet
+  answered. Doesn't block the local Wi-Fi ping-stress test above, which
+  stands on its own with no external dependency.
+
 - [ ] **Give Apple's `networkQuality` its own tile, separate from
   Speed Test — raised directly, worried it's currently easy to
   overlook.** Today both throughput sources share one "Speed Test"
