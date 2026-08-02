@@ -129,6 +129,92 @@ new ones as they come up.
   route specifically is viable (verified live), narrower and simpler
   than the original vaguer "some external Mermaid tool" idea.
 
+  **Follow-up: actually mapped every non-SNMP device to its real
+  upstream device (Switch/ap1/ap2), not just flattened under Router —
+  and confirmed two things worth recording.** Neither AP implements
+  `dot1dBasePortIfIndex` (checked, unsupported), but each AP's non-zero
+  `dot1qTpFdbPort` values matched its own `ifDescr` directly (`2`=
+  `eth1`, `50`=`radio0_ssid_id0`, `51`=`radio0_ssid_id1`,
+  `71`=`radio1_ssid_id1` — real interfaces), while port `0` — which
+  nearly every MAC showed, including the router's own — has no matching
+  `ifDescr` entry at all, the same "shared port = uplink visibility,
+  not attachment" shape as the switch's Gi3. Trusting only non-zero
+  ports produced a genuine validation: the iPhone showed ambiguous port
+  `0` on ap1 but a confident radio port (`50`) on ap2 — it's actually
+  associated with ap2, and only visible to ap1 via the shared backbone.
+  Cross-checking both APs, not trusting either in isolation, is what
+  caught this — matches this file's own house style of verifying
+  rather than trusting a single source.
+
+  **The remaining ambiguity (three-plus MACs sharing one switch port,
+  Gi6) is confirmed real, not hypothetical — this network has two
+  desktop Ethernet switches that don't speak SNMP at all.** An
+  unmanaged switch is a genuine, permanent blind spot for this whole
+  approach: it never answers an SNMP poll, never gets its own node, and
+  every device behind it just appears to share whatever managed port
+  it's plugged into — indistinguishable, from SNMP alone, from several
+  devices that happen to have been learned on the same port over time.
+  Worth stating plainly for any real implementation: "attached to
+  Switch port Gi6" is as confident as this method gets when a port
+  hosts multiple MACs; "directly, individually wired to Gi6" is not
+  something SNMP alone can confirm, and sometimes (confirmed on this
+  network) it's flatly false.
+
+- [ ] **Track VLAN ID ↔ IP subnet mapping as part of the discovered
+  topology.** Raised directly, after repeatedly needing to reason about
+  which VLAN a device or subnet belonged to this session
+  (`ipNetToMediaTable`'s `ifIndex` 21 vs. 22 split, the APs'
+  VLAN-tagged FDB context groups) with no structured way to track it —
+  every pass re-derived it by hand.
+
+  **Real mappings found this session, cross-validated across
+  independent sources, not asserted from one table alone:**
+  - **VLAN 1 ("default") = `10.0.0.0/24`** — this network's main LAN.
+  - **VLAN 102 = `10.0.102.0/24`, and has a real name: "ThistleGuest"**
+    — confirmed via the switch's `dot1qVlanStaticTable`
+    (`1.3.6.1.2.1.17.7.1.4.3.1.1.102`), i.e. the guest network.
+    Cross-validated three independent ways: the router's
+    `ipNetToMediaTable` `ifIndex 22` entries, ap1's `dot1qTpFdbTable`
+    VLAN-102 context group (same MACs, same IPs), and now the switch's
+    own VLAN name table — three sources agreeing, not one assumed.
+  - **VLAN 4088 ("Auto-VoIP") and 4089 ("Auto-Video")** — defined on
+    the switch (a standard NETGEAR auto-VLAN feature for LLDP-MED-
+    detected devices), but no IP address in any table this session
+    fell in either — possibly QoS-tagging-only VLANs with no distinct
+    subnet of their own, genuinely unconfirmed either way.
+  - **VLAN 3333 — subnet unknown.** Seen only as a tag in ap1/ap2's own
+    FDB self-entries, absent from the switch's static VLAN table
+    entirely, and no IP address observed in it anywhere this session —
+    possibly AP-to-AP mesh/backhaul traffic invisible to the switch,
+    not resolved.
+  - The router's `ifIndex 6` (`192.184.x`) is a different case
+    entirely, not a VLAN — the WAN-side neighbor table.
+
+  **Sources found this session, most to least reliable:**
+  1. `dot1qVlanStaticTable` (`1.3.6.1.2.1.17.7.1.4.3`) — canonical, ID
+     *and* human name in one place. Confirmed on the switch; **not
+     supported on the router** (checked — different vendor/OS, no
+     Q-BRIDGE-MIB at all).
+  2. The router's own interface-naming convention (`ifDescr`:
+     `eth0.102`, `br-lan_102`) — works where (1) doesn't, but is a
+     vendor naming convention, not a standard MIB table.
+  3. Cross-referencing `ipNetToMediaIfIndex` groupings against either
+     of the above.
+
+  **Data-model gap, checked directly**: zero VLAN concept exists
+  anywhere in this app today — `grep -rl vlan NMS/` turns up exactly
+  three doc-comment mentions (`KnownNetwork.swift`,
+  `SubnetCalculator.swift`, `SNMPViewModel.swift`), all prose
+  explaining why per-network fingerprinting needs more than router MAC
+  alone, none of them an actual `vlanID` field or a VLAN↔subnet table.
+  Directly relevant to the Mermaid-diagram work above: an accurate
+  topology already needed VLAN-awareness to explain the router's
+  `ifIndex` split, and the mapped non-SNMP-device diagram above only
+  works because this session tracked VLAN grouping by hand, in one
+  chat, with nothing persisting it afterward. Not proposing a specific
+  data model yet — flagging the need and the real, verified sources a
+  future implementation would build from.
+
 - [ ] **The Events list will grow long over time; someone chasing a
   real problem needs to isolate genuine changes — especially a
   configuration change on some other local system (a router, a
@@ -477,6 +563,38 @@ new ones as they come up.
   already seen via the router's ARP walk (confirming the two tables
   agree with each other) plus additional MACs the ARP table alone
   didn't have.
+
+  **A real mistake made and corrected while sketching a topology
+  diagram from this data, worth recording since it's a general
+  `dot1qTpFdbTable` trap, not a one-off**: both APs' MACs
+  (`e8:10:98:ca:a9:22`/`e8:10:98:ca:9f:66`) showed up in the switch's
+  FDB sharing the exact same port number as the router's own MAC
+  (`bc:b9:23:81:a6:d4`) — first read, wrongly, as "the switch has three
+  devices attached to port 3." Corrected directly: both APs actually
+  connect straight to the router now (they used to be switch-attached,
+  per the person who actually wired this network — not something
+  derivable from the SNMP data alone). A shared port number in a
+  bridge forwarding table means "traffic from this MAC was last seen
+  arriving via this port," which for anything not *directly* attached
+  is just wherever the uplink happens to be — the router's own MAC
+  landing on the same port as the APs was the tell, in hindsight.
+  **Re-verified properly rather than left as a guess**: walked
+  `dot1dBasePortIfIndex` (`1.3.6.1.2.1.17.1.4.1.2`) and `ifDescr`
+  (`1.3.6.1.2.1.2.2.1.2`) on the switch to confirm port 3 is a genuine
+  single physical port (`GigabitEthernet3`), not a LAG or the CPU
+  port that would have told a different story — on this switch the
+  base-port-to-`ifIndex` mapping is a clean 1:1, but that's a property
+  of this hardware, not something to assume elsewhere. **The
+  generalizable lesson**: a `dot1qTpFdbPort` value is a
+  `dot1dBasePort` index, not a physical port label — reading it as
+  device-to-port attachment without walking
+  `dot1dBasePortIfIndex`→`ifDescr`/`ifName` first is exactly the kind
+  of naive read that produced the wrong diagram here. Directly relevant
+  to the Mermaid-diagram idea elsewhere in this file: any real
+  implementation needs this same disambiguation, and even then a
+  shared port is evidence of "reached via here," not proof of what's
+  actually plugged into that port — this network's own real answer
+  came from the person who wired it, not from SNMP alone.
 
   **One real finding this verification surfaced, not just "does it
   work": the router's ARP table is not scoped to the LAN subnet, and
