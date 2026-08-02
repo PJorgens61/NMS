@@ -17,6 +17,53 @@ new ones as they come up.
   validated across the router's ARP table and two devices' bridge
   forwarding tables in the same session.
 
+  **Scope, raised directly and worth being explicit about: this covers
+  every IP-active device the ARP/FDB walk finds, not just SNMP-
+  responsive ones.** SNMP is the *discovery mechanism* (asking the
+  router/switch/AP what they already know), not a filter on what
+  appears as a node. Concretely, of the ~15 devices this session's real
+  walk found, only 4 (router, switch, ap1, ap2) answer SNMP themselves
+  — the rest (the printer, a likely Raspberry Pi, several unlabeled
+  hosts) are ordinary clients that only show up because the SNMP-
+  capable infrastructure reports them in its own tables.
+
+  **A real data-model gap this scope question exposed, correcting an
+  overclaim above: "the data already exists" is true only for this
+  session's ad hoc `snmpwalk` output, not for anything the app itself
+  currently models.** Checked `SNMPDeviceRecord.swift` directly — it
+  stores `ipAddress`/`sysDescr`/`sysName`/`uptimeTicks`/`community`/
+  `webURL`/`hostname` and timestamps, nothing about which port or
+  parent device a MAC was learned from. `SNMPViewModel` today produces
+  a flat list of SNMP-responsive devices, not a topology graph. Every
+  port/VLAN/parent relationship used to build this session's tables
+  and diagrams came from raw SNMP responses parsed by hand, not from
+  anything persisted or modeled by the app — building the actual
+  topology mapping (which MAC is attached via which port of which
+  device) is new data-model work, not just wiring an existing list into
+  a Mermaid template.
+
+  **Idea, raised directly, that both resolves the scope question above
+  and the URL-length scaling concern below: make it hierarchical.** A
+  top layer covering just SNMP-responsive infrastructure (router,
+  switch, ap1, ap2 — exactly `SNMPViewModel`'s existing device list,
+  needing none of the new topology modeling above), with each
+  infrastructure node linking to its own lower-layer diagram (that
+  device's attached clients) rather than one flat diagram for the whole
+  network. Confirmed live, not assumed, that this is technically real
+  and not just plausible-sounding: Mermaid's `click NodeID "URL"`
+  directive survives into `mermaid.ink`'s SVG output as a genuine
+  `<a xlink:href="...">` wrapping that node's SVG group — verified by
+  building a real top-layer diagram, fetching its rendered SVG, and
+  finding the actual anchor tag pointing at a second (lower-layer)
+  mermaid.ink URL. Opened as a real document (this app's existing
+  `NSWorkspace.open` pattern navigates the browser directly to the URL,
+  not an `<img>` embed), that link is genuinely clickable — no in-app
+  code needed for the drill-down itself, just generating each layer's
+  URL and one `click` line per infrastructure node pointing at the
+  next. Also means each generated link only ever needs to encode one
+  layer's worth of devices, not the whole network at once — the same
+  fix in different words as the URL-length concern below.
+
   **Rendering, not data, is the real question — and it doesn't need
   what it first looked like it would.** This app has zero `WKWebView`
   usage today (checked), so rendering Mermaid *inline* in the popover
@@ -73,9 +120,10 @@ new ones as they come up.
   for a small home network's dozen-ish devices (this session's real
   topology test included), untested at whatever scale
   `SubnetCalculator.maxSweepHosts`/`subnetTooLargeToScan` already draws
-  a line at for SNMP sweeping itself — a genuinely large topology might
-  need trimming (e.g. one AP's clients at a time) rather than one link
-  for the whole network.
+  a line at for SNMP sweeping itself. The hierarchical design above is
+  exactly the fix if this turns out to matter in practice — each
+  layer's link only ever encodes that layer's own devices, not the
+  whole network at once.
 
   Not proposing to build yet — this is confirmation the mermaid.ink
   route specifically is viable (verified live), narrower and simpler
@@ -448,13 +496,58 @@ new ones as they come up.
   trusting the table wholesale — not a new conclusion, but no longer a
   guess about whether this matters on real hardware.
 
+  **Directly tested the real open question this raises: does asking
+  the router/switch find every device a direct poll would? No — and
+  the gap runs in both directions, confirmed live within minutes of
+  each other, not a theoretical concern.** Force-populated a fresh ARP
+  entry for every responsive host by pinging all 254 addresses in this
+  `/24` directly, then compared against the router's `ipNetToMediaTable`
+  read earlier in this same session:
+  - **SNMP discovery missed a live device the direct sweep found**:
+    `10.0.0.141` (`c4:e9:84:5a:5e:3e`) answered the ping sweep but was
+    completely absent from the router's ARP table snapshot — the
+    router simply hadn't cached it yet, presumably no recent
+    router-bound traffic from that device.
+  - **The direct sweep missed a device SNMP discovery already had**:
+    `10.0.0.144` ("iphone.local," present in the router's ARP table
+    from earlier) didn't answer 3 direct ping retries just now —
+    almost certainly Wi-Fi power-save on a sleeping/idle phone not
+    responding to ICMP, not a real absence.
+  - One apparent third case ruled out as noise, not a gap: `10.0.0.16`
+    answered the sweep but resolved to ap1's own MAC
+    (`e8:10:98:ca:a9:22`) — the AP answering a second address, not an
+    undiscovered device.
+
+  **The underlying cause, raised directly and confirmed rather than
+  assumed: this is inherently time-varying, not a fixed accuracy gap
+  to close once.** A router's ARP cache reflects *recent traffic*, not
+  *present existence* — it both lags a device that just went quiet
+  after being briefly active (aging out) and lags one that just became
+  active after being quiet (not yet cached). A direct ICMP sweep has
+  the opposite failure mode: it reflects *this instant's willingness to
+  answer ping*, which sleeping laptops and power-saving phones
+  routinely decline regardless of whether they're genuinely on the
+  network. Neither method's snapshot is "more current" than the
+  other's in general — they're wrong about different, overlapping sets
+  of devices at any given moment, and a device can move between "known
+  to one, not the other" within the same short session, exactly as
+  demonstrated above.
+
   Still not built — this only completes the "worth building at all"
   verification. Open questions before code: the `ifIndex`-scoping rule
-  above, and how `dot1qTpFdbTable`'s MAC-keyed entries actually get
+  above, how `dot1qTpFdbTable`'s MAC-keyed entries actually get
   combined with `ipNetToMediaTable`'s IP-keyed ones (a MAC seen on the
   switch but absent from the router's ARP table — e.g. a device that's
   been silent long enough for the router to age it out — would need
-  its own resolution path, not just a join).
+  its own resolution path, not just a join), and now also: given
+  neither source is complete on its own, does `candidateAddresses()`
+  treat SNMP-derived candidates as a cheap *head start* worth combining
+  with a direct sweep where one's still affordable, or as a *full
+  replacement* only for the large-subnet case where a sweep already
+  isn't happening anyway (the case this item originally set out to
+  solve)? The two have different honesty requirements — a replacement
+  needs to be labeled as a snapshot, possibly stale in either
+  direction, not presented as equivalent to a fresh sweep.
 
 - [ ] **macOS notifications for sustained outages? Raised, not yet
   designed.** The idea: push a system notification (not just the
