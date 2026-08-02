@@ -4,6 +4,34 @@ Ideas discussed and worked through but not yet implemented. Each section is a
 sketch, not a spec — enough to pick back up from later without re-deriving
 the reasoning, not a promise of the exact eventual shape.
 
+**Before documenting a real test or debugging session, genericize your
+own network's identifying details** — this file's whole value is
+citing real evidence (an actual trace, an actual store query), but the
+specific real values themselves don't need to survive into a public
+repo. In descending order of actual risk:
+- **Real public IP** — highest priority to redact. Directly attackable
+  from anywhere on the internet with zero prerequisites (port scan,
+  geolocate, tie to an ISP account). Use a documentation-range address
+  instead (`203.0.113.0/24`, `198.51.100.0/24`, or `192.0.2.0/24` —
+  all reserved by RFC 5737 specifically for this).
+- **Real Wi-Fi SSID** — medium. Not a secret over the air (any
+  neighbor's phone already sees it), but a distinctive name can be
+  looked up in a wardriving/geolocation database (WiGLE, Apple's or
+  Google's Wi-Fi positioning services) and tied back to a real street
+  address. Use a descriptive placeholder ("the home network," "the
+  guest network") instead of the real name.
+- **Real MAC address** — lowest, but still worth doing. Not
+  internet-routable or discoverable from a repo on its own — it only
+  matters once someone already has LAN or Wi-Fi-range access, at which
+  point they'd see it directly regardless of what's written here. Use
+  an obviously-fake example (`aa:bb:cc:dd:ee:ff`) instead of a real one.
+
+Private (RFC 1918) subnet ranges like `10.0.0.0/24` or `192.168.1.0/24`
+aren't identifying on their own — millions of networks use them — so
+they don't need this treatment. Same goes for a location or person's
+name used to label a real session (e.g. "a friend's network," not the
+friend's actual name).
+
 ## Contents
 
 - [DNS testing: is `dig` an alternative to `getaddrinfo`?](#dns-testing-is-dig-an-alternative-to-getaddrinfo)
