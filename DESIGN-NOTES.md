@@ -34,7 +34,7 @@ the reasoning, not a promise of the exact eventual shape.
 - [Printer fault detection (out of paper, cover open): a real dead end, on this hardware](#printer-fault-detection-out-of-paper-cover-open-a-real-dead-end-on-this-hardware)
 - [Blocking work, and the two thread pools it can starve](#blocking-work-and-the-two-thread-pools-it-can-starve)
 - [The duplicate-SNMP-row crash, and an invariant with no enforcement](#the-duplicate-snmp-row-crash-and-an-invariant-with-no-enforcement)
-- [Double-NAT / CGNAT detection, from a real trace at Martha's](#double-natcgnat-detection-from-a-real-trace-at-marthas)
+- [Double-NAT / CGNAT detection, from a real off-site trace](#double-natcgnat-detection-from-a-real-off-site-trace)
 - [The cadence bug found in a screenshot: a real outage's recovery, delayed by its own heuristic](#the-cadence-bug-found-in-a-screenshot-a-real-outages-recovery-delayed-by-its-own-heuristic)
 - [Two more bugs from the same class, found in a second real transition](#two-more-bugs-from-the-same-class-found-in-a-second-real-transition)
 - [Remediation guides: turning a detected problem into actionable advice](#remediation-guides-turning-a-detected-problem-into-actionable-advice)
@@ -2010,8 +2010,8 @@ Confirmed directly while dual-homed (Ethernet on the main LAN, Wi-Fi on the
 guest SSID):
 
 ```
-? (10.0.0.1)   at bc:b9:23:81:a6:d4 on en0
-? (10.0.102.1) at bc:b9:23:81:a6:d4 on en1
+? (10.0.0.1)   at aa:bb:cc:dd:ee:ff on en0
+? (10.0.102.1) at aa:bb:cc:dd:ee:ff on en1
 ```
 
 So the main LAN, the guest VLAN, and Ethernet all collapse into a single
@@ -2112,7 +2112,7 @@ new. The robustness gain applies only to Wi-Fi.
 Tempting, and wrong for this purpose: the public IP belongs to the WAN side,
 so it is *shared by every VLAN behind the same router*. Verified directly
 from two captured sessions — while attached to the guest VLAN
-(`10.0.102.131`), the observed public IP was `192.184.170.5`, the same value
+(`10.0.102.131`), the observed public IP was `203.0.113.10`, the same value
 seen from the main LAN.
 
 So public IP votes "same network" for precisely the pair this whole entry
@@ -2152,7 +2152,7 @@ required for this topology.
 octet. A gateway MAC matching that prefix tells you three things for free,
 with no SNMP at all: the gateway is VRRP-managed, its MAC is stable across
 failover (so MAC-keying is *safe* here), and the VRID is readable directly.
-Checked against the current gateway: `bc:b9:23:81:a6:d4` — an ordinary
+Checked against the current gateway: `aa:bb:cc:dd:ee:ff` — an ordinary
 hardware MAC, so this router is not presenting a VRRP virtual gateway today,
 and MAC stability across a future failover can't be assumed.
 
@@ -3873,7 +3873,7 @@ just another sheet.
 
 **Verified:** build clean. Confirmed the read path against the real
 on-disk store directly (`sqlite3` against `default.store`): the one known
-network in the store (`bc:b9:23:81:a6:d4|10.0.0.0/24`) has 85 events, 6
+network in the store (`aa:bb:cc:dd:ee:ff|10.0.0.0/24`) has 85 events, 6
 SNMP devices, 34 DHCP leases, and 11 Wi-Fi samples tagged with its
 fingerprint — exactly what the new `for fingerprint:` queries filter on.
 Actually exercising the Review sheet's UI (clicking the menu bar icon,
@@ -4176,7 +4176,7 @@ five consecutive SNMP poll cycles — the exact crash site — with no crash.
 Plus two new pure regression tests pinning the pass-through contract
 between `mergingSharedMACs` and `apply` (40/40).
 
-## Double-NAT/CGNAT detection, from a real trace at Martha's
+## Double-NAT/CGNAT detection, from a real off-site trace
 
 Raised directly: CGNAT changes what "Public IP" means (shared across
 other customers, not identifying just this connection), and traceroute
@@ -4187,7 +4187,7 @@ abstract:
 ```
 1  192.168.1.1     (the customer's own router)
 2  10.1.10.1       (private, no reverse DNS)
-3  96.120.90.213   (first genuinely public Comcast address)
+3  203.0.113.20   (first genuinely public Comcast address)
 ```
 
 **Two private hops before the internet, not one.** That real data
@@ -4207,7 +4207,7 @@ from.
 `hops.first { $0.isLocal == false }` — the first hop that isn't local.
 For a carrier using the *compliant* CGNAT range, that hop would have
 been wrongly selected as "the real ISP edge," since 100.64.0.0/10 isn't
-RFC 1918 but also isn't actually the internet. Martha's trace didn't
+RFC 1918 but also isn't actually the internet. That off-site trace didn't
 expose this (Comcast's hop was RFC 1918, already caught), but it would
 have misfired for anyone on standards-compliant CGNAT. Fixed by folding
 `IPClassifier.isCGNAT` into `isLocal` alongside `isRFC1918` — both mean
@@ -4217,8 +4217,8 @@ have misfired for anyone on standards-compliant CGNAT. Fixed by folding
 count hops from hop 1, stopping at the first one whose `isLocal` isn't
 `true`. More than one means an extra NAT layer somewhere between this
 Mac and the real internet. Deliberately generic rather than
-CGNAT-range-specific, given the finding above — it catches Martha's case
-and a compliant-CGNAT case alike, using data `TracerouteViewModel`
+CGNAT-range-specific, given the finding above — it catches that off-site
+case and a compliant-CGNAT case alike, using data `TracerouteViewModel`
 already computes.
 
 A second, narrower check (`includesConfirmedCGNAT`) still exists for
@@ -4227,7 +4227,7 @@ message wording only: if any leading hop actually falls in
 wording); otherwise it says "multiple NAT layers" and explicitly says it
 can't tell whether the extra hop is the customer's own second router or
 the ISP's — traceroute alone can't distinguish those two causes, and the
-event shouldn't claim to know which. Martha's own trace gets the hedged
+event shouldn't claim to know which. That off-site trace gets the hedged
 wording, not the confident one — a useful reminder that the "obviously
 CGNAT" case is the easier one to get right, and most real traces won't
 be that clean.
@@ -4253,7 +4253,7 @@ information about addressing, not a health failure) — same shape as
 
 **Verified:** clean build, 49/49 tests (9 new — a `TracerouteHop.isLocal`
 suite pinning the CGNAT fix, and a `leadingNonInternetHopCount` suite
-using Martha's exact real trace data as a fixture, plus the accepted
+using that off-site trace's exact real data as a fixture, plus the accepted
 non-responding-hop limitation pinned as its own test so a future change
 to "skip nils instead" would be a conscious choice). Live-verified
 against this Mac's own real (single-NAT) home network: counts to 1
@@ -4359,7 +4359,7 @@ repro.
 
 Two more of NMS's own screenshots (again found via their
 `screenshotCaptured` events), this time from a real Wi-Fi network switch
-— Thistle → ThistleGuest — showed the identical asymmetric-events
+— the home network → the guest network — showed the identical asymmetric-events
 symptom the cadence bug above was fixed from, on a fresh build that
 already had that fix. So this was something else. Reconstructed from the
 raw `ConnectivityCheckRecord` history at full precision (not just the
@@ -4410,7 +4410,7 @@ that round's array. `logTransitions`'s `wasFailing` used to default to
 round — meaning "absent" read identically to "confirmed healthy." When
 the interface came back and the printer's target reappeared, still
 genuinely unreachable (wrong subnet on a guest network — the printer
-lives on Thistle, not ThistleGuest), that default made it read as a
+lives on the home network, not the guest network), that default made it read as a
 *fresh* failure, logging "brotherlaserprinter became unreachable" for a
 device that had been unreachable the entire time.
 
@@ -4425,7 +4425,7 @@ observation rather than treating launch as a silent baseline.
 ### Verified
 
 64/64 tests (10 new). Two are the direct regressions: the exact real
-check pattern from the Thistle→ThistleGuest transition, confirmed to
+check pattern from the home→guest network transition, confirmed to
 still trigger `isLikelyLocalPingFailure` on its own, but *not* to
 suppress once combined with a recent `lastChangeAt`; and the exact
 absent-printer scenario, confirmed to return `nil` rather than silently
@@ -5275,3 +5275,55 @@ otherwise looks complete. `ISPIdentityViewModel`'s `organizationName`/
 all, just no address-keying to make it address-collision-specific) —
 fixed the same session by clearing on topology change rather than
 waiting for the next public-IP change to happen to overwrite it.
+
+## A router serving two VLANs is a genuine edge case per-network scoping doesn't fully cover
+
+Found live while verifying the fixes above on a real second network
+(this Mac's own guest Wi-Fi SSID, `10.0.102.0/24` — a separate VLAN
+off the same physical router as "Home," `10.0.0.0/24`, both terminated
+by one box sharing a single MAC, `aa:bb:cc:dd:ee:ff`).
+
+`KnownNetwork.fingerprint` is `routerMAC|subnet` specifically *because*
+one router answering on several addresses needs the subnet half to tell
+those networks apart (see "Per-network device scoping" above, and the
+VRRP/dual-address case `SNMPViewModel.mergingSharedMACs` already
+handles). What that design didn't anticipate: the router's *own*
+guest-side address (`10.0.102.1`) is genuinely reachable and answers
+SNMP from the Home network too — not a misconfiguration, just how this
+router's inter-VLAN management access works. Confirmed directly via
+`sqlite3` against the real store:
+
+```
+SELECT ZIPADDRESS, ZNETWORKFINGERPRINT, datetime(ZLASTSEENAT + 978307200,'unixepoch')
+FROM ZSNMPDEVICERECORD WHERE ZIPADDRESS='10.0.102.1';
+
+10.0.102.1|aa:bb:cc:dd:ee:ff|10.0.0.0/24    (Home)     |2026-08-02 04:37:34
+10.0.102.1|aa:bb:cc:dd:ee:ff|10.0.102.0/24  (Guest)    |2026-08-02 04:38:34
+```
+
+Both rows are real and both keep getting refreshed — not a one-time
+mistagging. The mechanism: while on Home, `10.0.102.1` answers SNMP, so
+it's discovered, `recordSNMPDevice` correctly tags it with whatever
+`currentNetworkFingerprint` is at that moment (Home), and
+`mergingSharedMACs` folds it into `10.0.0.1`'s row as an alias (same MAC,
+same physical device) — so the *live UI* never shows it as a separate
+or wrong device, this is purely a persisted-store artifact.
+`rebuildDeviceList`'s `syncAliasFreshness` then keeps that Home-tagged
+alias row's `lastSeenAt` current on every single poll, for as long as
+the router keeps answering on both addresses, which is indefinitely.
+
+**Not fixed.** The "correct" behavior isn't obvious without a real
+decision: is a shared-MAC router spanning two of this app's own
+recognized networks one device that should show under both (arguably
+true — it *is* the same box), or should an address only ever be tagged
+with the one network whose subnet it structurally belongs to,
+regardless of where it happens to answer from? The former is what
+happens today; the latter would mean `recordSNMPDevice` checking a
+newly-discovered address against every *other* `KnownNetwork`'s subnet
+before tagging it with the current one — a real behavior change, not a
+bug-shaped fix, and worth a deliberate call rather than a guess.
+Everything else per-network scoping was built to prevent — Events, DHCP
+History, Wi-Fi samples, Speed Test history, ISP identity — was
+confirmed cleanly separated on this same live test; this is the one
+gap, and it's cosmetically invisible today only because the alias-merge
+happens to paper over it in the UI.

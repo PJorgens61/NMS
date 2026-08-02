@@ -240,28 +240,16 @@ new ones as they come up.
     hasn't been confirmed. Try Production first; Testing + weekly
     re-consent is a real, non-fatal fallback if it demands review.
 
-- [ ] **Add Wi-Fi signal strength to Network Health.** Requested
-  directly. Signal (RSSI/SNR, with a sparkline) already exists today —
-  `ContentView+Window.wifiSection`, window-only — this is about
-  surfacing it in **Network Health** too, which is one of the two tiles
-  that renders unconditionally on both the popover and the window
-  (`SectionLayout`'s doc comment: nothing about Network Health/Info is
-  surface-conditional). Two real open questions, not just a
-  copy-the-row job:
-  - Network Health's existing rows are all colored-dot
-    `ConnectionLayer`s with a health status (green/yellow/red) driven
-    by latency thresholds — does Wi-Fi signal get the same treatment
-    (needs a real "what RSSI counts as degraded" threshold decision,
-    unlike anything else in that list) or does it show as a plain data
-    row with no color, which would look inconsistent next to every
-    other row in that tile?
-  - This directly reopens the audience-split reasoning `SectionLayout`
-    already settled for the Wi-Fi section specifically ("everything
-    diagnostic... lives only in the window" — see that section's own
-    doc comment): is signal strength "can I work" material that
-    belongs on the popover, or diagnostic detail that was deliberately
-    scoped out of it? Worth a real answer, not an accidental
-    reopening of a decision that was made on purpose.
+- [x] ~~Add Wi-Fi signal strength to Network Health.~~ **Built**, via the
+  "Network" row item above. Both open questions resolved in practice
+  rather than by a separate up-front decision: the sparkline shows as a
+  plain, uncolored data row (no new RSSI-degraded threshold introduced —
+  the row's existing green/gray status still comes from whether a
+  network name/label resolved, unchanged), and it *does* now appear on
+  the popover, since Network Health is one of the two tiles that was
+  never subject to the audience-split's window-only scoping to begin
+  with — not a reopening of that decision, just this row using the
+  exemption Network Health already had.
 
 - [x] ~~Add Google Workspace and Google Cloud to SaaS monitoring.~~
   **Built.** Both added to `SaaSStatusService.monitoredServices` with a
@@ -603,7 +591,7 @@ new ones as they come up.
   tiles' bottom borders and the divider below them now land on the same
   row.
 
-**From off-site testing at Martha's** (8 items originally; 3 turned out
+**From off-site testing** (8 items originally; 3 turned out
 to be bugs and moved to `BUGS.md` — Known Networks not recognizing an
 unfamiliar network, the first-traceroute latency inflation, and the
 Wi-Fi transition event misfiling. 4 more were already fixed and dropped
@@ -644,31 +632,29 @@ from this list. This one remains, since it's an idea, not a defect):
   traceroute, Wi-Fi telemetry) with no Accessibility permission
   involved at all.
 
-- [ ] **Test per-network scoping and Network Review on a second network.**
-  Connect to a different network (guest VLAN, another site, a tether) and
-  verify:
-  - the new network is recognized as distinct and gets its own row in
-    Known Networks;
-  - Events / SNMP Devices / DHCP History / Wi-Fi are scoped to it — none
-    of the home network's data leaks in;
-  - the home network's label and history are still intact and reachable
-    through the Review sheet *while connected elsewhere*;
-  - the Review sheet itself renders correctly (header shows the label,
-    all four sections populate, no Scan/Refresh buttons).
+- [x] ~~Test per-network scoping and Network Review on a second network.~~
+  **Done**, on a real live switch (this Mac's own Home ↔ guest-Wi-Fi
+  VLANs, same router). All confirmed clean via direct `sqlite3` queries
+  against the real store, not just the UI: the guest network recognized
+  as distinct (its own Known Networks row, `timesSeen` incrementing on
+  return visits); Events (550 vs. 47), DHCP History (301 vs. 6), and
+  Wi-Fi samples (12 vs. 29) cleanly separated with zero cross-network
+  leakage; Home's row, label, and full history stayed intact and
+  reachable through the Review sheet while connected to the guest
+  network (screenshotted directly — header, label, seen count, and
+  populated Events section all correct); the crash-shape duplicate-row
+  query stayed empty throughout. This also closes out the Network
+  Review UI itself, which had only ever been build-verified before
+  this — now actually seen rendered, live, for both networks.
 
-  This also closes out the Network Review UI, which so far has only ever
-  been build-verified — never actually seen rendered.
-
-  While over there, check that duplicate SNMP rows don't come back. A
-  topology change is exactly the window where a poll can land before the
-  network is re-recognized, which is the race behind the crash fixed in
-  `1a66a13`:
-
-  ```bash
-  sqlite3 ~/Library/Application\ Support/NMS/default.store "SELECT ZIPADDRESS, ZNETWORKFINGERPRINT, COUNT(*) n FROM ZSNMPDEVICERECORD GROUP BY 1,2 HAVING n>1;"
-  ```
-
-  Empty output means clean.
+  **One real gap found, not fixed — see DESIGN-NOTES.md's "A router
+  serving two VLANs is a genuine edge case per-network scoping doesn't
+  fully cover."** The router's guest-side address gets a persisted SNMP
+  row under *both* networks' fingerprints, kept alive indefinitely by
+  `syncAliasFreshness`. Invisible in the live UI (the shared-MAC alias
+  merge papers over it), but a real persisted-data leak. Needs a
+  decision, not a guess, on what "correct" means for a device that
+  legitimately spans two of this app's own recognized networks.
 
 - [ ] **Estimate and document NMS's system requirements.** Needed now
   that other people are installing it — "will this bog down my Mac?" is a
