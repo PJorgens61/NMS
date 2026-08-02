@@ -8,29 +8,25 @@ new ones as they come up.
 
 ## Open
 
-- [ ] **Add GitHub to the SaaS monitoring list.** Requested directly.
-  GitHub's status page (`githubstatus.com`) is Atlassian Statuspage-hosted
-  like most of the existing list, so this should be a plain
-  `MonitoredService(name: "GitHub", endpoint: URL(string:
-  "https://www.githubstatus.com/api/v2/summary.json")!, shape:
-  .statuspage)` entry in `SaaSStatusService.monitoredServices` — confirm
-  the exact endpoint/shape live via `curl` first, per this file's own
-  discipline (`SaaSStatusService`'s doc comment: "confirmed live via
-  `curl`, not assumed from documentation"), the same way every other
-  entry in that list was verified. Also update
-  `PreferencesView.swift`'s "Periodically checks the public status pages
-  of..." description text to include it.
+- [x] ~~Add GitHub to the SaaS monitoring list.~~ **Built.** Confirmed
+  live via `curl` first (`www.githubstatus.com`, standard `.statuspage`
+  shape, healthy at verification time), then added as a plain
+  `MonitoredService` entry. `PreferencesView.swift`'s description text
+  updated to include it.
 
-- [ ] **Add Cloudflare, Figma, HubSpot, and Docusign to the SaaS
-  monitoring list.** All four confirmed live via `curl` as plain
-  `.statuspage`-shaped `MonitoredService` entries — zero new parsing
-  code, same as the GitHub item above:
+- [x] ~~Add Cloudflare, Figma, HubSpot, and Docusign to the SaaS
+  monitoring list.~~ **Built.** All four confirmed live via `curl` first
+  and added as plain `.statuspage`-shaped `MonitoredService` entries —
+  zero new parsing code:
   - Cloudflare: `https://www.cloudflarestatus.com/api/v2/summary.json`
     (confirmed live *during* a real "Minor Service Outage" — not just
     the healthy path)
   - Figma: `https://status.figma.com/api/v2/summary.json`
   - HubSpot: `https://status.hubspot.com/api/v2/summary.json`
   - Docusign: `https://status.docusign.com/api/v2/summary.json`
+
+  Also updated `PreferencesView.swift`'s "Periodically checks the
+  public status pages of..." description text to include all four.
 
   **Three other obvious candidates checked and found not to be
   drop-ins — don't re-attempt these the same way:**
@@ -349,6 +345,55 @@ new ones as they come up.
   `eventStatus` reliably distinguish "still ongoing" isn't verified yet.
   Worth checking the next time any of these 78 services has a real,
   ongoing issue before writing the parser.
+
+- [ ] **README.md has fallen behind real, shipped behavior — needs a
+  refresh pass.** Requested directly. Checked against the current code,
+  not assumed stale:
+  - **The 2×2 tile grid description is wrong on two counts.** It says
+    "Network Health and Path to Internet in the left column, Info and
+    Speed Test in the right" — that pairing never matched the real
+    layout even before this session (it was always Network
+    Health+Info as one row, Path to Internet+Speed Test as the
+    other). It's now wrong a second way too: the window stacks all
+    four full-width in a single column (this session's tile-layout
+    change); only the popover still shows the old 2-up Network
+    Health+Info pair (Path to Internet/Speed Test are window-only).
+  - **"Each of the six probe-backed rows (everything but Network)
+    carries an inline sparkline"** is now false — the Network row
+    gets a Wi-Fi RSSI sparkline too (this session), just sourced from
+    `WiFiSSIDViewModel.recentSamples` instead of `latencyHistory`.
+  - **CGNAT/double-NAT detection** is described as Events-log-only —
+    doesn't mention the new always-visible "NAT" row in the Path to
+    Internet tile itself (this session).
+  - **SaaS Monitoring is entirely undocumented** — not in "The
+    popover" contents, not in "Experimental features"
+    (`FeatureFlags.saasMonitoring`/`FeatureSaaSMonitoring` isn't
+    mentioned at all, despite being a real, on-by-default flag gating
+    a whole tile: Slack, Claude, ChatGPT, Jira/Confluence, Zendesk,
+    Zoom, Trello, Asana, Notion, Dropbox, Discord, Google Cloud,
+    Google Workspace today, GitHub/Cloudflare/Figma/HubSpot/Docusign
+    pending per the items above).
+  - **Info's per-network-scoping list is incomplete**: says
+    "Events, SNMP Devices, and DHCP History are all scoped" — Speed
+    Test history and Wi-Fi samples are too now (this session's fixes),
+    and aren't mentioned.
+  - **Events section** doesn't mention multi-line message wrapping or
+    the clickable link icon for SaaS-outage events (both this
+    session).
+  - **The NMSUITests paragraph describes a side effect that's already
+    gone**: "it toggles this Mac's system appearance to cover both
+    light and dark" — that behavior was deliberately removed earlier
+    this session (commit `a59755c`); the whole paragraph warning about
+    it is now describing something that doesn't happen.
+  - **Test count is stale**: says "95 tests" — actually 105+ as of
+    this session's additions (the SaaS maintenance-indicator fixture
+    test, plus whatever the other Mac's own commits added).
+  - Minor: Printer Alerts and Wi-Fi are mentioned only in passing
+    inside the Expert Mode paragraph, unlike DHCP History/SNMP
+    Devices, which get their own `###` subsections with real detail —
+    worth deciding whether they deserve the same treatment now that
+    SaaS Status would join them as a fourth window-only section with
+    nothing of its own.
 
 - [ ] **Let users add their own website(s) to monitor, via Preferences.**
   Explicitly requested — reverses a scope cut made earlier this session

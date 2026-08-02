@@ -102,6 +102,14 @@ struct SaaSStatusService {
         MonitoredService(name: "Notion", endpoint: URL(string: "https://www.notion-status.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Dropbox", endpoint: URL(string: "https://status.dropbox.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Discord", endpoint: URL(string: "https://discordstatus.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "GitHub", endpoint: URL(string: "https://www.githubstatus.com/api/v2/summary.json")!, shape: .statuspage),
+        // Confirmed live *during* a real "Minor Service Outage" — not
+        // just the healthy path, unlike most of this list's first
+        // verification.
+        MonitoredService(name: "Cloudflare", endpoint: URL(string: "https://www.cloudflarestatus.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Figma", endpoint: URL(string: "https://status.figma.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "HubSpot", endpoint: URL(string: "https://status.hubspot.com/api/v2/summary.json")!, shape: .statuspage),
+        MonitoredService(name: "Docusign", endpoint: URL(string: "https://status.docusign.com/api/v2/summary.json")!, shape: .statuspage),
         MonitoredService(name: "Google Cloud", endpoint: URL(string: "https://status.cloud.google.com/incidents.json")!, shape: .googleIncidents),
         MonitoredService(
             name: "Google Workspace",

@@ -59,7 +59,7 @@ struct PreferencesView: View {
             feature(
                 "SaaS Monitoring",
                 isOn: $saasMonitoringEnabled,
-                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, Google Cloud, and Google Workspace. Reaches out to those services directly, not just your own network.",
+                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, GitHub, Cloudflare, Figma, HubSpot, Docusign, Google Cloud, and Google Workspace. Reaches out to those services directly, not just your own network.",
                 identifier: "preferences.saasMonitoring"
             )
 
