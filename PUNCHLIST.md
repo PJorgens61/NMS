@@ -106,6 +106,42 @@ new ones as they come up.
   until someone who actually knows they're on a monitored corporate
   network turns it on.
 
+  **Refined, raised directly: not one monolithic on/off switch —
+  selectable, per-probe-category toggles**, since the probes named
+  above don't all carry the same risk, and someone who knows their own
+  network's monitoring posture may want to keep some on. E.g. a network
+  with a permissive security team might tolerate traceroute/ICMP and
+  even SNMP polling of manually-added devices, while still wanting the
+  subnet-wide sweep and community-string guessing off — a single
+  all-or-nothing flag can't express that. Concrete candidate toggles,
+  each mapping to one of the specific probes already named above:
+  - Subnet-wide SNMP sweep (`SNMPViewModel.candidateAddresses()`'s
+    address enumeration)
+  - SNMP community-string guessing/polling itself, independent of the
+    sweep — lets someone manually add specific known-safe devices
+    without ever auto-discovering the rest of the subnet
+  - Per-device web-detection port probing (`DeviceWebDetectionService`)
+  - ISP-edge auto-guessing / the RDAP-organization-walk, once built
+    (a correctness toggle more than a safety one, but still fits the
+    same "give explicit control back" shape)
+
+  This already has a direct precedent in this exact codebase to follow
+  rather than invent fresh: `FeatureFlags.saasMonitoring` (one master
+  on/off) paired with `saasEnabledServices` (which specific services,
+  once the master is on) — same two-tier shape, master flag plus a
+  finer per-item selection, just applied to probe categories instead of
+  monitored SaaS vendors.
+
+  **Also now scopes a question from the AI-assisted-troubleshooting
+  design discussion elsewhere in this file**: if AI intents ever grow
+  past read-only (triggering a fresh check, a re-scan, anything that
+  generates its own network traffic), "Corporate" mode's per-category
+  toggles are the natural place to gate what an AI backend is allowed
+  to *ask* NMS to do, too — not just what NMS already does on its own.
+  An AI assistant re-triggering an SNMP sweep on someone's behalf on a
+  monitored network is exactly the same risk this whole item exists to
+  avoid, just with a different trigger.
+
 - [ ] **Determine how many hops separate this Mac from where its public
   IP actually becomes real — is the NAT happening right at the local
   router, or much farther away (typical of CGNAT or a corporate WAN)?**
