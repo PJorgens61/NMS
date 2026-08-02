@@ -321,6 +321,7 @@ struct ContentView: View {
                     .disabled(snmp.isScanning || !snmp.isAvailable)
                     .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
                     .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
+                    .accessibilityIdentifier("snmpDevices.scan")
                 }
 
                 infrastructureList
@@ -394,6 +395,7 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Refresh")
                 .accessibilityHint("Re-reads network state, public IP and Wi-Fi network")
+                .accessibilityIdentifier("footer.refresh")
                 // Icon-only so it adds no new row — this whole feature
                 // exists to save a manual screenshot-and-hand-it-over
                 // step, so it needs to cost as little popover space as
@@ -411,6 +413,7 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Screenshot")
                 .accessibilityHint("Saves an image of this popover and logs an event naming the file, so it can be found without guessing")
+                .accessibilityIdentifier("footer.screenshot")
                 // Deliberately a separate button from Screenshot above,
                 // not a prompt bolted onto it — that one's whole value is
                 // staying a fast, no-prompt capture. This one exists
@@ -428,6 +431,7 @@ struct ContentView: View {
                 }
                 .accessibilityLabel("Bug Report")
                 .accessibilityHint("Saves a screenshot and state dump along with a comment describing what you're seeing")
+                .accessibilityIdentifier("footer.bugReport")
                 // A permanent part of the footer now, not the experimental
                 // "compare this against a resizable window" toggle it
                 // started as (see `NMSApp`'s "nms-window" scene) —
@@ -448,23 +452,27 @@ struct ContentView: View {
                     }
                     .accessibilityLabel("Expert Mode")
                     .accessibilityHint("Opens the same content in a resizable window, with every diagnostic section — Events, SNMP Devices, DHCP History, Wi-Fi detail, Path to Internet, Speed Test, Printer Alerts")
+                    .accessibilityIdentifier("footer.expertMode")
                 }
                 Button("Networks…") {
                     openWindowInFront("known-networks")
                 }
                 .accessibilityLabel("Known Networks")
                 .accessibilityHint("Opens a list of every network this Mac has connected to, with a way to forget one")
+                .accessibilityIdentifier("footer.networks")
                 Button("Preferences…") {
                     openWindowInFront("preferences")
                 }
                 .accessibilityLabel("Preferences")
                 .accessibilityHint("Opens toggles for experimental features")
+                .accessibilityIdentifier("footer.preferences")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
                 .accessibilityLabel("Quit")
                 .accessibilityHint("Quits NMS")
+                .accessibilityIdentifier("footer.quit")
             }
 
             if buildInfo != nil || storeSizeText != nil {
@@ -1094,12 +1102,14 @@ struct ContentView: View {
                     }
                     Button("Submit") { submitBugReport() }
                         .accessibilityLabel("Submit bug report")
+                        .accessibilityIdentifier("bugReport.submit")
                         .font(.system(size: 11))
                     Button("Cancel") {
                         bugReportDraft = ""
                         isReportingBug = false
                     }
                     .accessibilityLabel("Cancel bug report")
+                    .accessibilityIdentifier("bugReport.cancel")
                     .font(.system(size: 11))
                 }
                 Text("Saved with a screenshot, the current build, and severity — a blank comment still saves those.")

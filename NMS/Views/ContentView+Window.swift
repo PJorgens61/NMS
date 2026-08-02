@@ -56,6 +56,7 @@ extension ContentView {
                     .disabled(traceroute.isRunning)
                     .accessibilityLabel("Trace Now")
                     .accessibilityHint("Runs a traceroute to find the path to the internet")
+                    .accessibilityIdentifier("pathToInternet.traceNow")
                 }) {
                     tracerouteSection
                 }
@@ -68,6 +69,7 @@ extension ContentView {
                     .disabled(networkQuality.isRunning)
                     .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
                     .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
+                    .accessibilityIdentifier("speedTest.runCloudflare")
                 }) {
                     speedTestTileContent
                 }
@@ -121,6 +123,7 @@ extension ContentView {
                 .font(.system(size: 11))
                 .accessibilityLabel("Stop monitoring hop \(monitored.hopNumber)")
                 .accessibilityHint("Stops treating this hop as the ISP edge router")
+                .accessibilityIdentifier("pathToInternet.stopMonitoringHop")
             } else if let suggested = traceroute.suggestedEdgeHop {
                 // A separate wrapped-text row here used to explain this, at a
                 // real height cost: every *new* network starts unconfirmed, so
@@ -215,6 +218,7 @@ extension ContentView {
                         ? "Monitored ISP edge router, hop \(hop.hopNumber)"
                         : "Monitor hop \(hop.hopNumber) as ISP edge router"
                 )
+                .accessibilityIdentifier("pathToInternet.monitorHop.\(hop.hopNumber)")
             }
             .font(.system(size: 11))
         }
@@ -295,6 +299,7 @@ extension ContentView {
                 .disabled(networkQuality.isRunning)
                 .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Network Quality")
                 .accessibilityHint("Runs Apple's own network quality test: throughput plus responsiveness under load. Uses your data plan and takes about 30 seconds.")
+                .accessibilityIdentifier("speedTest.runAppleNetworkQuality")
             }
         }
         speedTestList
@@ -733,6 +738,7 @@ extension ContentView {
                     }
                     Button("Set") { commitCommunity() }
                         .accessibilityLabel("Set community strings")
+                        .accessibilityIdentifier("snmpDevices.setCommunity")
                         .font(.system(size: 11))
                 }
                 Text("Comma-separated, tried in order — put the most common first.")
@@ -756,6 +762,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Change community strings")
                 .accessibilityHint("Edits the SNMP community strings used for discovery")
+                .accessibilityIdentifier("snmpDevices.changeCommunity")
             }
         }
     }

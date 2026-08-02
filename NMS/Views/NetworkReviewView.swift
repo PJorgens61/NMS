@@ -42,6 +42,7 @@ struct NetworkReviewView: View {
             HStack {
                 Spacer()
                 Button("Close") { dismiss() }
+                    .accessibilityIdentifier("networkReview.close")
             }
         }
         .padding(16)

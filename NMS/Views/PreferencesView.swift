@@ -52,13 +52,15 @@ struct PreferencesView: View {
             feature(
                 "SNMP Devices",
                 isOn: $snmpDevicesEnabled,
-                description: "Active SNMP network probing against whatever LAN this Mac is on. Only turn this on if you're comfortable with that on your own network."
+                description: "Active SNMP network probing against whatever LAN this Mac is on. Only turn this on if you're comfortable with that on your own network.",
+                identifier: "preferences.snmpDevices"
             )
 
             feature(
                 "SaaS Monitoring",
                 isOn: $saasMonitoringEnabled,
-                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, Google Cloud, and Google Workspace. Reaches out to those services directly, not just your own network."
+                description: "Periodically checks the public status pages of Slack, Claude, ChatGPT, Jira/Confluence, Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, Google Cloud, and Google Workspace. Reaches out to those services directly, not just your own network.",
+                identifier: "preferences.saasMonitoring"
             )
 
             // Only shown once the feature itself is on — a per-service
@@ -91,9 +93,10 @@ struct PreferencesView: View {
     /// as belonging to the switch above it rather than floating between
     /// two of them at equal spacing.
     @ViewBuilder
-    private func feature(_ title: String, isOn: Binding<Bool>, description: String) -> some View {
+    private func feature(_ title: String, isOn: Binding<Bool>, description: String, identifier: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle(title, isOn: isOn)
+                .accessibilityIdentifier(identifier)
             caption(description)
         }
     }
@@ -121,8 +124,10 @@ struct PreferencesView: View {
                 Spacer()
                 Button("Select All") { setAllSaaSServices(enabled: true) }
                     .font(.system(size: 11))
+                    .accessibilityIdentifier("preferences.saas.selectAll")
                 Button("Clear All") { setAllSaaSServices(enabled: false) }
                     .font(.system(size: 11))
+                    .accessibilityIdentifier("preferences.saas.clearAll")
             }
             LazyVGrid(
                 columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
@@ -137,6 +142,7 @@ struct PreferencesView: View {
                         // half the pane's already-fixed 380pt width, a wrap
                         // would misalign the checkbox column between rows.
                         .lineLimit(1)
+                        .accessibilityIdentifier("preferences.saas.service.\(service.name)")
                 }
             }
         }

@@ -97,6 +97,7 @@ struct KnownNetworksView: View {
                     .onSubmit { commitLabel(for: network) }
                     .accessibilityLabel("Name for \(displayName(for: network))")
                     .accessibilityHint("Type a name for this network; leave empty to use the Wi-Fi network name or connection type")
+                    .accessibilityIdentifier("knownNetworks.rename.\(network.fingerprint)")
                 Text("\(network.routerMAC) on \(network.subnet)")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -118,6 +119,7 @@ struct KnownNetworksView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Review \(network.label ?? network.routerMAC)")
             .accessibilityHint("Opens a read-only view of this network's recorded events, SNMP devices, DHCP history, and Wi-Fi telemetry")
+            .accessibilityIdentifier("knownNetworks.review.\(network.fingerprint)")
             Button(role: .destructive) {
                 networkIdentity.deleteNetwork(network)
             } label: {
@@ -126,6 +128,7 @@ struct KnownNetworksView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Forget \(network.label ?? network.routerMAC)")
             .accessibilityHint("Deletes this network and every event, DHCP lease, SNMP device, and Wi-Fi reading recorded on it")
+            .accessibilityIdentifier("knownNetworks.delete.\(network.fingerprint)")
         }
         .padding(.vertical, 2)
     }
