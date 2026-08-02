@@ -383,6 +383,38 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    /// Scoped to `currentNetworkFingerprint` — same reasoning as
+    /// `latestProviderEdge`: a hop confirmed as the ISP edge router on one
+    /// network shouldn't read back as confirmed on a different one just
+    /// because it happens to share the same hop number. `nil` while the
+    /// current network isn't recognized yet, same as every other
+    /// per-network read in this file.
+    func confirmedEdgeHopNumber() -> Int? {
+        guard let fingerprint = currentNetworkFingerprint else { return nil }
+        var descriptor = FetchDescriptor<KnownNetwork>(
+            predicate: #Predicate { $0.fingerprint == fingerprint }
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first?.confirmedEdgeHopNumber
+    }
+
+    /// A no-op if the current network isn't recognized yet (no
+    /// `KnownNetwork` row to attach the confirmation to) — matches
+    /// `updateLatestProviderEdgeHostname`'s same tolerance elsewhere in
+    /// this file. In practice this doesn't lose the confirmation: the
+    /// user can only confirm a hop from a completed trace's popover,
+    /// which is well after recognition normally completes.
+    func setConfirmedEdgeHopNumber(_ hopNumber: Int?) {
+        guard let fingerprint = currentNetworkFingerprint else { return }
+        var descriptor = FetchDescriptor<KnownNetwork>(
+            predicate: #Predicate { $0.fingerprint == fingerprint }
+        )
+        descriptor.fetchLimit = 1
+        guard let network = (try? context.fetch(descriptor))?.first else { return }
+        network.confirmedEdgeHopNumber = hopNumber
+        try? context.save()
+    }
+
     /// Forgets a network entirely: every `AppEventRecord`, `DHCPLeaseRecord`
     /// and `SNMPDeviceRecord` tagged with its fingerprint, plus the
     /// `KnownNetwork` row itself. A deliberate, real cleanup — not just

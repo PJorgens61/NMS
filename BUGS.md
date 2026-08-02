@@ -29,144 +29,6 @@ than summarized away.
 
 ## Open
 
-### ISP identification gets wiped by a flaky Wi-Fi reconnect and never recovers
-
-- **Status**: Open
-- **Severity**: Medium — real, misleading behavior (a working feature goes
-  silently and indefinitely blank), but not crashing and not blocking the
-  app's main network-health purpose.
-- **Found in build**: `ec9b878+dirty` — read directly from the app's own
-  `bugReportCaptured` events logged this session ("Build ec9b878+dirty"),
-  not guessed from `git log`.
-- **First reported**: field-tested live at an off-site location
-  ("not seeing the isp info. did a path to internet scan."), diagnosed
-  from `~/Library/Logs/NMS/ui-state.log` and confirmed independently via
-  a direct `curl` RDAP lookup against the live public IP, not assumed.
-
-The ISP row (`ContentView.swift:770`, `if let name =
-ispIdentity.organizationName`) is deliberately omitted entirely rather
-than shown as "—" while unresolved — correct for "hasn't finished
-looking yet," but it means a *stuck* nil looks identical to "still
-loading" or "genuinely nothing found," with nothing to tell them apart.
-
-**The RDAP lookup itself was never the problem — confirmed working
-twice, independently:**
-- The app's own `ui-state.log` shows `ISPIdentityViewModel.organizationName`
-  correctly resolving to `"Comcast Cable Communications, LLC"` at
-  `17:39:23.915Z`, seconds after joining the off-site network's Wi-Fi.
-- A direct `curl -L https://rdap.org/ip/203.0.113.10` (the same public IP
-  logged by the app) returns the identical result right now, independent
-  of the app entirely.
-
-**What actually happened, reconstructed from `ui-state.log`'s precise
-timestamps**: the Mac's Wi-Fi flapped three separate times in about 10
-seconds while joining the off-site network (matches direct field
-observation: "bad wifi quality while sitting outside"):
-
-```
-17:39:20.211  organizationName → nil       (reset: joining OffSiteWiFi)
-17:39:20.307  Event: wifiNetworkChanged Thistle → OffSiteWiFi
-17:39:21.447  Event: publicIPChanged to 203.0.113.10
-17:39:23.915  organizationName → "Comcast Cable Communications, LLC"  ✓ succeeded
-17:39:24.641  NetworkMonitorViewModel.lastChangeAt updates again (2nd flap)
-17:39:24.646  organizationName → nil       (reset: wiped 731ms after succeeding)
-17:39:24.730  Event: interfaceDown
-17:39:30.561  interface back up again (3rd flap, same OffSiteWiFi/192.168.1.56)
-17:39:30.565  organizationName → nil       (still nil — no further attempt)
-```
-
-No further `ISPIdentityViewModel.organizationName` log line appears for
-the rest of the session (checked through `17:46`, ~7 minutes later) —
-it never recovers on its own.
-
-**Root cause: an unconditional reset paired with a conditionally-gated
-re-fetch, confirmed by reading both sides.** Every network-change event
-calls `ispIdentity.reset()` unconditionally
-(`NMSApp.swift:368-372`) — correct, this is what stops stale ISP info
-from one network showing up on another. But the *only* thing that
-re-populates it, `ispIdentity.identify(ip:)`, is normally called from
-`PublicIPViewModel.onCurrentIPChanged` (`NMSApp.swift:492-494`), which
-`PublicIPViewModel.apply(_:)` only fires `if previousIP != currentIP`
-(`PublicIPViewModel.swift:84-85`) — i.e., only on an actual IP *value*
-change, not on every check. When the second/third flap's `publicIP.check()`
-resolved back to the same `203.0.113.10` already recorded from the first
-flap, the "changed" guard correctly stayed silent — but `reset()` had
-already unconditionally cleared the display moments earlier, and nothing
-else was left to call `identify(ip:)` again.
-
-**The developers already recognized this exact class of gap once, but
-only patched it for the launch case, not this one** —
-`NMSApp.swift:233-238`'s own doc comment: "`publicIP.currentIP` may
-already be a cached value from last launch, in which case
-`onCurrentIPChanged` below would never fire this session since nothing
-actually *changed*," which is why launch calls `ispIdentity.identify(ip:
-publicIP.currentIP)` directly rather than relying solely on the
-callback. The post-reset case after a network change has no equivalent
-direct call, and the flaky-Wi-Fi scenario above is exactly the case
-that doc comment's own reasoning already describes, just triggered by a
-mid-session reconnect instead of app launch.
-
-**Likely fix, not yet attempted**: call `ispIdentity.identify(ip:
-publicIP.currentIP)` directly after `ispIdentity.reset()` in the
-network-change handler (`NMSApp.swift:368-372`), the same direct-call
-pattern launch already uses — rather than depending solely on
-`onCurrentIPChanged`'s value-change guard to eventually re-trigger it.
-
-### Confirmed ISP Edge Router hop isn't scoped per network — a stale confirmation from one network silently carries over to the next
-
-- **Status**: Open
-- **Severity**: Medium — misleading, not crashing: the ISP Edge Router
-  row can show green/"confirmed" on a network where nothing was ever
-  actually confirmed, with no way to tell from the UI alone.
-- **Found in build**: `ec9b878+dirty`, read from the app's own recent
-  `bugReportCaptured` events.
-- **First reported**: field-tested live, moving from an off-site
-  location to a coffee shop — asked directly whether Path
-  to Internet had auto-selected the right hop there, then confirmed
-  directly that it hadn't, in the sense that mattered.
-
-**`TracerouteViewModel.monitoredHopNumber` is a single, global
-`UserDefaults` value** (`NMS.monitoredHopNumber`, `TracerouteViewModel
-.swift:74,78`) — unlike every other piece of comparable state in this
-app (SNMP devices, DHCP history, Events, provider-edge history), which
-is all scoped per network via `networkFingerprint`. Confirmed directly
-via `defaults read Thistle.NMS NMS.monitoredHopNumber` → `3`, and via
-`ui-state.log`:
-
-```
-17:09:07  monitoredHopNumber = 2     (home network — single-NAT, hop 2 is the real edge)
-17:54:07  monitoredHopNumber = nil  (cleared while transitioning to the off-site network)
-17:54:11  monitoredHopNumber = 3    (manually re-confirmed at the off-site network — double-NAT, hop 3 is the real edge there)
-```
-
-That `3` is still what's stored now, on a third, unrelated network
-(the coffee shop) — nothing cleared or re-asked when the network
-changed again. **It happens to still read correctly here only by
-coincidence**: this coffee shop's trace independently turns out to have
-the same shape as the off-site network's (two private hops, first
-public address at hop 3) — confirmed by comparing both real traces
-directly, not
-assumed. Had this network's topology been shaped differently (say, a
-simple single-NAT setup where hop 2 is the real edge, or a longer
-corporate-style chain), hop 3 would have silently been monitored and
-shown as "confirmed" regardless of whether it was actually the ISP
-edge on *this* network at all.
-
-**Root cause, by inspection**: `monitorHop(_:)` writes directly to a
-fixed `UserDefaults` key with no `networkFingerprint` tagging, and
-`init` reads that same fixed key back on every launch
-(`TracerouteViewModel.swift:76-78`) — there's no per-network table the
-way `SNMPDeviceRecord`/`AppEventRecord` already use, just one persisted
-integer, global across every network this Mac ever joins.
-
-**Likely fix, not yet attempted**: scope `monitoredHopNumber` per
-`networkFingerprint`, the same pattern already established elsewhere
-in this codebase (see DESIGN-NOTES.md's "Per-network device scoping"),
-so confirming a hop on one network never applies it to another —
-falling back to `suggestedEdgeHop`/"Not confirmed" on any network where
-nothing's been explicitly confirmed yet, rather than whatever the last
-network's confirmation happened to be.
-
 ### A brief interface-down blip during a network transition falsely logs "Back to a single NAT layer"
 
 - **Status**: Open
@@ -318,6 +180,160 @@ probe that's genuinely stuck waits the full 45s before failing, same
 as the large transfer would.
 
 ## Fixed
+
+### ISP identification gets wiped by a flaky Wi-Fi reconnect and never recovers
+
+- **Status**: Fixed
+- **Severity**: Medium — real, misleading behavior (a working feature goes
+  silently and indefinitely blank), but not crashing and not blocking the
+  app's main network-health purpose.
+- **Found in build**: `ec9b878+dirty` — read directly from the app's own
+  `bugReportCaptured` events logged this session ("Build ec9b878+dirty"),
+  not guessed from `git log`.
+- **Fixed in build**: not yet released — see git log
+- **First reported**: field-tested live at an off-site location
+  ("not seeing the isp info. did a path to internet scan."), diagnosed
+  from `~/Library/Logs/NMS/ui-state.log` and confirmed independently via
+  a direct `curl` RDAP lookup against the live public IP, not assumed.
+
+The ISP row (`ContentView.swift:770`, `if let name =
+ispIdentity.organizationName`) is deliberately omitted entirely rather
+than shown as "—" while unresolved — correct for "hasn't finished
+looking yet," but it means a *stuck* nil looks identical to "still
+loading" or "genuinely nothing found," with nothing to tell them apart.
+
+**The RDAP lookup itself was never the problem — confirmed working
+twice, independently:**
+- The app's own `ui-state.log` shows `ISPIdentityViewModel.organizationName`
+  correctly resolving to `"Comcast Cable Communications, LLC"` at
+  `17:39:23.915Z`, seconds after joining the off-site network's Wi-Fi.
+- A direct `curl -L https://rdap.org/ip/203.0.113.10` (the same public IP
+  logged by the app) returns the identical result right now, independent
+  of the app entirely.
+
+**What actually happened, reconstructed from `ui-state.log`'s precise
+timestamps**: the Mac's Wi-Fi flapped three separate times in about 10
+seconds while joining the off-site network (matches direct field
+observation: "bad wifi quality while sitting outside"):
+
+```
+17:39:20.211  organizationName → nil       (reset: joining OffSiteWiFi)
+17:39:20.307  Event: wifiNetworkChanged Thistle → OffSiteWiFi
+17:39:21.447  Event: publicIPChanged to 203.0.113.10
+17:39:23.915  organizationName → "Comcast Cable Communications, LLC"  ✓ succeeded
+17:39:24.641  NetworkMonitorViewModel.lastChangeAt updates again (2nd flap)
+17:39:24.646  organizationName → nil       (reset: wiped 731ms after succeeding)
+17:39:24.730  Event: interfaceDown
+17:39:30.561  interface back up again (3rd flap, same OffSiteWiFi/192.168.1.56)
+17:39:30.565  organizationName → nil       (still nil — no further attempt)
+```
+
+No further `ISPIdentityViewModel.organizationName` log line appears for
+the rest of the session (checked through `17:46`, ~7 minutes later) —
+it never recovers on its own.
+
+**Root cause: an unconditional reset paired with a conditionally-gated
+re-fetch, confirmed by reading both sides.** Every network-change event
+calls `ispIdentity.reset()` unconditionally
+(`NMSApp.swift:368-372`) — correct, this is what stops stale ISP info
+from one network showing up on another. But the *only* thing that
+re-populates it, `ispIdentity.identify(ip:)`, is normally called from
+`PublicIPViewModel.onCurrentIPChanged` (`NMSApp.swift:492-494`), which
+`PublicIPViewModel.apply(_:)` only fires `if previousIP != currentIP`
+(`PublicIPViewModel.swift:84-85`) — i.e., only on an actual IP *value*
+change, not on every check. When the second/third flap's `publicIP.check()`
+resolved back to the same `203.0.113.10` already recorded from the first
+flap, the "changed" guard correctly stayed silent — but `reset()` had
+already unconditionally cleared the display moments earlier, and nothing
+else was left to call `identify(ip:)` again.
+
+**The developers already recognized this exact class of gap once, but
+only patched it for the launch case, not this one** —
+`NMSApp.swift:233-238`'s own doc comment: "`publicIP.currentIP` may
+already be a cached value from last launch, in which case
+`onCurrentIPChanged` below would never fire this session since nothing
+actually *changed*," which is why launch calls `ispIdentity.identify(ip:
+publicIP.currentIP)` directly rather than relying solely on the
+callback. The post-reset case after a network change has no equivalent
+direct call, and the flaky-Wi-Fi scenario above is exactly the case
+that doc comment's own reasoning already describes, just triggered by a
+mid-session reconnect instead of app launch.
+
+**Fixed**: `NMSApp.swift`'s topology-change handler now calls
+`ispIdentity.identify(ip: publicIP.currentIP)` directly right after
+`ispIdentity.reset()`, the same direct-call pattern `NMSApp.init()`
+already used for the equivalent launch-time race — rather than
+depending solely on `onCurrentIPChanged`'s value-change guard to
+eventually re-trigger it. `identify(ip:)`'s own `nil`-ip guard makes
+this a no-op if nothing's known yet. Verified: 115/115 unit tests,
+`test-max.sh`'s UI tests and live scenarios, all pass.
+
+### Confirmed ISP Edge Router hop isn't scoped per network — a stale confirmation from one network silently carries over to the next
+
+- **Status**: Fixed
+- **Severity**: Medium — misleading, not crashing: the ISP Edge Router
+  row can show green/"confirmed" on a network where nothing was ever
+  actually confirmed, with no way to tell from the UI alone.
+- **Found in build**: `ec9b878+dirty`, read from the app's own recent
+  `bugReportCaptured` events.
+- **Fixed in build**: not yet released — see git log
+- **First reported**: field-tested live, moving from an off-site
+  location to a coffee shop — asked directly whether Path
+  to Internet had auto-selected the right hop there, then confirmed
+  directly that it hadn't, in the sense that mattered.
+
+**`TracerouteViewModel.monitoredHopNumber` is a single, global
+`UserDefaults` value** (`NMS.monitoredHopNumber`, `TracerouteViewModel
+.swift:74,78`) — unlike every other piece of comparable state in this
+app (SNMP devices, DHCP history, Events, provider-edge history), which
+is all scoped per network via `networkFingerprint`. Confirmed directly
+via `defaults read Thistle.NMS NMS.monitoredHopNumber` → `3`, and via
+`ui-state.log`:
+
+```
+17:09:07  monitoredHopNumber = 2     (home network — single-NAT, hop 2 is the real edge)
+17:54:07  monitoredHopNumber = nil  (cleared while transitioning to the off-site network)
+17:54:11  monitoredHopNumber = 3    (manually re-confirmed at the off-site network — double-NAT, hop 3 is the real edge there)
+```
+
+That `3` is still what's stored now, on a third, unrelated network
+(the coffee shop) — nothing cleared or re-asked when the network
+changed again. **It happens to still read correctly here only by
+coincidence**: this coffee shop's trace independently turns out to have
+the same shape as the off-site network's (two private hops, first
+public address at hop 3) — confirmed by comparing both real traces
+directly, not
+assumed. Had this network's topology been shaped differently (say, a
+simple single-NAT setup where hop 2 is the real edge, or a longer
+corporate-style chain), hop 3 would have silently been monitored and
+shown as "confirmed" regardless of whether it was actually the ISP
+edge on *this* network at all.
+
+**Root cause, by inspection**: `monitorHop(_:)` writes directly to a
+fixed `UserDefaults` key with no `networkFingerprint` tagging, and
+`init` reads that same fixed key back on every launch
+(`TracerouteViewModel.swift:76-78`) — there's no per-network table the
+way `SNMPDeviceRecord`/`AppEventRecord` already use, just one persisted
+integer, global across every network this Mac ever joins.
+
+**Fixed**: added `KnownNetwork.confirmedEdgeHopNumber` — a per-network
+column, the same per-network singleton shape `KnownNetwork.label`
+already uses, rather than a second global `UserDefaults` key or a new
+timeline table (this needs "the one current value for this network,"
+not a change history the way `ProviderEdgeRecord` is). `SnapshotStore
+.confirmedEdgeHopNumber()`/`.setConfirmedEdgeHopNumber(_:)` read and
+write it scoped to `currentNetworkFingerprint`, mirroring
+`latestProviderEdge()`'s own pattern exactly. `TracerouteViewModel
+.monitorHop(_:)` now writes through this instead of `UserDefaults`, and
+a new `reloadMonitoredHop()` re-reads it — wired into `NMSApp`'s
+topology-change handler right after `networkIdentity.reset()` (clearing
+a stale confirmation immediately, before it can be silently
+re-persisted against the new network by `persistMonitoredHopIfNeeded`)
+and again from `networkIdentity.onNetworkRecognized` (populating the
+*new* network's own confirmation once it's known) — the same two-beat
+reset/re-populate shape as the ISP identification fix directly above.
+Verified: 115/115 unit tests, `test-max.sh`'s UI tests and live
+scenarios, all pass.
 
 ### SNMP device `sysDescr` truncated to one line live, despite no `lineLimit`
 

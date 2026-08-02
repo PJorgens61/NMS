@@ -21,6 +21,13 @@ final class KnownNetwork {
     var firstSeenAt: Date
     var lastSeenAt: Date
     var timesSeen: Int
+    /// The traceroute hop number confirmed as this network's ISP edge
+    /// router — see `TracerouteViewModel.monitorHop`. `nil` if nothing's
+    /// been confirmed on this network yet. Optional for the same migration
+    /// reason as `ProviderEdgeRecord.networkFingerprint`: added after rows
+    /// already existed on disk, and a mandatory attribute here would hit
+    /// the same "Cannot migrate store in-place" failure documented above.
+    var confirmedEdgeHopNumber: Int?
 
     init(routerMAC: String, subnet: String, firstSeenAt: Date) {
         self.fingerprint = Self.makeFingerprint(routerMAC: routerMAC, subnet: subnet)
@@ -28,6 +35,7 @@ final class KnownNetwork {
         self.firstSeenAt = firstSeenAt
         self.lastSeenAt = firstSeenAt
         self.timesSeen = 1
+        self.confirmedEdgeHopNumber = nil
     }
 
     static let fingerprintSeparator: Character = "|"

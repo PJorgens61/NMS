@@ -370,6 +370,30 @@ struct NMSApp: App {
             // see `ISPIdentityViewModel.reset()`'s doc comment for the
             // "old ISP info shows up in new networks" bug this closes.
             ispIdentity.reset()
+            // Same reasoning, for the confirmed ISP Edge Router hop — see
+            // `TracerouteViewModel.reloadMonitoredHop()`'s doc comment.
+            // This first call reads back `nil` (fingerprint was just
+            // cleared above); the second, from `onNetworkRecognized`
+            // below, re-populates it for whichever network this change
+            // actually lands on.
+            traceroute.reloadMonitoredHop()
+            // Re-populate immediately with whatever `publicIP.currentIP`
+            // already holds, the same direct-call pattern `init()` uses
+            // for the equivalent launch-time case (see its own comment
+            // there) — `identify(ip:)`'s own `nil`-ip guard makes this a
+            // no-op if nothing's known yet. Needed because the only other
+            // path back from `reset()`, `onCurrentIPChanged`, is gated on
+            // the public IP's *value* actually changing: a flaky
+            // reconnect that resolves back to the same IP already
+            // recorded correctly stays silent there, but `reset()` above
+            // already unconditionally cleared the display moments
+            // earlier — with nothing else left to call `identify(ip:)`
+            // again, the row stayed blank indefinitely. Confirmed live at
+            // an off-site location with genuinely bad Wi-Fi (see
+            // BUGS.md): a third reconnect within ~10 seconds, back to the
+            // same network and the same already-known public IP, never
+            // recovered without this.
+            ispIdentity.identify(ip: publicIP.currentIP)
             lanDiscovery.scan(for: snapshot)
             // A topology change is the most likely moment the public IP
             // actually changed, so check it right away rather than waiting
@@ -575,6 +599,7 @@ struct NMSApp: App {
             eventLog.refresh()
             dhcpLease.reloadHistory()
             networkQuality.reloadHistory()
+            traceroute.reloadMonitoredHop()
         }
     }
 

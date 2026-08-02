@@ -16,7 +16,9 @@ final class TracerouteViewModel: ObservableObject {
     }
     @Published private(set) var lastRunAt: Date?
     /// The hop number the user has confirmed as "the" router to monitor —
-    /// persisted across launches. `nil` until they confirm one.
+    /// persisted per network (`SnapshotStore.confirmedEdgeHopNumber`), not
+    /// globally. `nil` until they confirm one *on this network*; see
+    /// `reloadMonitoredHop`.
     @Published private(set) var monitoredHopNumber: Int? {
         didSet { UIStateLogger.log("TracerouteViewModel.monitoredHopNumber", monitoredHopNumber as Any) }
     }
@@ -71,11 +73,15 @@ final class TracerouteViewModel: ObservableObject {
     // whether one already-known address still responds was both slow and
     // the wrong tool for the job.
     private static let runInterval: TimeInterval = 600
-    private static let monitoredHopDefaultsKey = "NMS.monitoredHopNumber"
 
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
-        monitoredHopNumber = UserDefaults.standard.object(forKey: Self.monitoredHopDefaultsKey) as? Int
+        // Comes back `nil` here — `currentNetworkFingerprint` isn't
+        // resolved yet this early in launch (same as every other
+        // per-network fetch in `init`, e.g. `EventLogViewModel`). Corrected
+        // once recognition completes, via `reloadMonitoredHop()` wired to
+        // `NetworkIdentityViewModel.onNetworkRecognized` in `NMSApp`.
+        monitoredHopNumber = snapshotStore.confirmedEdgeHopNumber()
         timer = Timer.scheduledTimer(withTimeInterval: FailureInjector.acceleratedInterval(Self.runInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.run()
@@ -166,12 +172,30 @@ final class TracerouteViewModel: ObservableObject {
     /// back to `suggestedEdgeHop`.
     func monitorHop(_ hopNumber: Int?) {
         monitoredHopNumber = hopNumber
-        if let hopNumber {
-            UserDefaults.standard.set(hopNumber, forKey: Self.monitoredHopDefaultsKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: Self.monitoredHopDefaultsKey)
-        }
+        snapshotStore.setConfirmedEdgeHopNumber(hopNumber)
         persistMonitoredHopIfNeeded()
+    }
+
+    /// Re-reads the confirmed hop number for whatever network
+    /// `currentNetworkFingerprint` currently points at. Called twice per
+    /// topology change, same two-beat pattern `ISPIdentityViewModel` uses
+    /// for the equivalent problem:
+    ///
+    /// 1. Right after `NetworkIdentityViewModel.reset()` clears the
+    ///    fingerprint to `nil` — this then reads back `nil` too, clearing
+    ///    a stale confirmed hop number immediately rather than leaving the
+    ///    *previous* network's confirmation displayed (and liable to be
+    ///    silently re-persisted against the new network by
+    ///    `persistMonitoredHopIfNeeded`, if the new trace happens to
+    ///    produce a hop at the same position) while recognition is still
+    ///    pending.
+    /// 2. Again from `NetworkIdentityViewModel.onNetworkRecognized`, once
+    ///    the new network's fingerprint is actually set — this is what
+    ///    makes a *different* network's previously-confirmed hop (or lack
+    ///    of one) show up correctly, rather than whatever the previous
+    ///    network's confirmation happened to be.
+    func reloadMonitoredHop() {
+        monitoredHopNumber = snapshotStore.confirmedEdgeHopNumber()
     }
 
     private func apply(_ result: [TracerouteHop]) {
