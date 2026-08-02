@@ -8,6 +8,79 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Idea: build Mermaid network diagrams from the SNMP-discovered
+  topology, rendered via an external link rather than in-app.** Raised
+  directly, right after this session's own live SNMP verification (see
+  the neighboring "Use SNMP against the router/switch itself..." item
+  above) produced exactly the data a diagram needs: this network's real
+  router→switch→{ap1, ap2, printer, ...}→client topology, cross-
+  validated across the router's ARP table and two devices' bridge
+  forwarding tables in the same session.
+
+  **Rendering, not data, is the real question — and it doesn't need
+  what it first looked like it would.** This app has zero `WKWebView`
+  usage today (checked), so rendering Mermaid *inline* in the popover
+  or window would be genuinely new infrastructure. But an external
+  link sidesteps that entirely, and this app already has the exact
+  mechanism for it: `Link`/`NSWorkspace.open` via `externalLinkIcon`,
+  the same pattern already used for the Local Router link, the ISP
+  status page, and SNMP device web-detection
+  (`ContentView+Window.swift`). Opening a diagram link in the system
+  default browser needs no new UI infrastructure at all.
+
+  **Verified live, not assumed, that a working link is actually
+  possible**: `mermaid.ink` accepts a diagram's raw text as **plain
+  URL-safe base64** — no pako/zlib compression needed — at both
+  `/img/<base64>` (returns a JPEG) and `/svg/<base64>` (returns an
+  SVG). Confirmed by building a real 6-node flowchart (`Router →
+  Switch → AP1/AP2/Printer`, `AP1 → ClientA`, using placeholder labels,
+  not this network's real MACs — see the privacy note below for why),
+  base64-encoding it, and fetching both endpoints: both returned HTTP
+  200, and the returned SVG's actual node/edge markup was read back and
+  confirmed correct, not just the status code. Because the response is
+  a raw image (`image/svg+xml`/`image/jpeg`), not an HTML page
+  embedding one, any browser — including opening the link via this
+  app's existing `NSWorkspace.open` pattern — displays it directly with
+  no plugin or JS involved. Trivial to generate from Swift:
+  `Data(mermaidText.utf8).base64EncodedString()` with the usual
+  `+/=` → `-_`/none URL-safe substitution — no external library needed.
+
+  A second option exists but is meaningfully more work and wasn't
+  verified this session: `mermaid.live` (the interactive editor, as
+  opposed to mermaid.ink's direct image) uses a different URL format —
+  a pako/zlib-deflate-compressed, base64'd JSON payload
+  (`#pako:...`) — which would need Swift's `Compression` framework
+  (zlib is available there) rather than a one-liner. Worth checking
+  whether the simpler, already-confirmed mermaid.ink link is good
+  enough before ever building that.
+
+  **A real privacy consideration, not hypothetical — tied to precedent
+  already in this codebase**: `mermaid.ink` is a third-party service. A
+  diagram link built from real discovered data would carry this
+  network's actual device identifiers (MACs, hostnames, IPs) to an
+  external server — the same category of concern that already made the
+  iMac session pull two real-network screenshots from this repo's own
+  GitHub history this session (see issue #6's 2026-08-02 comment). Any
+  such link should be an explicit, visible user action ("Generate
+  diagram link" button, never auto-embedded or silently pre-fetched)
+  with it clear the data is leaving the device — not silently-on the
+  way e.g. `DeviceWebDetectionService`'s outbound probes already are,
+  since those stay LAN-local and this wouldn't.
+
+  **Scaling limit, untested**: URLs have practical length ceilings
+  (~8000 characters is the usual safe bound across browsers/servers),
+  and base64 costs ~33% overhead on top of the raw diagram text. Fine
+  for a small home network's dozen-ish devices (this session's real
+  topology test included), untested at whatever scale
+  `SubnetCalculator.maxSweepHosts`/`subnetTooLargeToScan` already draws
+  a line at for SNMP sweeping itself — a genuinely large topology might
+  need trimming (e.g. one AP's clients at a time) rather than one link
+  for the whole network.
+
+  Not proposing to build yet — this is confirmation the mermaid.ink
+  route specifically is viable (verified live), narrower and simpler
+  than the original vaguer "some external Mermaid tool" idea.
+
 - [ ] **The Events list will grow long over time; someone chasing a
   real problem needs to isolate genuine changes — especially a
   configuration change on some other local system (a router, a
@@ -322,10 +395,7 @@ new ones as they come up.
   touching every host address one at a time.
 
   Two standard SNMP tables would do this, if the hardware actually
-  supports them (unverified — see the neighboring "Cross-check the
-  router's own interfaces/routes via SNMP" item above, which found this
-  network's printer had weak standard-MIB support and never got to test
-  the router itself):
+  supports them:
   - `ipNetToMediaTable` (`1.3.6.1.2.1.4.22`, RFC 1213) — the router's own
     ARP cache: IP ↔ MAC pairs for everything it's talked to on that
     subnet. Directly gives candidate addresses without sweeping.
@@ -335,23 +405,56 @@ new ones as they come up.
     fresh sweep of just the resulting small candidate set) to get to IP
     addresses worth polling for `sysDescr`/`sysName`/uptime.
 
-  **Concrete next step, before any code**, same shape as the neighboring
-  item: `snmpwalk` this network's own router/switch directly —
+  **Verified against this network's real router (`Alta Route10`) and
+  switch (`GC108P`), unlike the printer and router-route-table
+  neighbors — both tables came back genuinely populated, not a dead
+  end:**
   ```bash
-  snmpwalk -v2c -c public -t 2 -r 1 <router-ip> 1.3.6.1.2.1.4.22   # ipNetToMediaTable
-  snmpwalk -v2c -c public -t 2 -r 1 <switch-ip> 1.3.6.1.2.1.17.7.1.2  # dot1qTpFdbTable
+  snmpget  -v2c -c public  -t 2 -r 1 10.0.0.1 1.3.6.1.2.1.1.1.0        # sysDescr, sanity check
+  snmpwalk -v2c -c public  -t 2 -r 1 10.0.0.1 1.3.6.1.2.1.4.22         # ipNetToMediaTable
+  snmpwalk -v2c -c thistle -t 2 -r 1 10.0.0.8 1.3.6.1.2.1.17.7.1.2     # dot1qTpFdbTable
   ```
-  If both come back empty or unpopulated on this network's own gear,
-  this is a dead end on real hardware and worth writing up as such,
-  same as the printer and (pending) router-route-table findings — not
-  worth half-building against a MIB that isn't actually there. If one
-  or both work, this would need its own decision on where it plugs into
-  `candidateAddresses()`: worth noting this reintroduces exactly the
-  off-subnet risk the ARP-cache removal just fixed if not scoped
-  carefully — a *stale* entry in the router's own ARP table for a
-  device that's since moved to a different network would need the same
-  same-subnet filter `rebuildDeviceList` already applies to everything
-  else, not a blanket trust of whatever the router reports.
+  Also confirmed ap1 (`10.0.0.17`, Aruba AOS-8) answers `sysDescr` over
+  `public` alongside the router — all three respond to this app's own
+  already-configured `NMS.snmpCommunities` (`public`, `thistle`), no
+  new credentials needed. The switch specifically only answered under
+  `thistle`, not `public` — real confirmation that trying multiple
+  configured communities per device (`SNMPViewModel`'s existing
+  behavior) is load-bearing here, not defensive-only.
+
+  Router's `ipNetToMediaTable` returned real IP↔MAC pairs for the
+  switch, both APs, the printer, and several more addresses not
+  otherwise known to the app yet. Switch's `dot1qTpFdbTable` returned a
+  real MAC-keyed forwarding table, several entries matching MACs
+  already seen via the router's ARP walk (confirming the two tables
+  agree with each other) plus additional MACs the ARP table alone
+  didn't have.
+
+  **One real finding this verification surfaced, not just "does it
+  work": the router's ARP table is not scoped to the LAN subnet, and
+  the previously-flagged off-subnet risk is real, not hypothetical.**
+  The walk returned entries under three different `ipNetToMediaIfIndex`
+  values — `21` for ordinary `10.0.0.x` LAN addresses (what
+  `candidateAddresses()` wants), but also `6` for a handful of
+  `192.184.x` *public* addresses (almost certainly the WAN-side
+  neighbor table, all three sharing one MAC — consistent with a single
+  upstream device) and `22` for a *third*, entirely different private
+  range (`10.0.102.x`) — some other VLAN or interface this router also
+  knows about. Naively consuming the whole table would pull in both.
+  Confirms, with real data rather than a hypothetical, that any
+  implementation must filter by `ifIndex` (or cross-check each
+  resolved address against the current subnet, the same way
+  `rebuildDeviceList` already filters everything else) rather than
+  trusting the table wholesale — not a new conclusion, but no longer a
+  guess about whether this matters on real hardware.
+
+  Still not built — this only completes the "worth building at all"
+  verification. Open questions before code: the `ifIndex`-scoping rule
+  above, and how `dot1qTpFdbTable`'s MAC-keyed entries actually get
+  combined with `ipNetToMediaTable`'s IP-keyed ones (a MAC seen on the
+  switch but absent from the router's ARP table — e.g. a device that's
+  been silent long enough for the router to age it out — would need
+  its own resolution path, not just a join).
 
 - [ ] **macOS notifications for sustained outages? Raised, not yet
   designed.** The idea: push a system notification (not just the
