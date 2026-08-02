@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// A read-only look at a past network's recorded Events/SNMP Devices/DHCP
 /// History/Wi-Fi telemetry — opened from `KnownNetworksView`'s "Review"
@@ -13,6 +14,25 @@ struct NetworkReviewView: View {
     @StateObject private var viewModel: NetworkReviewViewModel
     @Environment(\.dismiss) private var dismiss
 
+    /// True only on the throwaway copy handed to `ImageRenderer` (see
+    /// `generateReport`), never on the live sheet. Same shape and
+    /// reasoning as `ContentView.isCapturingScreenshot`: a plain stored
+    /// property, not `@Environment`/`@State` (confirmed not to propagate
+    /// through `ImageRenderer`'s render pass there), and needed because
+    /// `ImageRenderer` doesn't render `ScrollView` content at all
+    /// off-screen — not clipped, absent — so the four sections would
+    /// render as a blank report without this swapping them to a plain
+    /// unclipped `VStack` for the capture only.
+    var isCapturingScreenshot = false
+
+    /// A copy with `isCapturingScreenshot` set — `self` is a struct, so
+    /// this is a plain value copy that leaves the live sheet untouched.
+    private var capturingScreenshotCopy: NetworkReviewView {
+        var capturing = self
+        capturing.isCapturingScreenshot = true
+        return capturing
+    }
+
     init(network: KnownNetwork, snapshotStore: SnapshotStore) {
         _viewModel = StateObject(wrappedValue: NetworkReviewViewModel(network: network, snapshotStore: snapshotStore))
     }
@@ -21,25 +41,12 @@ struct NetworkReviewView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    section("Events", isEmpty: viewModel.events.isEmpty, emptyText: "No events recorded on this network") {
-                        eventRows
-                    }
-                    section("SNMP Devices", isEmpty: viewModel.snmpDevices.isEmpty, emptyText: "No SNMP devices recorded on this network") {
-                        snmpRows
-                    }
-                    section("DHCP History", isEmpty: viewModel.dhcpHistory.isEmpty, emptyText: "No DHCP leases recorded on this network") {
-                        dhcpRows
-                    }
-                    section("Wi-Fi", isEmpty: viewModel.wifiSamples.isEmpty, emptyText: "No Wi-Fi samples recorded on this network") {
-                        wifiRows
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            reportSections
 
             HStack {
+                Button("Generate Report") { generateReport() }
+                    .accessibilityIdentifier("networkReview.generateReport")
+                    .accessibilityHint("Saves an image of this network's recorded history to the Desktop area used for screenshots")
                 Spacer()
                 Button("Close") { dismiss() }
                     .accessibilityIdentifier("networkReview.close")
@@ -48,6 +55,63 @@ struct NetworkReviewView: View {
         .padding(16)
         .frame(minWidth: 480, minHeight: 420)
         .onAppear { viewModel.load() }
+    }
+
+    /// Split out from `body` so `generateReport` can render the same four
+    /// sections through `ImageRenderer` without also capturing `header`
+    /// twice or fighting `ScrollView`'s own off-screen-rendering quirk —
+    /// see `isCapturingScreenshot`'s doc comment.
+    @ViewBuilder
+    private var reportSections: some View {
+        if isCapturingScreenshot {
+            sections
+        } else {
+            ScrollView {
+                sections
+            }
+        }
+    }
+
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            section("Events", isEmpty: viewModel.events.isEmpty, emptyText: "No events recorded on this network") {
+                eventRows
+            }
+            section("SNMP Devices", isEmpty: viewModel.snmpDevices.isEmpty, emptyText: "No SNMP devices recorded on this network") {
+                snmpRows
+            }
+            section("DHCP History", isEmpty: viewModel.dhcpHistory.isEmpty, emptyText: "No DHCP leases recorded on this network") {
+                dhcpRows
+            }
+            section("Wi-Fi", isEmpty: viewModel.wifiSamples.isEmpty, emptyText: "No Wi-Fi samples recorded on this network") {
+                wifiRows
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Renders the whole sheet (header, sections, and this very button
+    /// row — same as `ContentView`'s own screenshot capturing its footer
+    /// too) through `ImageRenderer` and reveals the saved PNG in Finder.
+    /// `.buttonStyle(.plain)`/a real background are `ScreenshotService`'s
+    /// quirks 2/3 (native bordered buttons render as broken-image
+    /// placeholders; there's no implicit background off-screen) — same
+    /// treatment `ScreenshotViewModel.capture` already gives the popover.
+    /// Silently does nothing on failure, matching every other capture
+    /// path in this app: a friend/technician losing this convenience is
+    /// far less costly than a crash or a blocking alert.
+    private func generateReport() {
+        let renderable = capturingScreenshotCopy
+            .buttonStyle(.plain)
+            .background(Color(nsColor: .windowBackgroundColor))
+        guard let filename = ScreenshotService.capture(renderable, filenamePrefix: "NMS-Review-\(sanitizedDisplayName)") else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([ScreenshotService.directory.appendingPathComponent(filename)])
+    }
+
+    /// `displayName` (e.g. "MyWifi (Wi-Fi)") isn't filesystem-safe as-is —
+    /// collapses anything that isn't alphanumeric to a single `-`.
+    private var sanitizedDisplayName: String {
+        displayName.replacingOccurrences(of: "[^A-Za-z0-9]+", with: "-", options: .regularExpression)
     }
 
     private var header: some View {
@@ -156,18 +220,13 @@ struct NetworkReviewView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    // Hardcoded `enabled: true`, unlike every other
-                    // `appKitToolTip` call — safe only because nothing
-                    // currently renders this view through `ImageRenderer`.
-                    // PUNCHLIST.md's "Generate Report" button on Network
-                    // Review would change that: `AppKitToolTip` is an
-                    // `NSViewRepresentable`, the exact category
+                    // `AppKitToolTip` is an `NSViewRepresentable` —
                     // `ImageRenderer` substitutes a yellow "prohibited"
-                    // glyph for (see `ScreenshotService`'s quirk 4). Whoever
-                    // builds that button needs an `isCapturingScreenshot`
-                    // equivalent here first, or this tooltip breaks every
-                    // generated report on day one.
-                    .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: true)
+                    // glyph for it (see `ScreenshotService`'s quirk 4), so
+                    // this disables during `generateReport`'s capture the
+                    // same way every other `appKitToolTip` call in this
+                    // app already does.
+                    .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: !isCapturingScreenshot)
             }
         }
     }

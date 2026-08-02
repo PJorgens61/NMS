@@ -63,9 +63,12 @@ struct ScreenshotService {
 
     /// Returns the saved file's name (not the full path — the directory
     /// above is fixed and already known) on success, `nil` if rendering
-    /// or writing failed.
+    /// or writing failed. `filenamePrefix` defaults to the popover
+    /// capture's own "NMS" — overridden by `NetworkReviewView`'s "Generate
+    /// Report" so a past-network report is distinguishable by filename
+    /// alone from a live popover screenshot sitting in the same directory.
     @MainActor
-    static func capture(_ content: some View) -> String? {
+    static func capture(_ content: some View, filenamePrefix: String = "NMS") -> String? {
         let renderer = ImageRenderer(content: content)
         // Retina-sharp, matching the actual display instead of a
         // hardcoded default — a screenshot meant to be read (by a person
@@ -82,7 +85,7 @@ struct ScreenshotService {
         }
 
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let filename = "NMS-\(formatter.string(from: Date())).png"
+        let filename = "\(filenamePrefix)-\(formatter.string(from: Date())).png"
         guard (try? pngData.write(to: directory.appendingPathComponent(filename))) != nil else {
             return nil
         }

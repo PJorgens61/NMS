@@ -767,12 +767,24 @@ from this list. This one remains, since it's an idea, not a defect):
   End result should be a short "System requirements" section in
   `README.md`, with the measured numbers rather than adjectives.
 
-- [ ] **"Generate Report" button on Network Review.** Reuse
-  `ScreenshotService`'s `ImageRenderer` against the Review content rather
-  than the live popover — it captures exactly what a technician is
-  already looking at, with no separate auto-capture pipeline. The natural
-  follow-on now that Review exists; see DESIGN-NOTES.md's "Network
-  Review" section.
+- [x] ~~"Generate Report" button on Network Review.~~ **Built and
+  verified live.** Reuses `ScreenshotService`'s `ImageRenderer` against
+  the Review sheet itself — same `isCapturingScreenshot`/
+  `capturingScreenshotCopy` shape as `ContentView`'s own screenshot
+  path, needed because `ScrollView` content otherwise renders as
+  completely absent off-screen (see `ScreenshotService`'s own doc
+  comment). Also fixed the DHCP row's `appKitToolTip(..., enabled: true)`
+  that this same file's own comment had flagged as a landmine for
+  whoever built this — an `NSViewRepresentable` `ImageRenderer`
+  substitutes a yellow "prohibited" glyph for, now `enabled:
+  !isCapturingScreenshot` like every other tooltip in the app.
+  `ScreenshotService.capture` gained an optional `filenamePrefix` (default
+  `"NMS"`, unchanged for every existing caller) so a report is
+  distinguishable by filename alone — `NMS-Review-<network>-<date>.png`.
+  Confirmed end-to-end against the real running app: a real "Home"
+  report saved as a complete, correctly-rendered 1677×15374px PNG (full
+  Events/SNMP/DHCP/Wi-Fi history, no blank sections, no tooltip glyph),
+  revealed in Finder on completion.
 
 - [x] ~~DHCP tile → Events as a multi-line message.~~ **Half-resolved.**
   The blocking tension is gone: Events moved window-only in the audience
