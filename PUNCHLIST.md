@@ -2230,12 +2230,51 @@ from this list. This one remains, since it's an idea, not a defect):
     delegation size) alongside the per-port results, giving a direct
     answer to "did my ISP hand me a new prefix" the same way the
     existing `publicIPChanged` event already answers that question for
-    IPv4. The per-port check extends naturally to specific IPv6
-    addresses within that prefix too, not just the prefix fact alone —
-    a genuine, direct test of "can the outside reach this specific
-    device's real address," which IPv4-behind-NAT never had an
-    equivalent question for in the first place (there's no single
-    "this device's real internet-facing address" under NAT).
+    IPv4.
+  - **Per-address checks are targeted at NMS's own known-active
+    addresses, never a scan of the delegated prefix — raised directly,
+    and a real correction to the sketch above.** A /64 host space is
+    2^64 addresses; nothing like IPv4's /24, and not something any
+    external checker could or should attempt to sweep the way
+    `SNMPViewModel` sweeps a small IPv4 subnet. The right shape instead:
+    NMS already knows its own real, currently-active IPv6 address(es)
+    from its own interface — that's what gets sent to the checker for
+    testing, not the prefix itself. Extending to *other* LAN devices'
+    real addresses (not just this Mac's own) has a concrete, already-
+    proven-shaped mechanism available: `LANDiscoveryService` already
+    reads the local IPv4 ARP cache (`arp -n -a`) to find devices this
+    Mac has actually talked to, rather than scanning; macOS's IPv6
+    neighbor cache (`ndp -a`) is the direct structural equivalent for
+    IPv6 — reading it would surface exactly the same kind of
+    already-known-active address list ARP does for v4, no new
+    discovery mechanism invented, just the same "read what the OS
+    already knows" pattern applied to NDP instead of ARP. Only ever
+    testing addresses NMS has independent evidence are real and active
+    is also the tighter version of the privacy point above: the checker
+    never learns the *shape* of the network (which parts of a /64 are
+    populated), only the specific addresses someone chose to have
+    tested.
+
+    **The existing SNMP composite device list is a second, higher-value
+    source for the same targeting — raised directly, and it adds
+    something NDP alone can't: names, not just addresses.**
+    `SNMPViewModel.devices` (already MAC-deduplicated via
+    `mergingSharedMACs`, so a VRRP pair or shared-interface device isn't
+    tested twice under two addresses) is a curated set of devices the
+    user already cares enough about to have SNMP identify — the router,
+    switches, APs, anything else that answers — as opposed to NDP's raw
+    cache, which reflects *everything* this Mac has recently talked to,
+    phones and guests included, with no sense of which entries actually
+    matter. Correlating by MAC address (the same key `macByAddress()`
+    already uses to merge shared-interface IPv4 aliases) between an
+    SNMP device's known MAC and NDP's MAC-to-IPv6 mappings would answer
+    "which IPv6 address, if any, belongs to *this specific, already-
+    named device*" — turning an external check result from an anonymous
+    "port 443 open on `fe80::...`" into "port 443 open on your router,"
+    the same legibility SNMP discovery already brings to the IPv4 device
+    list. Not required for a first version (NDP alone already avoids
+    the scan-the-prefix problem), but a real, natural enrichment once
+    both pieces exist.
   - **No persistent logging, by design, not just by policy** — since
     the whole value of self-hosting is "no one else's server holds a
     record of my network's ports and history," the reference
