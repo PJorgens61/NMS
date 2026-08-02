@@ -8,6 +8,60 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **A "Corporate" mode feature flag — avoids probes that could trip
+  a security alarm on an actively managed network, and separately
+  changes the ISP-detection logic.** Raised directly. Two distinct
+  concerns bundled under one flag, worth naming separately since one is
+  about courtesy/safety and the other about correctness:
+
+  1. **Avoiding probes that look like reconnaissance to a monitored
+     network's own security tooling.** `FeatureFlags.snmpDevices`
+     already gates SNMP scanning off by default for a related but
+     narrower reason — its own doc comment says a friend testing on
+     their own network "hasn't necessarily reviewed or approved NMS
+     probing their devices." That's a *consent* framing; this is a
+     *detection* one, and covers more surface than just SNMP:
+     - `SNMPViewModel.candidateAddresses()`'s subnet sweep plus
+       community-string guessing (`public`, `thistle`, ...) against
+       every candidate address is close to a textbook SNMP-sweep/
+       credential-guessing signature — exactly what a corporate SOC's
+       IDS/IPS watches for, regardless of whether the SNMP feature flag
+       itself is otherwise wanted on.
+     - `DeviceWebDetectionService`'s per-device port probing (HTTPS,
+       then HTTP, then HTTPS on `4343`) across every discovered device
+       is a small port scan, same category of concern.
+     - The neighboring "use SNMP against the router/switch to discover
+       devices on large subnets" idea, and the already-existing
+       fallback behavior on a subnet too large to sweep host-by-host,
+       both assume active sweeping is fine by default — worth
+       reviewing once this flag exists, since "too large to sweep
+       automatically" and "shouldn't sweep automatically here" are
+       different reasons to hold back that happen to produce the same
+       restraint.
+     - Traceroute/ICMP pings are lower risk — common, expected
+       diagnostic traffic most network security tooling doesn't alert
+       on — probably fine to leave as-is even in this mode, but worth
+       confirming rather than assuming once the flag is real.
+  2. **The ISP-detection logic needs to behave differently on a
+     corporate network, not just probe less.** Already documented
+     elsewhere in this file (the RDAP-organization-walk idea): the
+     naive "first non-RFC1918 hop" heuristic misidentifies a corporate
+     network's own border router as the ISP edge, and a traditional
+     corporate WAN using real public IP addresses internally breaks the
+     heuristic even more fundamentally. A "Corporate" flag is the
+     natural place to hang that different behavior on directly — e.g.
+     suppressing the naive auto-guess entirely, defaulting to the
+     RDAP-walk's tier-3 "explain what was found, ask" behavior instead
+     of ever auto-configuring, or relabeling "ISP" to something like
+     "Network Operator" once the identified organization is at least as
+     likely to be the company's own transit provider (or the company
+     itself, if it holds its own address space) as a consumer ISP.
+
+  Following `FeatureFlags`' own established convention: off by default,
+  opt-in — a home user never needs this, so it should cost nothing
+  until someone who actually knows they're on a monitored corporate
+  network turns it on.
+
 - [ ] **Determine how many hops separate this Mac from where its public
   IP actually becomes real — is the NAT happening right at the local
   router, or much farther away (typical of CGNAT or a corporate WAN)?**
@@ -60,6 +114,26 @@ new ones as they come up.
   regardless of any local router configuration, which is precisely what
   "how many hops until the public IP becomes real" would surface
   directly instead of leaving inferred from a private-hop count alone.
+
+  **A more authoritative alternative, raised directly, when SNMP is
+  available**: rather than inferring the NAT boundary from traceroute
+  and an external Public IP lookup, ask the local router directly —
+  its own upstream/WAN interface address (`ipAddrTable`) says outright
+  whether *it* is already holding the real public IP, and its route
+  table's next hop (`ipRouteTable`) points straight at the next device
+  toward the ISP edge, no ICMP/traceroute inference needed. **Corporate
+  WANs will be more complicated** (multiple routes, tunnels, possibly
+  more than one exit point) — flagged directly as the harder case this
+  wouldn't cleanly generalize to. Real-world availability check, not
+  assumed: this depends entirely on item 8 below ("Cross-check the
+  router's own interfaces/routes via SNMP"), which just found a genuine
+  split — the home router answers standard IP-MIB SNMP fine, but
+  Martha's ASUS RT-AC68P answers none at all (stock ASUS firmware has
+  no SNMP support whatsoever, confirmed via web search, not just the
+  live timeout). So this authoritative path is real *when available*,
+  but traceroute-plus-Public-IP-correlation is still the only
+  universally-applicable version — it needs nothing from the router
+  itself.
 
 - [ ] **Idea: build Mermaid network diagrams from the SNMP-discovered
   topology, rendered via an external link rather than in-app.** Raised
@@ -1304,14 +1378,36 @@ from this list. This one remains, since it's an idea, not a defect):
 
 - [ ] **8. Cross-check the router's own interfaces/routes via SNMP
   against the current method (SCDynamicStore), and report a
-  disagreement.** Real idea, genuinely untested — same limitation as the
-  printer investigation earlier: this shell can't reach LAN devices at
-  all, so nothing here could be verified live. Needs the router to
-  expose standard IP-MIB tables (`ipRouteTable`/`ipCidrRouteTable`,
-  `ifTable`) over SNMP, which is not guaranteed — today's session already
-  found the *printer* on this same network had weak standard-MIB support
-  (`prtAlertTable` returning only sentinel values), so don't assume the
-  router will be any better without checking.
+  disagreement.** Needs the router to expose standard IP-MIB tables
+  (`ipRouteTable`/`ipCidrRouteTable`, `ifTable`) over SNMP, which is not
+  guaranteed — the printer on the home network already showed weak
+  standard-MIB support (`prtAlertTable` returning only sentinel values),
+  so this needed checking per router, not assumed.
+
+  **No longer blocked on shell-can't-reach-LAN-devices — since checked
+  live, with a genuine split result across two real routers.** The
+  home router (`Alta Route10`, `10.0.0.1`) already responds fine to
+  standard IP-MIB tables — `ipNetToMediaTable` came back fully
+  populated (see the neighboring "Use SNMP against the router/switch
+  itself…" item), so `ipRouteTable`/`ifTable` are worth trying there
+  specifically next. **But field-tested live against a second, real
+  router — Martha's ASUS RT-AC68P (`192.168.1.1`) — and it answers *no*
+  SNMP at all**, not even a basic `sysDescr`, tried under `public` and
+  `private` (this app's configured `thistle` too), and under both
+  SNMPv1 and SNMPv2c — every combination timed out identically.
+
+  **Confirmed why, not just inferred from the timeout**: stock ASUS
+  firmware has no SNMP support at all — not a disabled toggle, a
+  genuinely absent feature. It only becomes available via third-party
+  firmware (Asuswrt-Merlin) or manually installing `net-snmp` over SSH,
+  neither of which a typical router owner would have done
+  ([SNBForums](https://www.snbforums.com/threads/snmp-on-rt-ax88u-running-stock-firmware.77761/),
+  [mikaelgranberg.se](https://www.mikaelgranberg.se/node/25?language=en)).
+  So this isn't a probing failure or a wrong community string — it's a
+  real, common, and apparently popular router line (ASUS RT-AC series)
+  shipping with no SNMP path at all on its stock firmware. This
+  approach needs a real fallback for exactly that case, since it's
+  looking like the common one for consumer routers, not the exception.
 
   **Concrete next step, before any code**: `snmpwalk` the router
   directly with the community strings already configured, same as was
@@ -1322,9 +1418,11 @@ from this list. This one remains, since it's an idea, not a defect):
   snmpwalk -v2c -c public -t 2 -r 1 <router-ip> 1.3.6.1.2.1.4.20   # ipAddrTable
   ```
 
-  If those come back empty or unpopulated, this is a dead end on this
-  hardware — same as the printer's was — and worth writing up as such
-  rather than half-building it.
+  If those come back empty, unpopulated, or the router doesn't answer
+  SNMP at all (confirmed real outcome, not just possible), this is a
+  dead end on that hardware — worth writing up as such per-router
+  rather than half-building it, same discipline as the printer's own
+  finding.
 
 - [x] ~~Add a debug key to auto-open the real window at launch, for
   headless/scripted verification.~~ **Done.** Built as unconditional-in-
