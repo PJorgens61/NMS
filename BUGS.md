@@ -166,6 +166,69 @@ falling back to `suggestedEdgeHop`/"Not confirmed" on any network where
 nothing's been explicitly confirmed yet, rather than whatever the last
 network's confirmation happened to be.
 
+### A brief interface-down blip during a network transition falsely logs "Back to a single NAT layer"
+
+- **Status**: Open
+- **Severity**: Low — a genuinely wrong entry in the durable Events
+  log, but self-correcting within seconds and not blocking anything;
+  the risk is a misleading permanent record, not a live-state problem.
+- **Found in build**: `ec9b878+dirty`, read from the app's own recent
+  `bugReportCaptured` events.
+- **First reported**: field-tested live at NoeCafe (a coffee shop),
+  while moving off Martha's Wi-Fi — asked directly why the Events log
+  showed both "Multiple NAT layers detected" and "Back to a single NAT
+  layer" back to back, then diagnosed from `ui-state.log`, not guessed.
+
+**Reconstructed precisely from `TracerouteViewModel.hops`'s own logged
+values across the transition, not inferred**:
+
+```
+18:37:16.885  Full trace: 192.168.68.1 (private), 10.1.10.1 (private),
+              96.120.89.157 (public), 96.110.179.13 (public)
+              → 2 leading private hops → isExtraNATed=true
+              → "Multiple NAT layers detected" already logged
+
+18:37:23.362  TracerouteViewModel.hops = []   ← completely empty,
+              during a brief Wi-Fi interface flap mid-transition
+18:37:25.484  → leadingNonInternetHopCount([]) = 0 → isExtraNATed=false
+              → logs "Back to a single NAT layer to the internet."
+
+18:37:26.493  Interface back up; fresh trace completes with the same
+              2 leading private hops as before
+              → isExtraNATed=true again → "Multiple NAT layers
+              detected" logs again
+```
+
+**Both Events entries are real, but the "single layer" one is false —
+nothing about the actual topology changed.**
+`leadingNonInternetHopCount(_:)` (`TracerouteViewModel.swift:215-222`)
+loops over the hops array and simply never enters the loop when it's
+empty, silently returning `0` — indistinguishable from what a
+genuinely single-NAT network would produce. The function has no way to
+tell "this network really is single-NAT" apart from "the trace
+couldn't even attempt hop 1 because the interface was momentarily
+down."
+
+**The code's own doc comment already named a narrower version of this
+exact risk, and underestimated it.** `TracerouteViewModel.swift:210-214`:
+"a hop-1 timeout on an otherwise-stable double-NAT'd network could
+misclassify a single trace as single-NAT... this is rare... the next
+trace self-corrects since only a genuine change logs anything." True as
+far as it goes, but the self-correction only happens *after* a real,
+wrong entry is already written to the permanent Events log — a
+misleading durable record, not just an invisible internal state blip
+that quietly resolves itself. A fully empty `hops` array (not just a
+missing hop 1 on an otherwise-live trace) is a stronger, more clear-cut
+version of the same gap: the trace didn't run at all, rather than
+running and getting an ambiguous answer.
+
+**Likely fix, not yet attempted**: treat an empty `hops` array as "no
+data, skip evaluation" in `logAddressingChangeIfNeeded` rather than as
+"count = 0, genuinely single-NAT" — the same "no interface means a
+certain consequence, not genuine uncertainty" special-casing
+`ContentView.swift`'s `peRouterLayer`/`publicIPLayer` already apply for
+an analogous reason, just not yet extended to this function.
+
 ### Footer buttons truncate ("Expert Mod…", "Networks…") in the popover
 
 - **Status**: Open

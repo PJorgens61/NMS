@@ -8,6 +8,87 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Learn how major ISPs actually architect customer deployments —
+  broader and more proactive than just tracking hop patterns we've
+  personally observed.** Raised directly, as a generalization of the
+  per-ISP hop-pattern idea below: rather than only recognizing a
+  pattern *after* NMS has personally seen it (this session's own
+  `10.1.10.1` finding, twice), research how each major ISP's residential
+  deployment actually works — DOCSIS vs. fiber vs. DSL vs. fixed
+  wireless, whether and for which tiers CGNAT is used, typical private-
+  addressing conventions for the ISP's own gateway/management hop,
+  whether business-class connections on the same ISP look structurally
+  different from residential. Tonight's Comcast finding is exactly the
+  kind of evidence this idea would generalize from: not just "this one
+  address," but "this is how Comcast residential DOCSIS deployments are
+  shaped," which could then be checked against — and recognized on the
+  first encounter with a new ISP, not just the second.
+
+  **Why this is a different, complementary idea, not a duplicate of the
+  one below**: the per-ISP hop-pattern item is reactive and narrow — it
+  only helps once this app (or this installation) has directly seen a
+  specific address/hostname before. This is proactive and structural —
+  understanding *why* an ISP's network looks the way it does (DOCSIS
+  gateways needing a private management hop, whether a given ISP's
+  residential tier uses CGNAT at all, fiber deployments potentially
+  having zero private hops at all) means recognizing the *shape*, not
+  just a memorized address. The same research discipline this session
+  already used for the Comcast finding — direct web search, then
+  cross-checking against a real live trace rather than trusting either
+  alone — is exactly the method this would need, just aimed at the
+  handful of major ISPs (Comcast, Charter/Spectrum, Cox, AT&T, Verizon,
+  T-Mobile/Starlink home internet, ...) rather than one address on one
+  ISP.
+
+  **Where this would plug in, same two places as the narrower idea**:
+  sharpening `multipleNATLayersDetected`'s message with real confidence
+  instead of today's necessarily hedged wording, and as a stronger
+  prior for the RDAP-organization-walk auto-configuration idea — once
+  RDAP names the ISP, knowing that ISP's *typical* deployment shape
+  gives the walk something concrete to check the real trace against,
+  rather than reasoning from the trace alone. Also relevant to
+  corporate-mode's ISP-detection-logic concern: recognizing "this
+  matches a known residential ISP deployment shape" is itself a signal
+  that this probably *isn't* a corporate network, independent of
+  whether the user has manually flagged it as one.
+
+  **Web search is a real, already-proven research method for this, not
+  a hopeful assumption** — it's exactly how tonight's Comcast finding
+  got externally corroborated (forum threads independently describing
+  `10.1.10.1` in the same role), not something untested being proposed
+  fresh here. **Specifically enthusiast/prosumer forums, raised
+  directly as the right kind of source** — official ISP documentation
+  has no reason to ever publish this level of internal addressing
+  detail, but people running their own router/firewall behind ISP-
+  provided equipment (OPNsense, pfSense, Netgate, SNBForums, Xfinity/
+  Comcast community forums, Reddit's networking communities) document
+  exactly this kind of quirk as a matter of course, which is precisely
+  where tonight's three corroborating sources came from.
+
+  **A real complication, raised directly, that changes the shape of
+  this from "one expected pattern per ISP" to "known patterns per ISP,
+  layered by generation": networks live forever, so multiple
+  generations of an ISP's own infrastructure are simultaneously in
+  service, not sequentially replaced.** An ISP rolling out DOCSIS 4.0 or
+  a new CPE model doesn't retroactively upgrade every existing
+  customer's equipment — a connection installed years ago can still be
+  running an older generation's addressing conventions, coexisting
+  right now with brand-new installations on the current generation.
+  Seeing an unfamiliar or "outdated"-looking pattern on a given ISP
+  doesn't mean the ISP was misidentified or the data is stale — it may
+  just be an older, still-legitimate deployment generation. Any real
+  version of this needs to track *which* generations are known for a
+  given ISP, not assume a single current shape, the same way this
+  session's own two Comcast data points (Martha's, noecafe) happened to
+  agree only because they were probably provisioned close together in
+  time — that agreement isn't guaranteed to hold against an older or
+  newer installation on the same ISP.
+
+  Not proposing to build anything yet — this is a research idea, and a
+  substantial one (a handful of major ISPs' real architectures, across
+  multiple generations each, not one address), worth scoping before
+  committing to it.
+
 - [ ] **Track known per-ISP hop patterns to speed up/sharpen
   recognition on future connections, instead of re-deriving everything
   from scratch on every trace.** Raised directly, prompted by exactly
