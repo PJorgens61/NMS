@@ -86,6 +86,42 @@ Screenshots are 2x (Retina) pixel dimensions relative to the point
 coordinates you captured with — divide by 2 before converting a pixel
 position you read off the image back into a point for `click at {x,y}`.
 
+## Linking to BUGS.md / PUNCHLIST.md items
+
+When starting work on a specific bug or punchlist item, post the GitHub
+web link straight to that item's heading — e.g.
+`https://github.com/PJorgens61/NMS/blob/main/BUGS.md#confirmed-isp-edge-router-hop-isnt-scoped-per-network--a-stale-confirmation-from-one-network-silently-carries-over-to-the-next`
+— so the user can click through to exactly what's being worked on
+instead of searching the file by hand. Use whichever branch the file
+actually lives on (`main` unless mid-PR on a feature branch), and note
+that the link only resolves once that heading is actually pushed —
+for an item fixed in the same session it was found, mention that the
+link will go live after the commit is pushed, rather than posting a
+dead link.
+
+**Don't hand-slugify the heading text** — GitHub's anchor algorithm
+strips a broad range of punctuation (quotes, backticks, parens, em
+dashes, etc.) *before* turning spaces into hyphens, so removed
+punctuation that had a space on both sides leaves a doubled `--` in
+the slug (see the example link above: "network — a stale" becomes
+`network--a-stale`), and stripped apostrophes fuse words together
+(`isn't` → `isnt`, not `isn-t`). Compute it, don't guess:
+
+```bash
+python3 -c "
+import re, sys
+heading = sys.argv[1]  # exact ### heading text, no leading #s
+s = heading.lower().strip()
+s = re.sub(r'[ -⁯⸀-⹿\\\\\'!\"#\$%&()*+,./:;<=>?@\[\]^\`{|}~]', '', s)
+s = re.sub(r'\s', '-', s)
+print(s)
+" "PASTE THE HEADING HERE"
+```
+
+If two headings in the same file are worded identically (rare, but
+possible across the Open/Fixed sections), GitHub appends `-1`, `-2`,
+etc. to the second and later occurrences in document order.
+
 ## Permissions
 
 Accessibility and Screen Recording are required for the above and are
