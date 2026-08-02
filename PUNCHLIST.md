@@ -8,6 +8,55 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Give Apple's `networkQuality` its own tile, separate from
+  Speed Test — raised directly, worried it's currently easy to
+  overlook.** Today both throughput sources share one "Speed Test"
+  tile (`ContentView+Window.swift`'s `pathAndSpeedRow`/
+  `speedTestTileContent`): a primary "Run Speed Test" button in the
+  tile header runs the Cloudflare-endpoint throughput test, and a
+  small, plain-styled, secondary "Run Network Quality" button inside
+  the tile body runs Apple's own `networkQuality` — same binary behind
+  Settings → Network Quality Test, the source of the RPM/responsiveness-
+  under-load numbers nothing else in this app measures (see
+  DESIGN-NOTES.md's "Network Quality" section). That deliberately
+  secondary placement was the original design decision — "one history,
+  one place to compare them" — but it means a genuinely distinct,
+  interesting result (bufferbloat/responsiveness under load, not just
+  raw Mbps) is easy to miss entirely unless someone happens to notice
+  the smaller button.
+
+  **Also raised: rename it "Apple networkQuality" wherever it's shown**
+  — the literal binary name, capitalized the way Apple ships it — to
+  make the "this is a macOS built-in feature, not something NMS
+  invented" connection explicit rather than implicit. Today's button
+  text ("Run Network Quality") and history-row label ("Apple") both
+  undersell that connection.
+
+  **Real tension to resolve before building, not yet decided**: the
+  two sources currently share a single `NetworkQualityViewModel
+  .recentRuns` array (rows distinguished only by `run.source`) and a
+  single `isRunning`/`lastError` pair — deliberately, since running
+  both at once would have them contend for the same link and
+  understate both (see that view model's own doc comments). Splitting
+  into two visually separate tiles probably wants two filtered views
+  over history (or two arrays) so each tile shows only its own runs,
+  while still respecting that the two tests can't usefully run
+  concurrently — likely both tiles reflect one shared "a test is
+  running" state, with only the tile whose button was pressed showing
+  "Testing…" text. Also needs a height-budget check: Path to Internet
+  and Speed Test are currently the last two (window-only) tiles in a
+  single-column stack (`SectionLayout.pathToInternet`/`.speedTest`,
+  both `[.window]`) — a third tile means the window grows again, not
+  just this row's internal layout.
+
+  **Also add it to the website** — the "for developers"/homelab-style
+  sections already talk about throughput monitoring; worth a line
+  specifically calling out that NMS surfaces Apple's own built-in
+  `networkQuality`/bufferbloat test (not just a reimplementation of
+  Speed Test culture) as one of its diagnostics, same "we integrate
+  with what the platform already gives you" framing the RDAP/SNMP
+  features already carry there.
+
 - [ ] **Learn how major ISPs actually architect customer deployments —
   broader and more proactive than just tracking hop patterns we've
   personally observed.** Raised directly, as a generalization of the
