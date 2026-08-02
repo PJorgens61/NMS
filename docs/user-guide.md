@@ -151,9 +151,11 @@ that looks wrong, since it captures far more context than a plain
 screenshot. **Expert Mode…** opens the same live data in a separate,
 resizable window (see below). **Networks…** opens the list of every
 network NMS has recognized (see [Scenario E](#scenario-e--recognizing-youre-on-a-different-network)).
-**Preferences…** opens toggles for experimental features (currently:
-which SaaS services to monitor, and any sites you've added yourself —
-see [SaaS Status](#saas-status)). **Quit** exits NMS. The small gray line
+**Preferences…** opens toggles for experimental features — whether to
+turn on [SNMP Devices](#snmp-devices) (off by default) and
+[SaaS Status](#saas-status) (on by default), which SaaS services to
+monitor, and any sites you've added yourself. Every toggle applies
+immediately, no restart needed. **Quit** exits NMS. The small gray line
 underneath shows the build hash and the store's on-disk size.
 
 ## 4. Expert Mode
@@ -217,14 +219,16 @@ event (a different cable or switch port).
 
 ### SaaS Status
 
-*Behind a Preferences toggle, off by default.* Periodically checks the
+*On by default* — the one experimental feature that is, since it only
+reaches public status pages rather than probing your own network (see
+**SNMP Devices** below for the one that isn't). Periodically checks the
 public status pages of business services you use (Slack, GitHub,
-Cloudflare, and others — pick which ones in **Preferences…**) and lists
-each with its current status and a link to its own page. You can also
-add your own sites under **Preferences…**; those are checked for plain
-reachability only (not a real status page), shown separately under
-**Your Own Sites** so that weaker signal isn't confused with a vendor's
-own reporting.
+Cloudflare, and many others — pick which ones in **Preferences…**, or
+turn the whole feature off there) and lists each with its current
+status and a link to its own page. You can also add your own sites
+under **Preferences…**; those are checked for plain reachability only
+(not a real status page), shown separately under **Your Own Sites** so
+that weaker signal isn't confused with a vendor's own reporting.
 
 ### Events
 
@@ -240,14 +244,17 @@ correctly shows nothing here yet, not an error.
 
 ### SNMP Devices
 
-Any switch, access point, or other SNMP-capable device NMS can reach on
-your *current* subnet gets listed with its name, current uptime, and
-software/firmware descriptor — a device that unexpectedly restarts
-(uptime resets) or changes descriptor (a firmware update) logs an event
-automatically. Each row's leading dot is that device's live
-reachability. When NMS finds a web admin page on a device, a small link
-icon opens it directly. **Scan** clears the list and re-sweeps the
-subnet from scratch — expect up to 15–20 seconds on a full /24.
+*Off by default — turn on **SNMP Devices** under **Preferences…** first.*
+Unlike SaaS Status above, this is active probing of your own LAN, so
+it's opt-in rather than on by default. Once enabled, any switch, access
+point, or other SNMP-capable device NMS can reach on your *current*
+subnet gets listed with its name, current uptime, and software/firmware
+descriptor — a device that unexpectedly restarts (uptime resets) or
+changes descriptor (a firmware update) logs an event automatically.
+Each row's leading dot is that device's live reachability. When NMS
+finds a web admin page on a device, a small link icon opens it
+directly. **Scan** clears the list and re-sweeps the subnet from
+scratch — expect up to 15–20 seconds on a full /24.
 
 Two devices sharing one physical network interface (a common VRRP
 setup) are shown as a single entry with both addresses listed, rather
@@ -289,9 +296,10 @@ gateway, DNS, domain, lease/T1/T2 timers, transaction ID) on the second.
 2. Open **Expert Mode**. Under **Path to Internet**, star the hop
    that's genuinely your ISP's router. This turns "ISP Edge Router" in
    Network Health from "Not confirmed" into a real, monitored check.
-3. If you manage the switches/APs here, scroll to **SNMP Devices**, set
-   the right community string, and click **Scan**. Anything that
-   answers gets tracked for restarts and firmware changes from then on.
+3. If you manage the switches/APs here, turn on **SNMP Devices** under
+   **Preferences…** (off by default), then in Expert Mode set the right
+   community string and click **Scan**. Anything that answers gets
+   tracked for restarts and firmware changes from then on.
 
 ### Scenario B — "Is it my Wi-Fi, or is the whole internet down?"
 
@@ -323,11 +331,13 @@ immediately.
 
 ### Scenario D — Watching a specific switch or AP
 
-In **Expert Mode → SNMP Devices**, set the community string it actually
-uses, click **Scan** once to find it, and NMS re-polls it every minute
-from then on. Watch for an uptime that resets to zero (an unplanned
-restart) or a software descriptor that changes (a firmware upgrade) —
-both generate an Events entry the moment they're noticed.
+Turn on **SNMP Devices** under **Preferences…** if you haven't already
+(off by default). Then in **Expert Mode → SNMP Devices**, set the
+community string it actually uses, click **Scan** once to find it, and
+NMS re-polls it every minute from then on. Watch for an uptime that
+resets to zero (an unplanned restart) or a software descriptor that
+changes (a firmware upgrade) — both generate an Events entry the moment
+they're noticed.
 
 ### Scenario E — Recognizing you're on a different network
 
@@ -380,9 +390,13 @@ network and everything recorded on it, permanently.
 underlying command-line tool. Nothing to fix on your end — SNMP
 features are unavailable on this Mac.
 
-**No SNMP devices found.** Either nothing on your subnet answers SNMP
-under the current community string(s), or it's mid-scan (15–20s on a
-full /24) — check the string under **Change** first.
+**SNMP Devices doesn't appear in Expert Mode at all.** It's off by
+default — turn it on under **Preferences…** first.
+
+**No SNMP devices found (with the feature already on).** Either nothing
+on your subnet answers SNMP under the current community string(s), or
+it's mid-scan (15–20s on a full /24) — check the string under
+**Change** first.
 
 **A device I know is on my network never shows up in SNMP Devices.**
 SNMP scanning is deliberately restricted to your current subnet — a
