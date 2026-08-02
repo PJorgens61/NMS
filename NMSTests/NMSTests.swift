@@ -112,6 +112,35 @@ struct SubnetCalculatorTests {
     }
 }
 
+// MARK: - UntrustedText
+
+@Suite("UntrustedText")
+struct UntrustedTextTests {
+    @Test("leaves a short value untouched")
+    func shortValueUnchanged() {
+        #expect(UntrustedText.capped("Aruba AP-535, ArubaOS 8.10") == "Aruba AP-535, ArubaOS 8.10")
+    }
+
+    @Test("truncates a value over the cap")
+    func truncatesOverLength() {
+        let oversized = String(repeating: "a", count: UntrustedText.maxLength + 500)
+        let capped = UntrustedText.capped(oversized)
+        #expect(capped.count == UntrustedText.maxLength)
+        #expect(capped == String(repeating: "a", count: UntrustedText.maxLength))
+    }
+
+    @Test("a value exactly at the cap is untouched")
+    func exactLengthUnchanged() {
+        let exact = String(repeating: "a", count: UntrustedText.maxLength)
+        #expect(UntrustedText.capped(exact) == exact)
+    }
+
+    @Test("a custom cap overrides the default")
+    func customCap() {
+        #expect(UntrustedText.capped("hello world", maxLength: 5) == "hello")
+    }
+}
+
 // MARK: - IPClassifier
 
 @Suite("IPClassifier")

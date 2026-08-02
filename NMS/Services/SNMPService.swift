@@ -100,9 +100,9 @@ struct SNMPService {
             .map { $0.trimmingCharacters(in: .whitespaces) }
         guard lines.count >= 3, let uptimeTicks = Int(lines[2]) else { return nil }
 
-        let sysDescr = Self.unquoted(lines[0])
+        let sysDescr = UntrustedText.capped(Self.unquoted(lines[0]))
         guard !sysDescr.isEmpty else { return nil }
-        let sysName = Self.unquoted(lines[1])
+        let sysName = UntrustedText.capped(Self.unquoted(lines[1]))
 
         return SNMPDevice(
             ipAddress: ipAddress,

@@ -66,7 +66,11 @@ struct DHCPLeaseService {
                 yiaddr = String(trimmed.dropFirst("yiaddr = ".count))
             } else if let parenStart = trimmed.firstIndex(of: "("), let colonEnd = trimmed.range(of: "): ") {
                 let key = String(trimmed[..<parenStart]).trimmingCharacters(in: .whitespaces)
-                options[key] = String(trimmed[colonEnd.upperBound...])
+                // Capped here, at the parsing boundary, so every option
+                // value is bounded uniformly — not just `domain_name`, the
+                // one currently read downstream, but any option added
+                // later too. See `UntrustedText`.
+                options[key] = UntrustedText.capped(String(trimmed[colonEnd.upperBound...]))
             }
         }
 
