@@ -29,7 +29,88 @@ than summarized away.
 
 ## Open
 
-Nothing open right now.
+### ISP identification gets wiped by a flaky Wi-Fi reconnect and never recovers
+
+- **Status**: Open
+- **Severity**: Medium — real, misleading behavior (a working feature goes
+  silently and indefinitely blank), but not crashing and not blocking the
+  app's main network-health purpose.
+- **Found in build**: `ec9b878+dirty` — read directly from the app's own
+  `bugReportCaptured` events logged this session ("Build ec9b878+dirty"),
+  not guessed from `git log`.
+- **First reported**: field-tested live at Martha's on Church St.
+  ("not seeing the isp info. did a path to internet scan."), diagnosed
+  from `~/Library/Logs/NMS/ui-state.log` and confirmed independently via
+  a direct `curl` RDAP lookup against the live public IP, not assumed.
+
+The ISP row (`ContentView.swift:770`, `if let name =
+ispIdentity.organizationName`) is deliberately omitted entirely rather
+than shown as "—" while unresolved — correct for "hasn't finished
+looking yet," but it means a *stuck* nil looks identical to "still
+loading" or "genuinely nothing found," with nothing to tell them apart.
+
+**The RDAP lookup itself was never the problem — confirmed working
+twice, independently:**
+- The app's own `ui-state.log` shows `ISPIdentityViewModel.organizationName`
+  correctly resolving to `"Comcast Cable Communications, LLC"` at
+  `17:39:23.915Z`, seconds after joining Martha's Wi-Fi.
+- A direct `curl -L https://rdap.org/ip/98.45.206.181` (the same public IP
+  logged by the app) returns the identical result right now, independent
+  of the app entirely.
+
+**What actually happened, reconstructed from `ui-state.log`'s precise
+timestamps**: the Mac's Wi-Fi flapped three separate times in about 10
+seconds while joining Martha's network (matches direct field
+observation: "bad wifi quality while sitting outside"):
+
+```
+17:39:20.211  organizationName → nil       (reset: joining MarthaBros)
+17:39:20.307  Event: wifiNetworkChanged Thistle → MarthaBros
+17:39:21.447  Event: publicIPChanged to 98.45.206.181
+17:39:23.915  organizationName → "Comcast Cable Communications, LLC"  ✓ succeeded
+17:39:24.641  NetworkMonitorViewModel.lastChangeAt updates again (2nd flap)
+17:39:24.646  organizationName → nil       (reset: wiped 731ms after succeeding)
+17:39:24.730  Event: interfaceDown
+17:39:30.561  interface back up again (3rd flap, same MarthaBros/192.168.1.56)
+17:39:30.565  organizationName → nil       (still nil — no further attempt)
+```
+
+No further `ISPIdentityViewModel.organizationName` log line appears for
+the rest of the session (checked through `17:46`, ~7 minutes later) —
+it never recovers on its own.
+
+**Root cause: an unconditional reset paired with a conditionally-gated
+re-fetch, confirmed by reading both sides.** Every network-change event
+calls `ispIdentity.reset()` unconditionally
+(`NMSApp.swift:368-372`) — correct, this is what stops stale ISP info
+from one network showing up on another. But the *only* thing that
+re-populates it, `ispIdentity.identify(ip:)`, is normally called from
+`PublicIPViewModel.onCurrentIPChanged` (`NMSApp.swift:492-494`), which
+`PublicIPViewModel.apply(_:)` only fires `if previousIP != currentIP`
+(`PublicIPViewModel.swift:84-85`) — i.e., only on an actual IP *value*
+change, not on every check. When the second/third flap's `publicIP.check()`
+resolved back to the same `98.45.206.181` already recorded from the first
+flap, the "changed" guard correctly stayed silent — but `reset()` had
+already unconditionally cleared the display moments earlier, and nothing
+else was left to call `identify(ip:)` again.
+
+**The developers already recognized this exact class of gap once, but
+only patched it for the launch case, not this one** —
+`NMSApp.swift:233-238`'s own doc comment: "`publicIP.currentIP` may
+already be a cached value from last launch, in which case
+`onCurrentIPChanged` below would never fire this session since nothing
+actually *changed*," which is why launch calls `ispIdentity.identify(ip:
+publicIP.currentIP)` directly rather than relying solely on the
+callback. The post-reset case after a network change has no equivalent
+direct call, and the flaky-Wi-Fi scenario above is exactly the case
+that doc comment's own reasoning already describes, just triggered by a
+mid-session reconnect instead of app launch.
+
+**Likely fix, not yet attempted**: call `ispIdentity.identify(ip:
+publicIP.currentIP)` directly after `ispIdentity.reset()` in the
+network-change handler (`NMSApp.swift:368-372`), the same direct-call
+pattern launch already uses — rather than depending solely on
+`onCurrentIPChanged`'s value-change guard to eventually re-trigger it.
 
 ## Fixed
 
