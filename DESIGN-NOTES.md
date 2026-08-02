@@ -3976,14 +3976,31 @@ doesn't.
 **What's kept:** the reachability-based printer monitoring that predates
 this — a printer that goes fully unreachable still gets pinged, still
 logs `infrastructureUnreachable`/`Reachable` events, unaffected by any of
-this. The `printerAlerts()`/`refreshPrinterAlerts()`/Printer Alerts tile
-code is also kept as-is rather than reverted — it's real, correct code
-that will simply keep showing "OK" on this hardware, and would start
-showing something true the moment a printer that actually populates these
-fields is on the network. Not pursued further: printing an actual test
-job while faulted, to see if that's the one trigger CUPS/SNMP do respond
-to — floated but not tried, since the two tests already run were enough
-to call this a dead end for now rather than open-ended further probing.
+this. Not pursued further: printing an actual test job while faulted, to
+see if that's the one trigger CUPS/SNMP do respond to — floated but not
+tried, since the two tests already run were enough to call this a dead
+end for now rather than open-ended further probing.
+
+**Update: the Printer Alerts tile has since been removed entirely**
+(originally kept as-is on the reasoning that it was "real, correct code
+that will simply keep showing 'OK' on this hardware"). Revisited
+directly: a UI section that can only ever say "OK" — not because
+nothing's wrong, but because neither detection path can see a real
+fault on this hardware — is worse than no section at all, since it
+implies fault-monitoring that isn't real. `PrinterDiscoveryService
+.printerAlerts()`/`parseAlerts()`/`humanReadable(reasons:)`,
+`ConnectivityViewModel.refreshPrinterAlerts()`/`applyPrinterAlerts()`/
+`printerStatuses`, the `.printerAlert`/`.printerAlertCleared`
+`AppEventKind` cases, and the window-only "Printer Alerts" tile are all
+gone. `configuredNetworkPrinters()` and the reachability monitoring
+above are untouched — this only removed the fault-*detection* half that
+never worked. **For a future contributor with different printer
+hardware**: this printer's dead end doesn't mean every printer's is —
+check `lpstat -l -p`'s `Alerts:` line and
+`snmpwalk -v2c -c public <printer-ip> 1.3.6.1.2.1.43.18.1.1`
+(`prtAlertTable`) against a real fault condition first, the same
+concrete-verification-before-code approach this entry itself used,
+before rebuilding anything.
 
 ## Blocking work, and the two thread pools it can starve
 

@@ -1086,21 +1086,20 @@ struct SectionLayoutTests {
         #expect(SectionLayout.speedTest.boxHeight(on: .window) == nil)
     }
 
-    @Test("the four independently-boxed window sections are generously sized, not row-exact")
+    @Test("the three independently-boxed window sections are generously sized, not row-exact")
     func windowBoxesAreGenerousNotExact() {
-        // Replaced two precisely-measured values (a `rowHeight`-derived
-        // Printer Alerts box sized to exactly 2 printers plus one row of
-        // headroom, a DHCP History box deliberately shrunk to force
-        // scrolling against only 4 real leases) with plainer, rounder
-        // numbers — same lesson `ContentView.tileHeight` applied to the
-        // top row: a box the window always scrolls doesn't need to be
-        // measured to fit any particular row count, since scrolling
-        // absorbs whatever doesn't fit. Unlike that shared constant,
-        // these four don't need to match each other — none of them sit
-        // side by side with another, so there's no alignment bug forcing
-        // one number on all of them. This just pins "declared, present,
-        // and not accidentally reverted to zero," not any specific value.
-        for section: SectionLayout in [.events, .snmpDevices, .dhcpHistory, .printerAlerts] {
+        // Replaced a precisely-measured value (a DHCP History box
+        // deliberately shrunk to force scrolling against only 4 real
+        // leases) with a plainer, rounder number — same lesson
+        // `ContentView.tileHeight` applied to the top row: a box the
+        // window always scrolls doesn't need to be measured to fit any
+        // particular row count, since scrolling absorbs whatever doesn't
+        // fit. Unlike that shared constant, these three don't need to
+        // match each other — none of them sit side by side with another,
+        // so there's no alignment bug forcing one number on all of them.
+        // This just pins "declared, present, and not accidentally
+        // reverted to zero," not any specific value.
+        for section: SectionLayout in [.events, .snmpDevices, .dhcpHistory] {
             let height = section.boxHeight(on: .window)
             #expect(height != nil && height! > 0, "\(section.rawValue) should declare a positive window height")
         }

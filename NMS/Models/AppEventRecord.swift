@@ -93,15 +93,6 @@ enum AppEventKind: String, Codable {
     /// event is directly useful in the Events list, not just a pointer to
     /// a file — see `ScreenshotViewModel.captureBugReport`.
     case bugReportCaptured
-    /// A configured printer's own CUPS-reported fault state
-    /// (`printer-state-reasons` — out of paper, cover open, toner low,
-    /// etc.) went from clear to non-empty. Distinct from
-    /// `infrastructureUnreachable`: a printer can report this while still
-    /// fully reachable on the network — this is about the physical
-    /// device's state, not connectivity. See
-    /// `PrinterDiscoveryService.printerAlerts()`.
-    case printerAlert
-    case printerAlertCleared
     /// More than one non-internet hop precedes the real internet on the
     /// traced path — either the customer's own router chained behind
     /// another NAT'ing device, or the ISP's own carrier-grade NAT.
@@ -160,12 +151,12 @@ enum AppEventKind: String, Codable {
     var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
-             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered, .printerAlertCleared,
+             .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered,
              .saasServiceRecovered:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
              .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue,
-             .printerAlert, .saasServiceDown:
+             .saasServiceDown:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
              .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected, .subnetTooLargeToScan,

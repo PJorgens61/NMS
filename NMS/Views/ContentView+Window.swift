@@ -17,12 +17,13 @@ import SwiftUI
 /// window-only implementation physically separated from the always-shared
 /// core, the same decoupling `SectionLayout` already does for layout data.
 ///
-/// A few members here (`pathAndSpeedRow`, `wifiSection`, `eventList`,
-/// `infrastructureList`, `dhcpHistoryList`, `printerAlertsList`) are
-/// called directly from `ContentView.swift`'s `scrollableContent`. Swift's
-/// `private` only covers same-file access even across extensions of the
-/// same type, so those six have to be at least `internal` here for that
-/// cross-file call to compile. Everything else stays `private` to this
+/// A few members here (`pathAndSpeedRow`, `wifiSection`,
+/// `ethernetLinkSection`, `eventList`, `infrastructureList`,
+/// `dhcpHistoryList`) are called directly from `ContentView.swift`'s
+/// `scrollableContent`. Swift's `private` only covers same-file access
+/// even across extensions of the same type, so those six have to be at
+/// least `internal` here for that cross-file call to compile. Everything
+/// else stays `private` to this
 /// file, same encapsulation as before — this file's own members freely
 /// call each other privately, same as if it were all one file.
 extension ContentView {
@@ -847,43 +848,6 @@ extension ContentView {
         }
     }
 
-    // MARK: - Printer Alerts
-
-    /// Sized to comfortably show 2 printers before scrolling — see
-    /// `SectionLayout.printerAlerts` for how that height was arrived at
-    /// and why it carries a row of headroom rather than sitting exactly
-    /// on the 2-row boundary.
-    @ViewBuilder
-    var printerAlertsList: some View {
-        scrollBox(.printerAlerts, spacing: 0) {
-            printerAlertRows
-        }
-    }
-
-    /// One row per CUPS-configured printer — a colored dot (green: no
-    /// alerts, red: `reasons` non-empty) plus the reasons themselves when
-    /// present. `PrinterDiscoveryService.PrinterAlert` has no reachability
-    /// concept of its own, so unlike `infrastructureRows` there's no
-    /// "unknown/gray" state here — CUPS always reports *something*
-    /// (`none`, if nothing's wrong).
-    private var printerAlertRows: some View {
-        ForEach(connectivity.printerStatuses) { printer in
-            HStack {
-                Circle()
-                    .fill(printer.reasons.isEmpty ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                Text(printer.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Text(printer.reasons.isEmpty ? "OK" : printer.reasons.joined(separator: ", "))
-                    .foregroundStyle(printer.reasons.isEmpty ? Color.secondary : Color.red)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.system(size: 12))
-        }
-    }
 
     // MARK: - SaaS Monitoring
 

@@ -290,27 +290,15 @@ new ones as they come up.
   Wi-Fi specifically (the Info tile's own row still shows it), not
   appended alongside the sparkline as first drafted here.
 
-- [ ] **Shrink SNMP Devices and Printer Alerts' box heights.**
-  `SectionLayout.boxHeight(on:)`:
-  - **SNMP Devices**: `200` → `150` (requested directly, down 25%).
-    That 200 is explicitly taller than its neighbors "because
-    `sysDescr` wraps instead of truncating and needs the extra room"
-    (that type's own comment) — worth a live check that a real wrapped
-    `sysDescr` (the switch's is the longest seen so far, two lines)
-    still reads fully at 150 before landing on it, not just trusting
-    the arithmetic.
-  - **Printer Alerts**: `rowHeight * 3` (51) → **30, exact value given
-    directly**, superseding an earlier "down 50%" ask. `rowHeight` is
-    17, so 30 is 1.76 rows — below even the *exact* 2-row boundary
-    (34), not just below the row-of-headroom-past-it that 51 was tuned
-    to. That headroom came from a real same-day Bug Report ("Confirm
-    Printer Alerts' new fixed-height box actually fits 2 printers
-    live," below); 30 sits inside the boundary that report flagged as
-    too tight in the first place, so a real second printer showing 2
-    alerts at once would need to scroll to see both — likely fine
-    given today's 1-printer network can't actually show that case
-    either way, but worth going in with eyes open rather than
-    rediscovering the same report's finding.
+- [ ] **Shrink SNMP Devices' box height.** `SectionLayout.boxHeight(on:)`:
+  `200` → `150` (requested directly, down 25%). That 200 is explicitly
+  taller than its neighbors "because `sysDescr` wraps instead of
+  truncating and needs the extra room" (that type's own comment) —
+  worth a live check that a real wrapped `sysDescr` (the switch's is
+  the longest seen so far, two lines) still reads fully at 150 before
+  landing on it, not just trusting the arithmetic. (The matching
+  Printer Alerts half of this item is moot — that tile was removed
+  entirely; see "Decide whether to keep the printer alerts feature.")
 
 - [ ] **Blocked on the user: GCP OAuth client setup for "Sign in with
   Google" (Personalized Service Health).** Everything else for this
@@ -529,20 +517,10 @@ new ones as they come up.
   (`TracerouteViewModel.edgeHistory`, `reloadEdgeHistory()`,
   `SnapshotStore.fetchProviderEdgeHistory`) are gone.
 
-- [ ] **Confirm Printer Alerts' new fixed-height box actually fits 2
-  printers live.** Built (`3bea552`, `65c4c00`): `ContentView` now has a
-  `printerAlertsList` wrapping `printerAlertRows` in the same
-  `NoBounceScrollView` + fixed-height pattern DHCP History and SNMP
-  Devices use, sized at 3 x 17 = 51pt (a row of headroom past the exact
-  2-row boundary, after a same-day Bug Report — "might need to be taller
-  for 2 printers" — flagged that the first cut, sized to exactly 2 x 17
-  = 34pt, was untested against a real second printer). Still only 1 real
-  printer configured on this network, so the live fit has never actually
-  been seen. `PrinterDiscoveryService.parseAlerts`'s multi-printer
-  parsing itself is already confirmed correct (existing `multiPrinter`
-  unit test pins exactly two, and nothing downstream narrows to one) —
-  this remaining task is purely "does 51pt actually look right with 2
-  real rows," which needs a second printer to check.
+- [x] ~~Confirm Printer Alerts' new fixed-height box actually fits 2
+  printers live.~~ **Moot — the Printer Alerts tile was removed
+  entirely.** See "Decide whether to keep the printer alerts feature."
+  This box-fit question no longer applies to anything that exists.
 
 - [x] ~~`BuildInfoService`'s hardcoded repo path breaks when more than
   one checkout exists on a machine.~~ **Done — took the third option
@@ -946,17 +924,29 @@ from this list. This one remains, since it's an idea, not a defect):
   `EthernetLinkViewModel.currentSpeedMbps | 1000.0` against this Mac's
   actual Ethernet connection.
 
-- [x] ~~Decide whether to keep the printer alerts feature.~~ **Decided:
-  keep.** Reasoning: the ~91ms-avg `lpstat -l -p` cost every round is
-  marginal next to what's already accepted elsewhere (the SNMP sweep's
-  up to 32 concurrent `snmpget`s), the UI is window-only so it costs no
-  popover space, and it's forward-compatible for free — works the
-  moment better-behaved printer hardware is on the network, no code
-  changes needed. Known, accepted risk: since it's never produced a
-  true positive on real hardware, the "an actual alert renders
-  correctly" path has only ever been exercised by the negative case
-  (`Alerts: none`), not confirmed against a real fault making it all
-  the way to the UI.
+- [x] ~~Decide whether to keep the printer alerts feature.~~ **Reversed:
+  removed.** Originally decided "keep" on cost grounds (marginal
+  `lpstat -l -p` overhead, no popover space, forward-compatible for
+  free) without weighing whether it ever shows real content. Revisited
+  directly ("does the tile add anything? is SNMP sufficient?") against
+  what `DESIGN-NOTES.md`'s "Printer fault detection... a real dead end"
+  entry had already established: both CUPS (`lpstat -l -p`) and the
+  standard SNMP Printer MIB (`prtAlertTable`/`prtCoverStatus`) were
+  tested against a real fault (a physically open drawer) and both came
+  back empty or meaningless, on this hardware. A tile that can only
+  ever say "OK" is worse than no tile — it implies fault-monitoring
+  that isn't real. Removed entirely: `PrinterDiscoveryService
+  .printerAlerts()`/`parseAlerts()`/`humanReadable(reasons:)`,
+  `ConnectivityViewModel.refreshPrinterAlerts()`/`applyPrinterAlerts()`/
+  `printerStatuses`, the `.printerAlert`/`.printerAlertCleared`
+  `AppEventKind` cases, and the window-only tile — reachability
+  monitoring (`configuredNetworkPrinters()`,
+  `infrastructureUnreachable`/`Reachable` events) is completely
+  untouched, since that was never in question. A note for the future is
+  left directly in `DESIGN-NOTES.md`'s dead-end entry: a different
+  printer's firmware might expose real fault detail through either
+  path, so this isn't a permanent "never build this" — just a "not on
+  this hardware, verify concretely before trying again."
 
 - [ ] **Run `/code-review ultra` on the branch.** User-triggered and
   billed, so it can't be launched from a session. Worth it: a manual pass

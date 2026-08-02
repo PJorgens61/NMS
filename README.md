@@ -49,7 +49,6 @@ rendered directly by GitHub — no separate build or deploy step, just push.
   - [Wi-Fi](#wi-fi)
   - [SNMP Devices](#snmp-devices)
   - [DHCP History](#dhcp-history)
-  - [Printer Alerts](#printer-alerts)
   - [SaaS Status](#saas-status)
   - [Correlation](#correlation)
   - [What's hidden](#whats-hidden)
@@ -108,10 +107,9 @@ work documented at length in `DESIGN-NOTES.md`. **Expert Mode** opens
 the same live data in a real, resizable window instead, with every
 diagnostic section the popover deliberately doesn't carry: **Path to
 Internet**, **Speed Test**, **Events**, **Wi-Fi**, **SaaS Status**,
-**SNMP Devices**, **DHCP History**, and **Printer Alerts** (hidden when
-no printer is configured). A permanent, always-available part of the
-app — not behind a feature flag the way it started out — both surfaces
-stay open to the same underlying state.
+**SNMP Devices**, and **DHCP History**. A permanent, always-available
+part of the app — not behind a feature flag the way it started out —
+both surfaces stay open to the same underlying state.
 
 Network Health and Info stack full-width in the window, one above the
 other, along with Path to Internet and Speed Test — more room for text
@@ -329,15 +327,6 @@ minutes. Two failure signals fire independently of a normal renewal:
 falling back to a self-assigned `169.254.x.x` address, and the
 transaction ID failing to change past its own lease's T2 (rebinding)
 deadline.
-
-### Printer Alerts
-
-*Window-only, hidden entirely when no printer is configured.* Every
-printer set up in System Settings → Printers & Scanners gets its own
-row: a reachability dot and its CUPS-reported fault state (out of
-paper, cover open, low toner, or "OK"). A fault is orthogonal to
-whether the printer is reachable at all — a printer can report this
-while still fully responding on the network.
 
 ### SaaS Status
 
@@ -570,7 +559,7 @@ NMS/
 │   └── Views/
 │       ├── ContentView.swift                  # Menu bar popover UI (+ what's shared with the window)
 │       ├── ContentView+Window.swift           # Window-only sections: Path to Internet, Speed Test,
-│       │                                      #   Events, Wi-Fi, SNMP Devices, DHCP History, Printer Alerts
+│       │                                      #   Events, Wi-Fi, SNMP Devices, DHCP History
 │       ├── KnownNetworksView.swift            # Known-networks list window, with delete + Review
 │       ├── NetworkReviewView.swift            # Read-only Events/SNMP/DHCP/Wi-Fi view of a past network
 │       ├── NoBounceScrollView.swift           # AppKit-backed non-bouncing scroll container

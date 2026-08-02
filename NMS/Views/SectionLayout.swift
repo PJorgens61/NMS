@@ -64,7 +64,6 @@ enum SectionLayout: String, CaseIterable, Sendable {
     case ethernetLink
     case snmpDevices
     case dhcpHistory
-    case printerAlerts
     case saasMonitoring
 
     /// Which surfaces this section renders on at all.
@@ -102,7 +101,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     var surfaces: Set<Surface> {
         switch self {
         case .pathToInternet, .speedTest, .events,
-             .wifi, .ethernetLink, .snmpDevices, .dhcpHistory, .printerAlerts, .saasMonitoring:
+             .wifi, .ethernetLink, .snmpDevices, .dhcpHistory, .saasMonitoring:
             return [.window]
         }
     }
@@ -133,13 +132,13 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // answer `wifi` below already gives, not a new exception.
         case (.pathToInternet, _), (.speedTest, _): return nil
 
-        // These four don't need to match each other — unlike
+        // These three don't need to match each other — unlike
         // `ContentView.tileHeight`'s pair, none of these sit side by side
         // with another, so there's no bottom-edge-alignment bug motivating
         // one shared number. What does still apply is the same lesson that
         // fixed the top row: a box the window always scrolls doesn't need
         // to be measured to fit any particular row count exactly (a lease
-        // count, a printer count) — that just recreates the "recalibrate
+        // count, a device count) — that just recreates the "recalibrate
         // every time content changes" problem for a different set of
         // sections. Picked generously round instead, each independently,
         // rather than trimmed to the row count on hand at the time.
@@ -149,7 +148,6 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // comment for the box-scrolling issue found alongside this.
         case (.snmpDevices, .window): return 300
         case (.dhcpHistory, .window): return 150
-        case (.printerAlerts, .window): return 85
         // Both were previously "read-at-a-glance current state, sizes to
         // its content, no box" — reversed after offsite testing asked for
         // every window section to scroll uniformly rather than some
@@ -173,7 +171,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // fails to compile instead of silently rendering an unboxed
         // section. `pathToInternet`/`speedTest` aren't repeated here —
         // they already match every surface via the first case above.
-        case (.events, _), (.snmpDevices, _), (.dhcpHistory, _), (.printerAlerts, _),
+        case (.events, _), (.snmpDevices, _), (.dhcpHistory, _),
              (.wifi, _), (.ethernetLink, _), (.saasMonitoring, _):
             return nil
         }

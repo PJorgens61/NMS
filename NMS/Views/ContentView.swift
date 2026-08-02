@@ -130,8 +130,8 @@ struct ContentView: View {
     var body: some View {
         if isExpertModeWindow {
             // Footer pinned outside the scrollable region — the window's
-            // content (SNMP Devices, DHCP History, Printer Alerts, Bug
-            // Report) can run tall enough that without this, reaching
+            // content (SNMP Devices, DHCP History, Bug Report) can run
+            // tall enough that without this, reaching
             // Refresh/Screenshot/Bug Report/Quit meant resizing the
             // window or scrolling all the way down first.
             //
@@ -370,24 +370,6 @@ struct ContentView: View {
 
                 dhcpHistoryList
             }
-
-            // Window-only from the start, unlike DHCP History above (which
-            // moved here) — a fault a printer reports (out of paper, cover
-            // open, low toner) is orthogonal to whether it's reachable on
-            // the network at all, so this is new signal `Network Health`'s
-            // reachability pinging can't see, but it's still a niche
-            // per-device detail in the same category as SNMP Devices, not
-            // something a fresh install's popover budget should pay for.
-            // Hidden entirely when nothing's configured, same as the
-            // Wi-Fi section hiding on Ethernet.
-            if SectionLayout.printerAlerts.appears(on: surface), !connectivity.printerStatuses.isEmpty {
-                Divider()
-
-                Text("Printer Alerts")
-                    .font(.headline)
-
-                printerAlertsList
-            }
     }
 
     /// Refresh/Screenshot/Bug Report/Expert Mode/Networks…/
@@ -469,7 +451,7 @@ struct ContentView: View {
                         openWindowInFront("expert-mode-window")
                     }
                     .accessibilityLabel("Expert Mode")
-                    .accessibilityHint("Opens the same content in a resizable window, with every diagnostic section — Events, SNMP Devices, DHCP History, Wi-Fi detail, Path to Internet, Speed Test, Printer Alerts")
+                    .accessibilityHint("Opens the same content in a resizable window, with every diagnostic section — Events, SNMP Devices, DHCP History, Wi-Fi detail, Path to Internet, Speed Test")
                     .accessibilityIdentifier("footer.expertMode")
                 }
                 Button("Networks…") {
