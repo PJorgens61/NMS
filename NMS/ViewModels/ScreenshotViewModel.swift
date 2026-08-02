@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Combine
 
 /// A single fire-and-forget action, unlike every other view model here —
@@ -158,5 +159,16 @@ final class ScreenshotViewModel: ObservableObject {
             message: "\(buildLine) · \(severityDescription): \(summary) (\(filename))"
         )
         onEventLogged?()
+
+        // Off-main: `BugReportExportService.export` shells out to `zip`
+        // and blocks on `waitUntilExit()`. Release-build-safe (see that
+        // type's own doc comment) — this is for a friend testing the app
+        // to actually hand the report to someone, not a debug tool.
+        DispatchQueue.global(qos: .utility).async {
+            guard let zipURL = BugReportExportService.export(screenshotFilename: filename, header: header) else { return }
+            Task { @MainActor in
+                NSWorkspace.shared.activateFileViewerSelecting([zipURL])
+            }
+        }
     }
 }

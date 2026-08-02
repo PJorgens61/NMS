@@ -48,7 +48,10 @@ import AppKit
 /// three were diagnosed, including one attempted fix (`@Environment`)
 /// that was built, disproved by logging, and reverted.
 struct ScreenshotService {
-    private static let directory = FileManager.default
+    // Not `private` — `BugReportExportService` needs the real file this
+    // resolves to, to bundle it into a shareable zip. One source of
+    // truth for the path rather than a second, hand-typed copy of it.
+    static let directory = FileManager.default
         .urls(for: .libraryDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Logs/NMS/screenshots", isDirectory: true)
 
