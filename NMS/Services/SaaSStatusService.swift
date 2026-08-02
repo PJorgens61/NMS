@@ -14,6 +14,17 @@ import Foundation
 struct SaaSStatusService {
     enum Indicator: String {
         case none, minor, major, critical
+        /// A genuine fifth Statuspage value, not documented alongside the
+        /// other four but confirmed live: Asana's real `summary.json`
+        /// returned `"indicator":"maintenance"` (paired with `"Service
+        /// Under Maintenance"`) for a scheduled maintenance window
+        /// actually in progress (`scheduled_maintenances`, `status:
+        /// "in_progress"`) — not an outage of any kind. Before this case
+        /// existed, `Indicator(rawValue:)` fell through to `.unknown` for
+        /// it, which read identically to a parsing failure (same gray) as
+        /// "we don't know what's happening" — wrong on two counts: this
+        /// *was* successfully parsed, and what it found isn't a fault.
+        case maintenance
         /// Not a Statuspage value — used when a service's shape can't be
         /// classified at all (e.g. an unrecognized `indicator` string),
         /// so a parsing gap reads as "unknown," never silently as

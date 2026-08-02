@@ -229,12 +229,14 @@ final class SaaSMonitoringViewModel: ObservableObject {
                 let isDown = result.indicator != .none
                 if isDown, !wasDown {
                     let prefix = FailureInjector.isSaaSForced(result.name) ? "[injected] " : ""
-                    // The URL is appended right in the message — this
-                    // event record is the durable, findable copy (the
-                    // live status row disappears the moment the service
-                    // recovers), so it's the one place a link needs to
-                    // survive for later reading.
-                    snapshotStore.logEvent(.saasServiceDown, message: "\(prefix)\(result.name): \(result.description) (\(result.url))")
+                    // Carried as `url:`, not baked into `message` as
+                    // trailing text — this event record is the durable,
+                    // findable copy (the live status row disappears the
+                    // moment the service recovers), so it's the one place
+                    // a link needs to survive for later reading, and a
+                    // real field lets it render as an actual clickable
+                    // link instead of text `eventRows` would truncate.
+                    snapshotStore.logEvent(.saasServiceDown, message: "\(prefix)\(result.name): \(result.description)", url: result.url)
                     loggedAny = true
                 } else if !isDown, wasDown {
                     snapshotStore.logEvent(.saasServiceRecovered, message: "\(result.name) recovered")

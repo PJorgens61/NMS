@@ -816,8 +816,8 @@ final class SnapshotStore {
     /// `nil` (the default, every other call site) keeps today's behavior —
     /// tag with whatever's currently live.
     @discardableResult
-    func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date(), networkFingerprint: String? = nil) -> AppEventRecord {
-        let event = AppEventRecord(kind: kind, message: message, occurredAt: date, networkFingerprint: networkFingerprint ?? currentNetworkFingerprint)
+    func logEvent(_ kind: AppEventKind, message: String, at date: Date = Date(), networkFingerprint: String? = nil, url: String? = nil) -> AppEventRecord {
+        let event = AppEventRecord(kind: kind, message: message, occurredAt: date, networkFingerprint: networkFingerprint ?? currentNetworkFingerprint, url: url)
         context.insert(event)
         try? context.save()
         return event

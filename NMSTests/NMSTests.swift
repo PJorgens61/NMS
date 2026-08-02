@@ -1135,6 +1135,21 @@ struct SaaSStatusParserTests {
         #expect(result.indicator == .unknown)
     }
 
+    @Test("Statuspage: a scheduled maintenance window reports .maintenance, not .unknown — the real Asana shape")
+    func statuspageMaintenance() throws {
+        // Confirmed live via `curl` against Asana's real `summary.json`
+        // during an actual in-progress scheduled maintenance window
+        // (`scheduled_maintenances[0].status == "in_progress"`) — this is
+        // the exact `status` object it returned. `incidents` stayed
+        // empty; maintenance is a separate top-level array this parser
+        // doesn't read, so `status.indicator`/`.description` are the only
+        // signal available for it, same as every other case here.
+        let json = Data(#"{"status":{"indicator":"maintenance","description":"Service Under Maintenance"},"incidents":[]}"#.utf8)
+        let result = try SaaSStatusService.parseStatuspage(json)
+        #expect(result.indicator == .maintenance)
+        #expect(result.description == "Service Under Maintenance")
+    }
+
     @Test("Slack: healthy (empty active_incidents)")
     func slackHealthy() throws {
         let json = Data(#"{"status":"ok","active_incidents":[]}"#.utf8)

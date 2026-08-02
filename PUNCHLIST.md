@@ -683,11 +683,17 @@ from this list. This one remains, since it's an idea, not a defect):
   follow-on now that Review exists; see DESIGN-NOTES.md's "Network
   Review" section.
 
-- [ ] **DHCP tile → Events as a multi-line message.** Idea: fold DHCP
-  History detail into a multi-line Events entry instead of a separate
-  section. Real tension, unresolved: Events assumes single-line,
-  fixed-row-height entries, which the whole popover height calibration
-  (17pt/row) depends on. Needs a design decision before any code.
+- [x] ~~DHCP tile → Events as a multi-line message.~~ **Half-resolved.**
+  The blocking tension is gone: Events moved window-only in the audience
+  split, so it no longer shares the popover's precise 17pt/row height
+  calibration this was worried about breaking — the window's Events box
+  is just a generous, independently-scrolling 350pt area regardless of
+  how many lines any one entry takes. Requested directly and shipped:
+  `eventRows` no longer truncates to one line, so a long message wraps
+  instead of getting cut off illegibly. **Still open:** the original
+  idea itself — folding DHCP History's own detail into a multi-line
+  Events entry instead of keeping it a separate section — hasn't been
+  done; this only removed the reason it couldn't be.
 
 - [ ] **File the two `swift-frontend` compiler crashes with Apple
   Feedback Assistant.** Both were "failed to produce diagnostic for

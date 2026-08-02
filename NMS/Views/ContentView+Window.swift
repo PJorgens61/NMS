@@ -470,13 +470,44 @@ extension ContentView {
     /// already confirmed readable.
     private var eventRows: some View {
         ForEach(isCapturingScreenshot ? Array(eventLog.events.prefix(50)) : eventLog.events) { event in
-            HStack {
+            // `.top`, not the default `.center` — once `message` can wrap
+            // to more than one line, centering would float the timestamp/
+            // link partway down a tall row instead of pinning it level
+            // with the message's first line.
+            HStack(alignment: .top) {
+                // No `lineLimit`/`truncationMode` — Events moved
+                // window-only in the audience split, so it no longer
+                // shares the popover's precise 17pt/row height budget
+                // this row's single-line truncation used to protect (see
+                // `PUNCHLIST.md`'s "DHCP tile → Events as a multi-line
+                // message"). The window's Events box (`SectionLayout
+                // .events`) is already a generous, independently
+                // scrolling 350pt area, so a long message just wraps and
+                // takes more of that scroll, the same way any other
+                // section's overflow already works — requested directly
+                // after a long message got cut off illegibly.
+                // `fixedSize` forces the wrap to actually happen instead
+                // of `Text` compressing to fit the `HStack`'s available
+                // width the way a flexible sibling next to `Spacer()`
+                // normally would.
                 Text(event.message)
                     .font(.system(size: 12))
                     .foregroundStyle(eventColor(for: event))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
+                // Requested directly, after noticing a SaaS outage row's
+                // URL was there but unusable — baked into `message` as
+                // trailing text that `lineLimit(1)`/`truncationMode(.middle)`
+                // above routinely cuts off. `AppEventRecord.url` carries
+                // it as a real field now; only `.saasServiceDown` sets one
+                // today, so this is absent for every other event kind.
+                if let url = event.url {
+                    externalLinkIcon(
+                        url: url,
+                        accessibilityLabel: "Related link",
+                        accessibilityHint: "Opens this event's related link in your browser"
+                    )
+                }
                 Text(event.occurredAt, format: .dateTime.month().day().hour().minute())
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -821,6 +852,10 @@ extension ContentView {
         case .none: return .green
         case .minor: return .yellow
         case .major, .critical: return .red
+        // Distinct from `.gray` (`.unknown`, below) on purpose — a
+        // scheduled maintenance window is a successfully-parsed, planned
+        // state, not a parsing gap, and shouldn't look like one.
+        case .maintenance: return .blue
         case .unknown: return .gray
         }
     }

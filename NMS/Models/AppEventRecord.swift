@@ -169,12 +169,22 @@ final class AppEventRecord {
     /// risking it showing under whichever network happens to be current
     /// later. See DESIGN-NOTES.md's "Per-network device scoping."
     var networkFingerprint: String?
+    /// A clickable link for this event, when it has one — currently only
+    /// `.saasServiceDown` (see `SaaSMonitoringViewModel.apply`). Plain
+    /// optional, same no-migration-risk shape as `SNMPDeviceRecord.webURL`.
+    /// Added after direct feedback: the URL used to be baked into
+    /// `message` as trailing "(https://...)" text, which `eventRows`
+    /// truncates to one line — unreadable, let alone clickable. A real
+    /// field lets the UI render it as an actual link instead of asking
+    /// someone to select-and-copy truncated text.
+    var url: String?
 
-    init(kind: AppEventKind, message: String, occurredAt: Date = Date(), networkFingerprint: String? = nil) {
+    init(kind: AppEventKind, message: String, occurredAt: Date = Date(), networkFingerprint: String? = nil, url: String? = nil) {
         self.kind = kind.rawValue
         self.message = message
         self.occurredAt = occurredAt
         self.networkFingerprint = networkFingerprint
+        self.url = url
     }
 }
 
