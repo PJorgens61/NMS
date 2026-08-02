@@ -2039,6 +2039,245 @@ from this list. This one remains, since it's an idea, not a defect):
   transition logs anything" convention `logAddressingChangeIfNeeded`
   already follows for `multipleNATLayersDetected`.
 
+- [ ] **Monitor a user-configured DDNS hostname for staleness — does it
+  actually still point at the current public IP?** Raised directly,
+  as a natural extension of the just-shipped public-IP-change tracking
+  (`publicIPChanged`, already surfaced on the project website's
+  homelab section as "the thing that silently breaks a self-hosted VPN
+  endpoint or a port-forwarded service"). Watching NMS's own Public IP
+  row only helps if someone's actually looking at it; the real-world
+  failure this would catch is different and more common: a DDNS client
+  (on the router, a NAS, a cron job) that's supposed to keep a hostname
+  like `myhome.duckdns.org` pointed at the current address, silently
+  stopping — the DNS record goes stale, and anything relying on that
+  hostname (a VPN peer config, a port-forwarded service, a friend's
+  bookmark) becomes unreachable from outside with nothing on this Mac
+  visibly broken.
+
+  **User config of the DDNS name is required, not optional** — NMS has
+  no way to know which hostname, if any, someone's pointed at their own
+  connection. Same shape as `FeatureUserAddedSaaSSites` already
+  established for user-added SaaS reachability checks
+  (`FeatureFlags.UserAddedSaaSSite`, JSON-encoded `UserDefaults`, a
+  Preferences list the user adds to directly) — one or more hostnames,
+  entered once, checked from then on. Not a single hardcoded field:
+  someone could reasonably run more than one DDNS name (a router's own
+  update client and a separate NAS's, say).
+
+  **Mechanism**: resolve the configured hostname (a plain `getaddrinfo`
+  lookup, same primitive `DNSResolutionService` already uses) on some
+  periodic cadence, and compare the result against
+  `PublicIPViewModel.currentIP` — already fetched independently, no new
+  external dependency needed. A mismatch means the DDNS record is
+  stale; a match means it's current. This is genuinely different from
+  `publicIPChanged`, which only says "your own address changed," not
+  "the hostname you rely on for inbound access still points at it."
+
+  **CGNAT breaks both DDNS and port forwarding structurally, not just
+  the freshness of a DNS record — raised directly, and arguably the
+  more important warning than staleness alone.** Under CGNAT, the
+  customer's own router never holds a real, internet-routable public
+  IP at all — only a private, ISP-internal CGNAT address
+  (`100.64.0.0/10`), with the ISP's own NAT layer sharing one real
+  public IP across many customers further out. Two consequences, both
+  severe, neither fixable by "waiting for the DDNS client to catch up":
+  - **DDNS becomes pointless, not just occasionally stale.** A DDNS
+    client on the customer's own router can only ever report its own
+    WAN-facing address — the CGNAT one — never the real shared public
+    IP a DNS record would actually need to point at. A DDNS client
+    "working perfectly" (always current, matching what the router
+    reports) is still fundamentally wrong under CGNAT.
+  - **Port forwarding/DNAT can't work at all, for the same root
+    reason.** Forwarding rules configured on the customer's own router
+    only take effect for traffic that reaches that router's own WAN
+    interface — under CGNAT, inbound traffic never gets there. The
+    ISP's own shared-IP NAT layer (not under the customer's control,
+    usually not configurable by them at all) is what actually decides
+    where an inbound packet goes, and it has no rule sending any of it
+    to this specific customer.
+
+  This app already detects exactly this condition, for an unrelated
+  reason — `IPClassifier.isCGNAT`,
+  `TracerouteViewModel.includesConfirmedCGNAT`/
+  `multipleNATLayersDetected` — so the real work here isn't "add CGNAT
+  detection," it's reusing what's already built. **Proposed**: check
+  for confirmed CGNAT before (or alongside) the staleness comparison,
+  and if a DDNS hostname is configured on a CGNAT'd network, that's the
+  headline warning — "this can't work here, regardless of how current
+  your DDNS record is" — not a detail buried under a plain stale/fresh
+  result that would otherwise report "matches" or "stale" without ever
+  explaining why neither answer actually helps. Worth its own distinct
+  event/message, since the implied next step is different too — contact
+  the ISP about a static IP or CGNAT exemption, or use a relay-based
+  remote-access tool (Tailscale, a WireGuard relay) instead of DDNS or
+  raw port forwarding — not "check whether your DDNS client is
+  running."
+
+  **A real scope boundary worth stating directly, not glossed over**:
+  this only detects the *structural* condition (CGNAT present, so this
+  approach is expected to fail), not actual end-to-end inbound
+  reachability. Confirming a real inbound connection actually lands
+  would need a remote vantage point this app doesn't have and isn't
+  proposing to add — this is a local-only app, no server, no account,
+  by design (see the README). "CGNAT is present, so this likely won't
+  work" is the honest, buildable claim; "we tested your port forward
+  from the outside and it doesn't work" is a materially bigger, and
+  currently out-of-scope, feature.
+
+  **A real technical wrinkle to solve before trusting this, not yet
+  worked out**: `DNSResolutionService`'s own anti-caching trick
+  (a randomized subdomain, to defeat the resolver's negative caching)
+  can't apply here — the hostname being checked is fixed, not
+  randomizable, so a straightforward `getaddrinfo` lookup risks reading
+  a *cached* answer from the local resolver rather than the DDNS
+  provider's actual current record, which could report a false "stale"
+  moments after a real, successful update (the cache hasn't caught up
+  yet) — worse than not checking, since it's a false alarm about
+  something that's actually fine. Worth checking whether querying an
+  external resolver directly (the same `dig @1.1.1.1 host` approach
+  `DESIGN-NOTES.md`'s DNS-testing section already evaluated and set
+  aside for the main DNS check, for different reasons — availability,
+  not correctness) sidesteps this for a low-frequency check like this
+  one, where an extra subprocess per check is a much smaller cost than
+  it would be at connectivity-check cadence.
+
+  **Shape of the result, not yet decided**: a real up/down-style event
+  pair (e.g. `ddnsRecordStale`/`ddnsRecordCurrent`) rather than a
+  neutral informational one like `publicIPChanged` — a stale DDNS
+  record is an actual "something you depend on is currently broken"
+  fact, not just information, the same reasoning that makes
+  `infrastructureUnreachable` negative-polarity rather than neutral.
+  Logged only on a genuine transition, same convention every other
+  event here already follows.
+
+- [ ] **An external vantage point for real firewall/ACL reachability
+  testing, triggered by a firewall change or router firmware update —
+  a bigger idea than anything else in this file, and a real, deliberate
+  exception to "no server, local-only" if built.** Raised directly,
+  building on the CGNAT/port-forwarding item above: NMS can already say
+  "CGNAT is present, so inbound access likely won't work," but can't
+  say "here's what's *actually* reachable from outside right now" —
+  that needs something probing the connection from outside it, which
+  nothing running only on this Mac can do.
+
+  **The IPv6 framing is the sharpest version of why this matters, and
+  is worth stating precisely.** Under IPv4 with NAT, a home network's
+  internal devices are protected *by construction*, almost as a side
+  effect: no explicit forwarding rule means no path in at all, whether
+  or not the firewall itself is configured thoughtfully. IPv6 typically
+  has no NAT — a modern IPv6 deployment commonly hands out a real,
+  globally-routable address to every device on the LAN directly. That
+  removes the accidental backstop entirely: once IPv6 is in the
+  picture, the router/firewall's actual ACL ruleset is the *only* thing
+  standing between the internet and every device behind it, not a
+  fallback under an already-restrictive NAT boundary. A misconfigured
+  rule, or a firmware update that silently resets or changes default
+  ACL behavior, has a much larger and more direct blast radius than the
+  IPv4-behind-NAT equivalent ever did.
+
+  **Real prerequisite, not yet true**: this app has **no IPv6 support
+  at all** today — confirmed directly, not assumed. `IPClassifier`/
+  `SubnetCalculator` only have IPv4 concepts (`isRFC1918`, `isCGNAT`,
+  `packedIPv4`), and `SystemConfigurationService`'s one IPv6 mention
+  only watches `State:/Network/Global/IPv6` for change-notification
+  purposes — it never reads or displays an actual IPv6 address
+  anywhere. This idea becomes *critical* specifically once IPv6 support
+  is real; until then it's still a genuinely useful idea for IPv4/NAT
+  setups (confirming a port-forward rule actually works, not just that
+  it's configured), just lower-stakes. IPv6 support itself belongs on
+  this list as its own real, sizeable prerequisite item, not assumed
+  as a given.
+
+  **Real, personal motivation behind this, not just a hypothetical**:
+  "every time I update or reconfigure my firewall/router I wish I had
+  this feature" — raised directly, from actual recurring experience,
+  not a speculative nice-to-have.
+
+  **Revised privacy framing, correcting an overstatement above**: a
+  public IPv4 address and an IPv6 delegated prefix aren't secret in the
+  first place — every server this Mac has ever connected to already
+  sees exactly that, every time, as a basic fact of how routing works.
+  Raised directly as a correction, and it's right: exposing that
+  specific information to an external checker isn't a new disclosure
+  in itself. What the earlier framing actually got at, more precisely,
+  is the *self-hosted* question below — not "is the IP sensitive" (it
+  isn't) but "is a new third party now in the loop, and does it keep
+  any record of having tested this specific network." A self-hosted
+  checker answers that cleanly: there's no third party at all, since
+  the "external" vantage point is infrastructure the user already
+  rents and trusts (a VPS), not a stranger's service.
+
+  **Concretely proposed, per that same idea, raised directly: a
+  self-hostable Docker container, as its own separate open-source
+  project, not a feature built into NMS itself.** NMS stays a macOS
+  client; the checker is a small, focused, cross-platform service
+  meant to run anywhere with a real public IP — same separation of
+  concerns this app already applies everywhere else (shelling out to
+  `ping`/`traceroute`/`snmpget` rather than reimplementing them, RDAP
+  instead of a hand-rolled WHOIS client). A sketch, not a spec:
+  - **Stateless HTTP(S) API, no client-supplied target address at
+    all** — the checker uses the *source* address of the incoming
+    request itself as the thing to test (the same well-established
+    pattern sites like canyouseeme.org already use), so there's no way
+    to ask it to test an unrelated third party's network by mistake or
+    on purpose. A request like `GET /check?tcp=51820,32400` gets back
+    open/closed/filtered for each port, tested by the checker
+    attempting its own outbound connection back to the requester's
+    address.
+  - **IPv6 prefix delegation, reported the same way**: if the
+    connecting request arrived over IPv6, the checker reports the
+    prefix it saw (typically the first 64 bits — the usual DHCPv6-PD
+    delegation size) alongside the per-port results, giving a direct
+    answer to "did my ISP hand me a new prefix" the same way the
+    existing `publicIPChanged` event already answers that question for
+    IPv4. The per-port check extends naturally to specific IPv6
+    addresses within that prefix too, not just the prefix fact alone —
+    a genuine, direct test of "can the outside reach this specific
+    device's real address," which IPv4-behind-NAT never had an
+    equivalent question for in the first place (there's no single
+    "this device's real internet-facing address" under NAT).
+  - **No persistent logging, by design, not just by policy** — since
+    the whole value of self-hosting is "no one else's server holds a
+    record of my network's ports and history," the reference
+    implementation should hold state only for the duration of handling
+    one request, nothing written to disk, nothing aggregated across
+    requests. Worth stating as a hard design requirement for the
+    reference implementation, not left as an assumption.
+  - **NMS becomes a configurable client, not tied to one instance** —
+    a Preferences field for the checker URL, defaulting to nothing
+    (feature inert until someone points it at an instance, whether the
+    project's own reference deployment, their own self-hosted one, or
+    a friend's). Keeps the "which specific server, if any, my IP goes
+    to" a fully user-controlled decision, not a hardcoded dependency.
+
+  **A natural, already-existing trigger for "recheck after a change,"
+  found by reusing what's already built rather than inventing new
+  detection**: `AppEventKind.snmpDeviceSoftwareChanged` already fires
+  when a router/firewall's own `sysDescr` changes (a firmware update),
+  for devices that answer SNMP. That's exactly the "router/firewall
+  software update" trigger raised directly — re-running the external
+  reachability check specifically when that event fires for the
+  router, rather than only on a fixed timer, would catch a firmware
+  update silently changing ACL defaults close to when it actually
+  happens. A direct, user-initiated "check firewall now" action (after
+  someone knows they just changed a rule themselves, which nothing on
+  this Mac can observe directly) covers the other half of "whenever you
+  change your firewall rules."
+
+  **Still worth an explicit Preferences toggle and a clear description
+  of what happens, even with the privacy framing corrected above** —
+  not because the IP/prefix is sensitive, but because this is the
+  first feature in this app whose entire purpose is *actively probing
+  this specific network's own defenses* from outside it, which is
+  worth a deliberate "yes, do this" rather than silently defaulting on
+  the moment a checker URL happens to be configured.
+
+  Not proposing to build any of this now — flagging it as the biggest,
+  most architecturally different idea in this file, worth returning to
+  once IPv6 support is real, and worth scoping the companion Docker
+  project (its own repo, its own API contract, its own README) as a
+  deliberate first step before NMS's own client side is written.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
