@@ -852,17 +852,38 @@ from this list. This one remains, since it's an idea, not a defect):
   Events/SNMP/DHCP/Wi-Fi history, no blank sections, no tooltip glyph),
   revealed in Finder on completion.
 
-- [x] ~~DHCP tile → Events as a multi-line message.~~ **Half-resolved.**
-  The blocking tension is gone: Events moved window-only in the audience
+- [x] ~~DHCP tile → Events as a multi-line message.~~ **Resolved: keep
+  them separate, deliberately not merged.** The blocking *technical*
+  tension was already gone: Events moved window-only in the audience
   split, so it no longer shares the popover's precise 17pt/row height
-  calibration this was worried about breaking — the window's Events box
-  is just a generous, independently-scrolling 350pt area regardless of
-  how many lines any one entry takes. Requested directly and shipped:
-  `eventRows` no longer truncates to one line, so a long message wraps
-  instead of getting cut off illegibly. **Still open:** the original
-  idea itself — folding DHCP History's own detail into a multi-line
-  Events entry instead of keeping it a separate section — hasn't been
-  done; this only removed the reason it couldn't be.
+  calibration this was originally worried about breaking — the window's
+  Events box is just a generous, independently-scrolling 350pt area
+  regardless of how many lines any one entry takes, and `eventRows` no
+  longer truncates to one line as a result. What remained was the
+  original *idea* — folding DHCP History's own detail into a multi-line
+  Events entry instead of keeping it a separate section — and on
+  reflection that's the wrong direction, for three reasons:
+  1. **Different audiences at different granularity.** `dhcpHistoryList`
+     shows every field of every real lease change (server, address,
+     broadcast, gateway, DNS, domain, lease/T1/T2 timing, transaction
+     ID — "the densest jargon in the app," per its own tooltip).
+     Events already logs a one-line summary of the same transition
+     (`dhcpLeaseChanged`). Merging means either bloating every Events
+     row to DHCP's full technical density, or discarding that detail to
+     fit Events' shape — a real loss of diagnostic value either way.
+  2. **Events is a shared, cross-subsystem list with one row shape.**
+     Interface changes, SNMP restarts, connectivity outages, SaaS
+     status, and DHCP changes all render through the same
+     colored-dot-plus-label-plus-detail row. Making just DHCP's entries
+     uniquely two-line-dense would make that one list inconsistent, not
+     simpler.
+  3. **This already matches the app's own established pattern.** The
+     popover/window audience split works exactly this way — headline in
+     one place, full detail one level down (see this file's "Split by
+     audience" entry). Events is the headline ("something changed");
+     DHCP History is already the "one level down" detail view. Merging
+     them would collapse a distinction the rest of the app deliberately
+     keeps, not simplify anything.
 
 - [ ] **File the two `swift-frontend` compiler crashes with Apple
   Feedback Assistant.** Two genuinely different crashes, not two copies
