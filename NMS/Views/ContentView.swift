@@ -387,7 +387,13 @@ struct ContentView: View {
 
             Divider()
 
-            HStack {
+            // `spacing: 4`, not the default 8 — see BUGS.md's "Footer
+            // buttons truncate" entry: 7 buttons in this fixed-560pt-wide
+            // popover left "Expert Mode…" too tight to render without
+            // SwiftUI's own truncation ellipsis stacking on top of the
+            // label's own trailing "…". Tried first, as the least
+            // invasive of that entry's three ranked options.
+            HStack(spacing: 4) {
                 Button("Refresh") {
                     viewModel.refresh()
                     publicIP.check()
@@ -447,7 +453,18 @@ struct ContentView: View {
                 // Alerts) — those only belong inside the window; this
                 // button only belongs outside it.
                 if !isExpertModeWindow {
-                    Button("Expert Mode…") {
+                    // Visible label shortened to "Expert…" (was "Expert
+                    // Mode…") as part of the footer-truncation fix — see
+                    // BUGS.md's "Footer buttons truncate" entry. Kept the
+                    // ellipsis rather than dropping it: "Networks…"/
+                    // "Preferences…" both use it (the standard "opens
+                    // something needing further interaction" convention),
+                    // so this button dropping it alone would be the odd
+                    // one out in the same row. The full name lives on in
+                    // `accessibilityLabel` below, same "visible text and
+                    // VoiceOver label can differ" precedent
+                    // `footer.networks` already established.
+                    Button("Expert…") {
                         openWindowInFront("expert-mode-window")
                     }
                     .accessibilityLabel("Expert Mode")

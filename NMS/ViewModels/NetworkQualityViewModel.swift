@@ -10,9 +10,21 @@ import Combine
 /// section.
 @MainActor
 final class NetworkQualityViewModel: ObservableObject {
-    @Published private(set) var isRunning = false
-    @Published private(set) var lastError: String?
-    @Published private(set) var recentRuns: [NetworkQualityRecord] = []
+    /// Instrumented for the UI state log — see BUGS.md's "Speed Test times
+    /// out... with no telemetry to say why." Before this, a real timeout
+    /// left no trace of which stage (probe or full transfer) was in
+    /// flight, or how far it got, in `ui-state.log`/state dumps/bug
+    /// reports — every other check in this app logs its running/error
+    /// state this way already.
+    @Published private(set) var isRunning = false {
+        didSet { UIStateLogger.log("NetworkQualityViewModel.isRunning", isRunning) }
+    }
+    @Published private(set) var lastError: String? {
+        didSet { UIStateLogger.log("NetworkQualityViewModel.lastError", lastError as Any) }
+    }
+    @Published private(set) var recentRuns: [NetworkQualityRecord] = [] {
+        didSet { UIStateLogger.log("NetworkQualityViewModel.recentRuns", recentRuns) }
+    }
 
     private let service = NetworkQualityService()
     private let appleService = AppleNetworkQualityService()

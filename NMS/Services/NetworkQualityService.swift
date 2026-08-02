@@ -37,6 +37,19 @@ struct NetworkQualityService {
     /// escalating to the full transfer would only cost more time and data
     /// for a number that wouldn't meaningfully change.
     private static let slowLinkThreshold: TimeInterval = 2.0
+    /// The probe only ever moves `probeBytes` (2MB) — a genuinely dead
+    /// link should fail fast here, not share the full transfer's 45s
+    /// budget meant for a large payload over a slow-but-alive connection.
+    /// See BUGS.md's "Speed Test times out... with no telemetry to say
+    /// why": previously both stages shared one 45s timeout, so a probe
+    /// that could never succeed still made the user wait the full 45s
+    /// before finding out.
+    private static let probeTimeout: TimeInterval = 10
+    /// Matches `session`'s own configured default below — set explicitly
+    /// per-request now that the probe stage uses a shorter one, so it's
+    /// clear this is a deliberate choice for the full transfer, not just
+    /// whatever the session happens to default to.
+    private static let fullTransferTimeout: TimeInterval = 45
 
     private static func downloadURL(bytes: Int) -> URL {
         URL(string: "https://speed.cloudflare.com/__down?bytes=\(bytes)")!
@@ -61,9 +74,18 @@ struct NetworkQualityService {
     /// `timeoutIntervalForResource` is the one that caps *total* wall-clock
     /// time regardless of trickle — without it explicitly set, it silently
     /// defaults to Apple's own default of 7 days, which is not a safety cap
-    /// in any meaningful sense. Both are set to the same 45s, mirroring
-    /// `networkQuality`'s own `-M 45`, so a slow-but-connected link is
-    /// bounded the same as a fully dead one.
+    /// in any meaningful sense. Both default to 45s here, mirroring
+    /// `networkQuality`'s own `-M 45`.
+    ///
+    /// `downloadOnce`/`uploadOnce` override the idle-gap half per-request
+    /// (`URLRequest.timeoutInterval`) down to `probeTimeout` for the probe
+    /// stage specifically — a fully dead link now fails fast during the
+    /// small 2MB probe instead of waiting out the full 45s meant for a
+    /// large payload over a slow-but-alive connection. This session's
+    /// 45s `timeoutIntervalForResource` still applies underneath as the
+    /// absolute wall-clock cap either way; it's just never what actually
+    /// fires for a stalled probe, since the shorter idle timeout gets
+    /// there first.
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 45
@@ -78,28 +100,31 @@ struct NetworkQualityService {
     /// route currently picks, not necessarily the one NMS is tracking.
     /// Accepted limitation — see DESIGN-NOTES.md's open questions.
     func measureDownload() async throws -> Double {
-        let probe = try await downloadOnce(bytes: Self.probeBytes)
+        let probe = try await downloadOnce(bytes: Self.probeBytes, timeout: Self.probeTimeout)
         guard probe.elapsed < Self.slowLinkThreshold else { return probe.mbps }
-        return try await downloadOnce(bytes: Self.fullBytes).mbps
+        return try await downloadOnce(bytes: Self.fullBytes, timeout: Self.fullTransferTimeout).mbps
     }
 
     func measureUpload() async throws -> Double {
-        let probe = try await uploadOnce(bytes: Self.probeBytes)
+        let probe = try await uploadOnce(bytes: Self.probeBytes, timeout: Self.probeTimeout)
         guard probe.elapsed < Self.slowLinkThreshold else { return probe.mbps }
-        return try await uploadOnce(bytes: Self.fullBytes).mbps
+        return try await uploadOnce(bytes: Self.fullBytes, timeout: Self.fullTransferTimeout).mbps
     }
 
-    private func downloadOnce(bytes: Int) async throws -> (mbps: Double, elapsed: TimeInterval) {
+    private func downloadOnce(bytes: Int, timeout: TimeInterval) async throws -> (mbps: Double, elapsed: TimeInterval) {
+        var request = URLRequest(url: Self.downloadURL(bytes: bytes))
+        request.timeoutInterval = timeout
         let start = Date()
-        let (_, response) = try await Self.session.data(from: Self.downloadURL(bytes: bytes))
+        let (_, response) = try await Self.session.data(for: request)
         let elapsed = Date().timeIntervalSince(start)
         try Self.validate(response)
         return (Self.mbps(bytes: bytes, elapsed: elapsed), elapsed)
     }
 
-    private func uploadOnce(bytes: Int) async throws -> (mbps: Double, elapsed: TimeInterval) {
+    private func uploadOnce(bytes: Int, timeout: TimeInterval) async throws -> (mbps: Double, elapsed: TimeInterval) {
         var request = URLRequest(url: Self.uploadURL)
         request.httpMethod = "POST"
+        request.timeoutInterval = timeout
         // All-zero, not random: this is a request body, never subject to
         // response compression, so there's no risk of it round-tripping
         // faster than its real size implies — and generating random bytes

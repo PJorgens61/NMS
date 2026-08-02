@@ -265,6 +265,19 @@ final class TracerouteViewModel: ObservableObject {
     /// every launch on an already-double-NAT'd network would otherwise
     /// log one, and that isn't news, it's just where you already are.
     private func logAddressingChangeIfNeeded(_ hops: [TracerouteHop]) {
+        // An empty result means the trace didn't run at all — most often a
+        // brief interface-down blip mid network-transition — not that this
+        // network genuinely has zero non-internet hops.
+        // `leadingNonInternetHopCount([])` can't tell those apart (it just
+        // never enters its loop and returns 0), so without this guard a
+        // transient empty trace read as "single-NAT" and wrote a false
+        // "Back to a single NAT layer" event to the durable Events log,
+        // moments before the next (real) trace logged the correct state
+        // right back. Returning before touching `lastKnownExtraNATState`
+        // leaves it exactly as the last real trace left it, so that next
+        // real trace still compares against genuine prior state, not this
+        // blip. See BUGS.md's "A brief interface-down blip..." entry.
+        guard !hops.isEmpty else { return }
         let count = Self.leadingNonInternetHopCount(hops)
         let isExtraNATed = count > 1
         defer { lastKnownExtraNATState = isExtraNATed }

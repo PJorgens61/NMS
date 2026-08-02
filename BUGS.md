@@ -29,14 +29,20 @@ than summarized away.
 
 ## Open
 
+Nothing open right now — see Fixed below for what was most recently
+closed out.
+
+## Fixed
+
 ### A brief interface-down blip during a network transition falsely logs "Back to a single NAT layer"
 
-- **Status**: Open
+- **Status**: Fixed
 - **Severity**: Low — a genuinely wrong entry in the durable Events
   log, but self-correcting within seconds and not blocking anything;
   the risk is a misleading permanent record, not a live-state problem.
 - **Found in build**: `ec9b878+dirty`, read from the app's own recent
   `bugReportCaptured` events.
+- **Fixed in build**: not yet released — see git log
 - **First reported**: field-tested live at a coffee shop,
   while moving off the off-site network's Wi-Fi — asked directly why the Events log
   showed both "Multiple NAT layers detected" and "Back to a single NAT
@@ -85,21 +91,26 @@ missing hop 1 on an otherwise-live trace) is a stronger, more clear-cut
 version of the same gap: the trace didn't run at all, rather than
 running and getting an ambiguous answer.
 
-**Likely fix, not yet attempted**: treat an empty `hops` array as "no
-data, skip evaluation" in `logAddressingChangeIfNeeded` rather than as
-"count = 0, genuinely single-NAT" — the same "no interface means a
-certain consequence, not genuine uncertainty" special-casing
+**Fixed**: `logAddressingChangeIfNeeded` now returns immediately on an
+empty `hops` array, before touching `lastKnownExtraNATState` at all —
+"no data, skip evaluation," not "count = 0, genuinely single-NAT." The
+next real trace still compares against whatever the last *real* trace
+left behind, so a genuine change is still caught; only the blip itself
+no longer writes anything. Same "no interface means a certain
+consequence, not genuine uncertainty" special-casing
 `ContentView.swift`'s `peRouterLayer`/`publicIPLayer` already apply for
-an analogous reason, just not yet extended to this function.
+an analogous reason. Verified: 115/115 unit tests, `test-max.sh`'s UI
+tests and live scenarios, all pass.
 
 ### Footer buttons truncate ("Expert Mod…", "Networks…") in the popover
 
-- **Status**: Open
+- **Status**: Fixed
 - **Severity**: Low — cosmetic; every button still works, VoiceOver is
   unaffected (`accessibilityLabel` carries the full name regardless of
   what's visibly truncated).
 - **Found in build**: `ec9b878+` — read from the popover's own footer
   line, confirmed live.
+- **Fixed in build**: not yet released — see git log
 - **First reported**: field-tested live at an off-site location
   ("the labels for the expert and networks buttons get truncated.
   Enlarge or reduce text?").
@@ -119,24 +130,29 @@ explained at length elsewhere in this codebase) — `grep`ing
 `DESIGN-NOTES.md` for `560` turns up nothing. The width appears to be
 an unremarked constant, not a deliberately chosen one.
 
-**Recommended fix, not yet attempted, in order of how localized/safe
-each is**: (1) tighten the footer `HStack`'s spacing first — buys back
-room without touching font size or the frame; (2) if still short,
-reduce font size on just these labels; (3) only as a last resort,
-widen the fixed 560pt frame, since that also reshapes the two-column
-tile layout above it and isn't otherwise established as adjustable.
-Widening the whole popover was considered and set aside — it's the
-broadest change for what's really a 7-buttons-in-one-row spacing
-problem.
+**Fixed**: tightened the footer `HStack`'s spacing to 4pt (was the
+default 8) — the least invasive of the three ranked options, tried
+first, and sufficient on its own; confirmed live via a real popover
+screenshot, no truncation anywhere in the row. Font size and the fixed
+560pt frame were never touched. Separately, shortened the visible
+label "Expert Mode…" to "Expert…" (kept the ellipsis, for consistency
+with "Networks…"/"Preferences…" in the same row) — not required for
+the fix, but buys back margin against the next footer addition.
+`accessibilityLabel("Expert Mode")` is unchanged, same "visible text
+and VoiceOver label can differ" precedent `footer.networks`
+("Networks…" / "Known Networks") already established. Verified:
+115/115 unit tests, `test-max.sh`'s UI tests and live scenarios, all
+pass.
 
 ### Speed Test times out on a real degraded connection, with no telemetry to say why
 
-- **Status**: Open
+- **Status**: Fixed
 - **Severity**: Low — the test correctly fails visibly ("The request
   timed out.") rather than silently, but there's no way to diagnose
   *why* after the fact, and no user-facing recourse beyond retrying.
 - **Found in build**: `ec9b878+` — read from the Expert Mode window's
   own footer line, confirmed live.
+- **Fixed in build**: not yet released — see git log
 - **First reported**: field-tested live at an off-site location
   ("the speedtest timed out. slow network?").
 
@@ -167,19 +183,29 @@ this entire session returns nothing at all — unlike
 `TracerouteViewModel`/`ConnectivityViewModel`, this view model was
 never wired into the UI state logger (`UIStateLogger`). So there's no
 way to tell, after the fact, which stage (probe or full transfer) was
-in flight when the 45s timeout fired, or how far it got. The
-`isRunning`/`lastError`/`recentRuns` properties would need `didSet {
-UIStateLogger.log(...) }` added, the same pattern every other
-instrumented view model in this app already uses.
+in flight when the 45s timeout fired, or how far it got.
 
-**Not yet attempted**: adding that instrumentation, and/or considering
-whether the probe stage should have its own, shorter timeout separate
-from the 45s full-resource one — right now both stages share the same
-`URLSession` configuration (`NetworkQualityService.swift:67-73`), so a
-probe that's genuinely stuck waits the full 45s before failing, same
-as the large transfer would.
+**Fixed**, both parts named in the original writeup:
+1. **Instrumentation**: `isRunning`/`lastError`/`recentRuns` all gained
+   `didSet { UIStateLogger.log(...) }`, the same pattern every other
+   instrumented view model already uses — a future timeout is now
+   visible in `ui-state.log`/state dumps/bug reports.
+2. **Separate, shorter probe timeout**: `NetworkQualityService`'s probe
+   stage (2MB) now uses its own 10s per-request timeout
+   (`URLRequest.timeoutInterval`, overriding the session's default)
+   instead of sharing the full transfer's 45s — a genuinely dead link
+   now fails during the small probe in 10s rather than waiting out the
+   full 45s meant for a large payload over a slow-but-alive connection.
+   The full-transfer stage keeps its 45s, now set explicitly
+   (`fullTransferTimeout`) rather than only implicitly via the session
+   default. The session's own `timeoutIntervalForResource` (the
+   wall-clock cap, as opposed to the idle-gap one `timeoutInterval`
+   overrides) is unchanged at 45s underneath either way.
 
-## Fixed
+Verified: 115/115 unit tests, `test-max.sh`'s UI tests and live
+scenarios, all pass. Not verified against a real degraded connection
+matching the original report — that needs a genuinely bad link to
+reproduce, same limitation the original report had.
 
 ### ISP identification gets wiped by a flaky Wi-Fi reconnect and never recovers
 
