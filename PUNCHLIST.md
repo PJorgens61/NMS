@@ -8,6 +8,28 @@ new ones as they come up.
 
 ## Open
 
+- [x] ~~Website: mention bufferbloat detection (via macOS's built-in
+  `networkQuality`) in the homelab section.~~ **Shipped** (`gh-pages`
+  `83fcaa4`): a new homelab feat-list bullet — "Runs Apple's own
+  networkQuality test on demand to catch bufferbloat... know it's the
+  network, not your aim" — a different pitch than the swift-programmers
+  section's existing `networkQuality` bullet (that one sells "implements
+  a real IETF standard" for developer credibility; this one sells the
+  outcome).
+
+  **A gaming-specific angle was considered and explicitly rejected as
+  its own hop-section, resolved directly**: competitive gamers
+  overwhelmingly play on Windows, not macOS, and a dedicated pitch for
+  an audience that mostly can't run the product isn't worth building —
+  "that's their problem, not this app's." Real nuance kept, though:
+  NMS doesn't need the *gamer* to be the Mac user, just a Mac somewhere
+  on the same home network (someone working on a MacBook while gaming
+  happens on a separate Windows rig/console down the hall still shares
+  one connection) — so gaming shipped as one concrete example inside
+  the bufferbloat bullet itself, not as its own section, and the
+  shipped copy states it plainly rather than hedging about the
+  Windows/macOS split.
+
 - [ ] **A local Wi-Fi stress test: many concurrent MTU-sized ping
   streams to the local router for ~1 second, plus TCP/UDP ideas for
   testing further out.** Raised directly, motivated by validating the
