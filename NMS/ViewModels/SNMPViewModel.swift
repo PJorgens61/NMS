@@ -553,10 +553,11 @@ final class SNMPViewModel: ObservableObject {
     /// Two independent reasons to keep a device, because pruning
     /// automatically is far worse to get wrong than leaving a stale row:
     /// it's on the current subnet, or it's an address the next sweep would
-    /// probe anyway (`candidateAddresses`, which covers an off-subnet
-    /// router or an off-subnet local traceroute hop — both legitimate, and
-    /// both invisible to a plain subnet test). Anything the subnet test
-    /// can't parse counts as "can't tell" and is kept. Note this
+    /// probe anyway (`candidateAddresses` — redundant with the subnet test
+    /// in the common case, but not when the subnet is too large to sweep
+    /// safely and `candidateAddresses` falls back to just the gateway).
+    /// Anything the subnet test can't parse counts as "can't tell" and is
+    /// kept. Note this
     /// deliberately does *not* address a single device answering at two
     /// addresses on the *same* subnet — AP1 at `.16`/`.17` under VRRP stays
     /// listed twice; see `DESIGN-NOTES.md`.
@@ -587,6 +588,7 @@ final class SNMPViewModel: ObservableObject {
             webURLByAddress.removeAll()
             hostnameByAddress.removeAll()
             lastFingerprintForCaches = fingerprint
+            logIfSubnetTooLargeToScan(localIP: localIP, mask: mask, fingerprint: fingerprint)
         }
 
         let probeable = Set(candidateAddresses())
@@ -736,6 +738,24 @@ final class SNMPViewModel: ObservableObject {
         #endif
     }
 
+    /// Logs `.subnetTooLargeToScan` the moment a too-large network is
+    /// recognized, so the gateway-only fallback in `candidateAddresses()`
+    /// isn't silent. Called only from inside `rebuildDeviceList`'s
+    /// fingerprint-transition guard — once per network join, not once per
+    /// poll, the same cadence `wifiNetworkChanged` already logs at.
+    private func logIfSubnetTooLargeToScan(localIP: String, mask: String, fingerprint: String) {
+        guard
+            let count = SubnetCalculator.usableHostCount(ipAddress: localIP, subnetMask: mask),
+            count > SubnetCalculator.maxSweepHosts
+        else { return }
+        let cidr = SubnetCalculator.cidr(ipAddress: localIP, subnetMask: mask) ?? "\(localIP)/\(mask)"
+        snapshotStore.logEvent(
+            .subnetTooLargeToScan,
+            message: "\(cidr) has \(count) usable addresses — SNMP discovery limited to the gateway only",
+            networkFingerprint: fingerprint
+        )
+    }
+
     /// IP → MAC from the ARP table `LANDiscoveryService` already collects.
     /// Devices with no ARP entry simply don't appear, and are then left
     /// alone by the merge below.
@@ -819,11 +839,33 @@ final class SNMPViewModel: ObservableObject {
         )
     }
 
-    /// The local subnet (when it's small enough to sweep safely) plus every
-    /// address the app already knows about from its other discovery paths.
-    /// The extras matter even alongside a sweep: the gateway and private
-    /// traceroute hops are routers by definition, and a hop can sit on a
-    /// *different* subnet than ours and so never appear in the sweep at all.
+    /// Strictly the current `/24` (or whatever mask is actually in effect):
+    /// every host address in the local subnet, plus the gateway explicitly
+    /// (normally already inside that sweep — this is just a safety net for
+    /// an edge-case mask where it wouldn't be). Nothing here is ever
+    /// off-subnet; SNMP discovery only looks at addresses structurally
+    /// part of *this* network.
+    ///
+    /// This function used to also pull in two off-subnet sources — the raw
+    /// ARP cache (`lanDiscovery.devices`) and any "local" (RFC 1918/CGNAT)
+    /// traceroute hop, the latter specifically to catch an ISP edge router
+    /// sitting one hop past the gateway. Both are gone now, for the same
+    /// reason: an address doesn't need to be *on this network* to end up
+    /// in either source, just recently visible to this Mac. The ARP cache
+    /// leak was real and live-confirmed (see DESIGN-NOTES.md's "A router
+    /// serving two VLANs..." — a dual-VLAN router's guest-side gateway kept
+    /// getting swept and mis-tagged with the Home network's fingerprint
+    /// purely because its ARP entry hadn't expired yet). The traceroute-hop
+    /// source had the identical shape: "local" there means "private/CGNAT
+    /// address space," not "on your subnet" — an ISP's edge router
+    /// routinely lives on the ISP's own private infrastructure, a distinct
+    /// network this Mac was never a member of. Losing that means SNMP no
+    /// longer auto-discovers an ISP edge router reachable only as a
+    /// traceroute hop; that's the accepted tradeoff for never scanning
+    /// outside the current subnet. Doesn't touch `lanDiscovery.devices`'
+    /// other, unrelated use in this file (`macByAddress()`, feeding the
+    /// VRRP shared-MAC alias merge) — that reads it independently, not
+    /// through this function.
     private func candidateAddresses() -> [String] {
         var addresses: Set<String> = []
 
@@ -834,14 +876,6 @@ final class SNMPViewModel: ObservableObject {
             }
             if let router = info.routerAddress {
                 addresses.insert(router)
-            }
-        }
-        for device in lanDiscovery?.devices ?? [] {
-            addresses.insert(device.ipAddress)
-        }
-        for hop in traceroute?.hops ?? [] {
-            if let address = hop.address, hop.isLocal == true {
-                addresses.insert(address)
             }
         }
 

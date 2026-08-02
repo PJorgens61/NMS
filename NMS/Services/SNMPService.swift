@@ -36,11 +36,18 @@ struct SNMPService {
 
     /// How many probes run at once during a sweep. Each probe is a forked
     /// `snmpget` process, so this is a deliberate ceiling on process count,
-    /// not just on network traffic. At 32, a 254-host /24 takes roughly
-    /// 8 waves × ~2s ≈ 16s worst case (nearly all hosts silent) — times the
-    /// number of community strings configured, since a silent host has to
-    /// time out on each one before it can be ruled out.
-    static let sweepConcurrency = 32
+    /// not on network traffic — every concurrent probe targets a
+    /// *different* address, so raising this doesn't risk hammering any
+    /// single device, only running more `snmpget`s at once. At 64, a
+    /// 254-host /24 takes roughly 4 waves × ~2s ≈ 8s worst case (nearly
+    /// all hosts silent) — times the number of community strings
+    /// configured, since a silent host has to time out on each one before
+    /// it can be ruled out. The now-1024-host `SubnetCalculator
+    /// .maxSweepHosts` ceiling (a real /22) is ~32s worst case at 64,
+    /// down from ~64s at the previous 32 — real measured response times
+    /// on this Mac's own network (~130-155ms per answering device, see
+    /// `ui-state.log`) leave plenty of headroom below that.
+    static let sweepConcurrency = 64
 
     static var isAvailable: Bool {
         FileManager.default.isExecutableFile(atPath: executablePath)

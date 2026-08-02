@@ -7,9 +7,16 @@ import Foundation
 /// unresponsive host that's not a sweep anyone wants to start by accident.
 nonisolated struct SubnetCalculator {
     /// Above this, `hostAddresses` returns `nil` rather than a huge array.
-    /// 512 comfortably covers /24 (254) and /23 (510) — the sizes where a
-    /// sweep is still sane — while ruling out /22 and larger.
-    static let maxSweepHosts = 512
+    /// 1024 comfortably covers /24 (254), /23 (510), and /22 (1022) — at
+    /// `SNMPService.sweepConcurrency`'s 32-at-a-time pace and its ~2s
+    /// per-silent-host timeout, a full /22 is ~64s worst case per
+    /// configured community string, which is still a bounded, one-time
+    /// cost rather than the unbounded one a /16 or larger would be —
+    /// while ruling out /21 and larger. See
+    /// `SNMPViewModel.rebuildDeviceList` for what happens above this
+    /// (falls back to sweeping just the gateway, and logs
+    /// `.subnetTooLargeToScan` once per network so it isn't silent).
+    static let maxSweepHosts = 1024
 
     /// All usable host addresses in the subnet containing `ipAddress`,
     /// excluding the network and broadcast addresses (and `ipAddress`
@@ -38,6 +45,27 @@ nonisolated struct SubnetCalculator {
         return (first...last).compactMap { address in
             address == ip ? nil : dottedQuad(address)
         }
+    }
+
+    /// The number of usable host addresses in the subnet containing
+    /// `ipAddress` — the same count `hostAddresses` computes internally
+    /// before deciding whether to actually enumerate them, but with no
+    /// size cap, so it's safe to call just to find out how big a subnet
+    /// is (e.g. to report *why* `hostAddresses` returned `nil`). `nil`
+    /// only if either argument doesn't parse as IPv4.
+    static func usableHostCount(ipAddress: String, subnetMask: String) -> Int? {
+        guard
+            let ip = packedIPv4(ipAddress),
+            let mask = packedIPv4(subnetMask)
+        else { return nil }
+
+        let network = ip & mask
+        let broadcast = network | ~mask
+        guard broadcast > network else { return 0 }
+        let first = network &+ 1
+        let last = broadcast &- 1
+        guard last >= first else { return 0 }
+        return Int(last - first) + 1
     }
 
     static func packedIPv4(_ string: String) -> UInt32? {

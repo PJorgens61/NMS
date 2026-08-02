@@ -91,6 +91,52 @@ new ones as they come up.
   TLS version/cert validity to decide, rather than "HTTP always wins if
   it answers at all."
 
+- [ ] **Use SNMP against the router/switch itself to discover devices on
+  subnets too large to sweep, instead of a raw IP sweep.** Follows
+  directly from the just-shipped fix restricting
+  `SNMPViewModel.candidateAddresses()` to strictly the current subnet
+  (see DESIGN-NOTES.md's "A router serving two VLANs..."): above
+  `SubnetCalculator.maxSweepHosts` (1024 hosts, e.g. a `/21` or larger —
+  or the real `/8` case raised directly this session), the app now
+  correctly refuses to brute-force every address and falls back to just
+  the gateway, logging `.subnetTooLargeToScan` so it isn't silent. But
+  the router/switch that runs that subnet already knows every device on
+  it, via its own ARP table and/or switch forwarding table — asking it
+  directly would restore real discovery on a large subnet without ever
+  touching every host address one at a time.
+
+  Two standard SNMP tables would do this, if the hardware actually
+  supports them (unverified — see the neighboring "Cross-check the
+  router's own interfaces/routes via SNMP" item above, which found this
+  network's printer had weak standard-MIB support and never got to test
+  the router itself):
+  - `ipNetToMediaTable` (`1.3.6.1.2.1.4.22`, RFC 1213) — the router's own
+    ARP cache: IP ↔ MAC pairs for everything it's talked to on that
+    subnet. Directly gives candidate addresses without sweeping.
+  - `dot1qTpFdbTable` (Q-BRIDGE-MIB, `1.3.6.1.2.1.17.7.1.2`) — a
+    managed switch's CAM/forwarding table, MAC-keyed rather than
+    IP-keyed, so it'd need combining with the router's ARP table (or a
+    fresh sweep of just the resulting small candidate set) to get to IP
+    addresses worth polling for `sysDescr`/`sysName`/uptime.
+
+  **Concrete next step, before any code**, same shape as the neighboring
+  item: `snmpwalk` this network's own router/switch directly —
+  ```bash
+  snmpwalk -v2c -c public -t 2 -r 1 <router-ip> 1.3.6.1.2.1.4.22   # ipNetToMediaTable
+  snmpwalk -v2c -c public -t 2 -r 1 <switch-ip> 1.3.6.1.2.1.17.7.1.2  # dot1qTpFdbTable
+  ```
+  If both come back empty or unpopulated on this network's own gear,
+  this is a dead end on real hardware and worth writing up as such,
+  same as the printer and (pending) router-route-table findings — not
+  worth half-building against a MIB that isn't actually there. If one
+  or both work, this would need its own decision on where it plugs into
+  `candidateAddresses()`: worth noting this reintroduces exactly the
+  off-subnet risk the ARP-cache removal just fixed if not scoped
+  carefully — a *stale* entry in the router's own ARP table for a
+  device that's since moved to a different network would need the same
+  same-subnet filter `rebuildDeviceList` already applies to everything
+  else, not a blanket trust of whatever the router reports.
+
 - [ ] **macOS notifications for sustained outages? Raised, not yet
   designed.** The idea: push a system notification (not just the
   popover/Events log, which only get seen if someone's already
@@ -734,14 +780,19 @@ from this list. This one remains, since it's an idea, not a defect):
   Review UI itself, which had only ever been build-verified before
   this — now actually seen rendered, live, for both networks.
 
-  **One real gap found, not fixed — see DESIGN-NOTES.md's "A router
+  **One real gap found, since fixed — see DESIGN-NOTES.md's "A router
   serving two VLANs is a genuine edge case per-network scoping doesn't
-  fully cover."** The router's guest-side address gets a persisted SNMP
-  row under *both* networks' fingerprints, kept alive indefinitely by
-  `syncAliasFreshness`. Invisible in the live UI (the shared-MAC alias
-  merge papers over it), but a real persisted-data leak. Needs a
-  decision, not a guess, on what "correct" means for a device that
-  legitimately spans two of this app's own recognized networks.
+  fully cover."** The router's guest-side address was getting a
+  persisted SNMP row under *both* networks' fingerprints, kept alive
+  indefinitely by `syncAliasFreshness` — invisible in the live UI (the
+  shared-MAC alias merge papered over it), but a real persisted-data
+  leak. Root cause traced to `SNMPViewModel.candidateAddresses()`
+  scanning beyond the current subnet (raw ARP cache, plus "local"
+  traceroute hops added for ISP edge router discovery); fixed by
+  restricting it to strictly the current subnet plus its gateway. SNMP
+  no longer auto-discovers an off-subnet ISP edge router as a result —
+  an accepted tradeoff for scanning never reaching outside the current
+  network.
 
 - [ ] **Estimate and document NMS's system requirements.** Needed now
   that other people are installing it — "will this bog down my Mac?" is a

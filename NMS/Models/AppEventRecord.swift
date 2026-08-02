@@ -125,6 +125,20 @@ enum AppEventKind: String, Codable {
     /// reasoning.
     case saasServiceDown
     case saasServiceRecovered
+    /// The current network's subnet has more usable host addresses than
+    /// `SubnetCalculator.maxSweepHosts` — a full sweep would be too slow
+    /// (or, at the extreme end, a /8's 16 million addresses) to run
+    /// automatically. SNMP discovery falls back to just the gateway
+    /// address instead of silently doing nothing. Informational like
+    /// `multipleNATLayersDetected`, not a failure — this is a fact about
+    /// how the network is addressed, not something broken. No paired
+    /// "recovered" kind: unlike an outage, there's nothing to recover
+    /// from, and rejoining a normally-sized network afterward simply
+    /// doesn't log this again, the same way `wifiNetworkChanged` doesn't
+    /// need a "wifiNetworkChangedBack." Logged once per network
+    /// recognition (see `SNMPViewModel.rebuildDeviceList`'s
+    /// `lastFingerprintForCaches` guard), not on every scan.
+    case subnetTooLargeToScan
 
     enum Polarity {
         case positive, negative, neutral
@@ -145,7 +159,7 @@ enum AppEventKind: String, Codable {
              .printerAlert, .saasServiceDown:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
-             .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected:
+             .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected, .subnetTooLargeToScan:
             return .neutral
         }
     }

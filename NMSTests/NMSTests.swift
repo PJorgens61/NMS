@@ -59,12 +59,22 @@ struct SubnetCalculatorTests {
     /// sweep at ~2s per silent host.
     @Test("refuses subnets larger than maxSweepHosts")
     func refusesLargeSubnets() {
-        // /23 = 510 usable, under the 512 ceiling.
-        #expect(SubnetCalculator.hostAddresses(ipAddress: "10.0.0.5", subnetMask: "255.255.254.0") != nil)
-        // /22 = 1022 usable, over it.
-        #expect(SubnetCalculator.hostAddresses(ipAddress: "10.0.0.5", subnetMask: "255.255.252.0") == nil)
+        // /22 = 1022 usable, under the 1024 ceiling.
+        #expect(SubnetCalculator.hostAddresses(ipAddress: "10.0.0.5", subnetMask: "255.255.252.0") != nil)
+        // /21 = 2046 usable, over it.
+        #expect(SubnetCalculator.hostAddresses(ipAddress: "10.0.0.5", subnetMask: "255.255.248.0") == nil)
         // /16 = 65,534. The case this guard exists for.
         #expect(SubnetCalculator.hostAddresses(ipAddress: "10.0.0.5", subnetMask: "255.255.0.0") == nil)
+    }
+
+    @Test("usableHostCount has no size cap, unlike hostAddresses")
+    func usableHostCountUncapped() {
+        // /21 = 2046 usable — hostAddresses refuses it, but the count itself
+        // is still knowable, e.g. to report why it was refused.
+        #expect(SubnetCalculator.usableHostCount(ipAddress: "10.0.0.5", subnetMask: "255.255.248.0") == 2046)
+        // /8 = 16,777,214. The real-world case this guard exists for.
+        #expect(SubnetCalculator.usableHostCount(ipAddress: "10.0.0.5", subnetMask: "255.0.0.0") == 16_777_214)
+        #expect(SubnetCalculator.usableHostCount(ipAddress: "not-an-ip", subnetMask: "255.0.0.0") == nil)
     }
 
     @Test("/30, /31 and /32 edges yield no sweepable hosts beyond ourselves")

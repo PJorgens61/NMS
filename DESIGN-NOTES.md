@@ -5340,18 +5340,37 @@ or wrong device, this is purely a persisted-store artifact.
 alias row's `lastSeenAt` current on every single poll, for as long as
 the router keeps answering on both addresses, which is indefinitely.
 
-**Not fixed.** The "correct" behavior isn't obvious without a real
-decision: is a shared-MAC router spanning two of this app's own
-recognized networks one device that should show under both (arguably
-true — it *is* the same box), or should an address only ever be tagged
-with the one network whose subnet it structurally belongs to,
-regardless of where it happens to answer from? The former is what
-happens today; the latter would mean `recordSNMPDevice` checking a
-newly-discovered address against every *other* `KnownNetwork`'s subnet
-before tagging it with the current one — a real behavior change, not a
-bug-shaped fix, and worth a deliberate call rather than a guess.
-Everything else per-network scoping was built to prevent — Events, DHCP
-History, Wi-Fi samples, Speed Test history, ISP identity — was
-confirmed cleanly separated on this same live test; this is the one
-gap, and it's cosmetically invisible today only because the alias-merge
-happens to paper over it in the UI.
+**Fixed — by restricting SNMP scanning to strictly the current subnet.**
+The root cause traced back one level further than "which network should
+an address be tagged with": `10.0.102.1` was only ever reachable from
+Home in the first place because `SNMPViewModel.candidateAddresses()`
+swept addresses beyond the current subnet — specifically the raw ARP
+cache (`lanDiscovery.devices`), which had a live entry for the guest
+gateway left over from a recent visit to that network, regardless of
+which network was actually current. A second, independently-discovered
+off-subnet source — "local" (RFC 1918/CGNAT) traceroute hops, added
+originally to catch an ISP edge router sitting past the gateway — had
+the identical shape and was removed alongside it. `candidateAddresses()`
+now returns only the current subnet's own host addresses plus its
+gateway (which is always on-subnet), so `10.0.102.1` is no longer
+reachable, discoverable, or taggable while on Home at all — the
+dual-VLAN case doesn't arise because nothing outside the current
+network is ever scanned. See `SNMPViewModel.candidateAddresses()`'s doc
+comment for the fix in full.
+
+The previously-mistagged Home-side alias row isn't retroactively
+deleted (this app never auto-deletes SNMP rows — see `rebuildDeviceList`
+above), but it stops being refreshed and stops appearing in Home's live
+list going forward: `rebuildDeviceList`'s filter keeps a device only if
+it's in `candidateAddresses()` or same-subnet, and `10.0.102.1` is now
+neither while on Home.
+
+The accepted tradeoff: SNMP no longer auto-discovers an off-subnet
+device reachable only via ARP-cache history or a traceroute hop — most
+notably, an ISP edge router one hop past the gateway. That capability
+is deliberately traded away in favor of SNMP scanning never reaching
+outside the network it's actually running on. Everything else
+per-network scoping was built to prevent — Events, DHCP History, Wi-Fi
+samples, Speed Test history, ISP identity — was already confirmed
+cleanly separated on this same live test; this was the one gap, and
+it's closed now.
