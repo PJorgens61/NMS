@@ -446,6 +446,7 @@
           <li><span class="mark">→</span> When you're done experimenting, know your network is actually back to normal — every check green again, not just "probably fine now."</li>
           <li><span class="mark">→</span> See exactly what changed right before something broke — a topology change correlated against the failure, not a coincidence you have to spot yourself.</li>
           <li><span class="mark">→</span> Watches your public IP and logs the exact moment it changes — the thing that silently breaks a self-hosted VPN endpoint or a port-forwarded/DNAT'd service (Plex, a game server, remote access into your lab) if you're not on a static IP and nothing's watching for the change. No more finding out your WireGuard peer's been unreachable for two days because the ISP handed out a new address.</li>
+          <li><span class="mark">→</span> Runs Apple's own networkQuality test on demand to catch bufferbloat — the reason your ping spikes to garbage the second someone else in the house starts a big upload or download. Know it's the network, not your aim.</li>
           <li><span class="mark">→</span> A simple Mac app, zero setup — no separate monitoring stack to stand up before you can run it.</li>
         </ul>
       </div>
