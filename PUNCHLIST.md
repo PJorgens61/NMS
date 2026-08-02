@@ -8,6 +8,205 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **The Events list will grow long over time; someone chasing a
+  real problem needs to isolate genuine changes — especially a
+  configuration change on some other local system (a router, a
+  server) — from ordinary reachability noise.** Raised directly, with
+  that specific motivating scenario: a flaky Wi-Fi network can log
+  dozens of up/down blips a day in the same flat, chronological
+  `eventList`/`eventRows` (`ContentView+Window.swift`) that also
+  carries the handful of entries per week that actually matter for
+  root-causing something — no grouping, no filter, nothing beyond
+  message text and red/green/neutral color (`eventColor`) to tell them
+  apart today.
+
+  **Concrete example use case, also raised directly: a field
+  technician using NMS to discover rogue configuration changes** —
+  someone else's DHCP settings, router, or SNMP-managed device getting
+  reconfigured without authorization, on a network the technician is
+  responsible for but doesn't sit on all day. A "changes only" filter
+  is exactly the tool for that: skim past routine up/down noise
+  straight to "what got reconfigured."
+
+  **One real limitation this persona exposes that the general
+  "someone chasing a problem" framing above doesn't**: every
+  change-detecting event in this app, `multipleNATLayersDetected`
+  included, is deliberately suppressed on the very first trace/check
+  each session — `logAddressingChangeIfNeeded`
+  (`TracerouteViewModel.swift`) has nothing to compare against yet, by
+  design, so it doesn't fire "you're double-NAT'd" as if it just
+  happened when it's simply where the network already was (confirmed
+  in code, `lastKnownExtraNATState`'s doc comment). That's correct for
+  routine monitoring but means a technician arriving cold to a site
+  NMS has never run against gets **no Events-log signal for a rogue
+  change that already happened before they walked in** — there's
+  nothing to diff against yet. What already works cold, and doesn't
+  need this filter at all: current-*state* views that don't depend on
+  history — the live SNMP Devices list, the live Path to Internet hop
+  list (an unexpected extra hop is visible by just looking, whether or
+  not an event ever logged it), current DHCP lease info. The filter
+  this item proposes helps with changes happening *during* a
+  monitoring window — leave NMS running through a site visit or a
+  longer engagement and see what changes while watching — not a
+  retroactive audit of changes that predate that window starting.
+
+  Worth distinguishing from the already-decided "decide against
+  folding DHCP History into Events" above: that item was about folding
+  DHCP History's *per-lease detail* into Events' one-line row shape,
+  rejected because the two serve different granularity. This is about
+  the one-line Events *entries* every subsystem already produces
+  today, and which of them represent a real change worth isolating.
+
+  **Walking every `AppEventKind` case against "did something's
+  configuration actually change" turned up a cross-cutting split, not
+  a per-subsystem one** — filtering by subsystem (DHCP / SNMP /
+  Connectivity) would misfile things, since e.g. `dhcpLeaseChanged` and
+  `dhcpFellBackToLinkLocal` are both "DHCP" but only one is a
+  configuration signal:
+  - **A setting genuinely changed on another system** —
+    `dhcpLeaseChanged` (the DHCP server, typically the router, handed
+    back a materially different lease: new server, address, or
+    timing — the router's own DHCP config changing) and
+    `snmpDeviceSoftwareChanged` (an SNMP device's `sysDescr` changed,
+    meaning its firmware/software did — literally "someone
+    reconfigured or updated a device"). The two clearest members.
+  - **Ambiguous — ISP or local, and the app already documents that it
+    can't tell** — `multipleNATLayersDetected` (an extra NAT hop
+    appearing/vanishing could be a router you added, or the ISP
+    switching you onto CGNAT; traceroute alone can't distinguish, per
+    that kind's own doc comment) and `publicIPChanged` (usually just
+    an ISP lease renewal, not a change on your side, but not always
+    distinguishable from one). `snmpDeviceRestarted` actually leans
+    *away* from config-driven — it's logged specifically when nothing
+    else explains the restart, and a real firmware push almost always
+    shows up as `snmpDeviceSoftwareChanged` instead, since the version
+    string changes too.
+  - **This Mac's own attachment changing, not another system's
+    config** — `interfaceChanged` (Ethernet↔Wi-Fi) and
+    `wifiNetworkChanged` (roamed SSIDs): real changes, but of this
+    machine's environment, not something a router or server operator
+    did.
+  - **Not configuration changes at all — reachability flipping, the
+    actual noise to suppress** — every up/down pair:
+    `interfaceDown/Up`, `router-/internet-/dns-/http-/peRouter-/
+    infrastructure-/publicIP-Unreachable/Reachable`,
+    `dhcpFellBackToLinkLocal/dhcpAddressRestored`,
+    `dhcpRenewalOverdue/Recovered`, `saasServiceDown/Recovered`.
+  - **Not network-related, or not a change** — `screenshotCaptured`/
+    `bugReportCaptured` (user-triggered) and `subnetTooLargeToScan`
+    (one-time fact, no delta, no recovery pair, so nothing to compare
+    against anyway).
+
+  **What the triage above actually is: a second axis on `AppEventKind`,
+  the same shape as `polarity` but orthogonal to it** — `polarity`
+  answers "is this good, bad, or neutral news"; this answers "is this
+  routine up/down state, or a genuine change to something's
+  configuration/identity." A straight binary would overclaim, though —
+  `snmpDeviceRestarted`/`multipleNATLayersDetected`/`publicIPChanged`
+  are real changes but of *ambiguous* cause (device config, or just a
+  power blip / ISP-side renewal — the app already can't tell), so
+  forcing them into either "reachability" or "configuration" would
+  assert certainty the underlying data doesn't have. Sketched as a
+  third case rather than force-fit, mirroring `polarity`'s own
+  `enum`-plus-`switch` shape in `AppEventRecord.swift`:
+  ```swift
+  enum ChangeCategory {
+      case reachability      // up/down pairs: interfaceDown/Up,
+                              // router-/internet-/dns-/http-/peRouter-/
+                              // infrastructure-/publicIP-Unreachable/
+                              // Reachable, dhcpFellBackToLinkLocal/
+                              // dhcpAddressRestored, dhcpRenewalOverdue/
+                              // Recovered, saasServiceDown/Recovered
+      case configurationChange // dhcpLeaseChanged, snmpDeviceSoftwareChanged
+      case ambiguousChange   // multipleNATLayersDetected, publicIPChanged,
+                              // ispOrganizationChanged, snmpDeviceRestarted,
+                              // interfaceChanged, wifiNetworkChanged
+      case notApplicable     // screenshotCaptured, bugReportCaptured,
+                              // subnetTooLargeToScan
+  }
+  ```
+  A "Changes only" filter would then mean
+  `category != .reachability && category != .notApplicable` — showing
+  `configurationChange` and `ambiguousChange` together (both are real
+  changes worth seeing when chasing a problem) while still being honest
+  elsewhere in the UI (icon, grouping, whatever ships) that only
+  `configurationChange` members carry real confidence about the cause.
+
+  Two directions, not mutually exclusive, now that the split is
+  concrete:
+  - **Filter the single list** — a toggle/picker over `ChangeCategory`
+    (not a per-subsystem one) scoped to `eventRows`. Keeps one source
+    of truth, one row shape, and the cross-subsystem correlation this
+    list is good for — a router power-cycle showing as a DHCP renewal,
+    an SNMP restart, and an interface flap all landing within seconds
+    of each other, exactly the "Events is a shared cross-subsystem
+    list" case the DHCP-into-Events decision already argued for
+    keeping merged.
+  - **A dedicated log** for just the configuration-change members —
+    closer to how DHCP History and the SNMP Devices list already work
+    as their own sections, but would fragment the one place that
+    currently shows "what changed, in order, across every subsystem" —
+    the same argument that kept DHCP History's detail *out* of Events
+    applies in reverse here: splitting these events *out* loses the
+    cross-subsystem ordering that makes the correlation case above
+    possible.
+
+  No strong signal yet on which real networks actually produce enough
+  configuration-change volume to make this worth building — worth
+  watching real Events lists (this network's included) before
+  choosing. A network logging one of these a week doesn't need a
+  filter; one logging several a day probably does.
+
+- [ ] **A user depending on inbound connections (a self-hosted VPN
+  server, a port-forwarded/DNAT'd service) needs different signal than
+  the default persona — and NMS currently has zero visibility into
+  actual inbound reachability at all.** Raised directly, continuing
+  the Events-filtering item above with a specific persona in mind.
+  Two of the events already discussed there matter far more to this
+  persona than their current treatment reflects, plus there's a real
+  gap neither event touches:
+  1. **`publicIPChanged`** (`PublicIPViewModel`, 5-minute cadence)
+     already fires on every WAN address change — but for this persona
+     it isn't neutral information, it's the single most actionable
+     event in the whole log: any inbound rule pointing at the old
+     address (a DNAT/port-forward entry, a VPN client's saved
+     endpoint, anyone else's bookmark to the old IP) silently breaks
+     the moment it fires, unless dynamic DNS sits in front of it.
+     Today `AppEventKind.publicIPChanged` has `.neutral` polarity
+     (`AppEventRecord.swift`) — a reasonable default (most users don't
+     track their own WAN IP), but undersells it badly for this one.
+  2. **`multipleNATLayersDetected`/CGNAT**
+     (`TracerouteViewModel.leadingNonInternetHopCount`) already fires
+     when an extra NAT layer appears. `DESIGN-NOTES.md`'s AI-assisted-
+     troubleshooting sketch already names the real consequence
+     directly — "doesn't explain an outage, explains a standing
+     limitation: port forwarding won't work as expected" — but that
+     reasoning currently lives only inside an unbuilt troubleshooting-
+     advice feature, not surfaced anywhere as urgent to this persona
+     today.
+  3. **Actual inbound reachability has no signal at all, and nothing
+     else in this app can lean on one.** Every existing check
+     (`ConnectivityViewModel`'s Router/Internet/DNS/HTTP/ISP-Edge-
+     Router pings, the SaaS status pages) is outbound-initiated from
+     this Mac — none of them confirm the world can still reach *in*.
+     Even with a stable public IP and no CGNAT, NMS has no way to know
+     whether the router's own port-forward/DNAT rule is still
+     correctly configured (that lives in the router's own rule table,
+     invisible to standard SNMP MIBs) or whether an ISP-side firewall
+     silently started blocking the port. Confirming a forwarded port
+     is actually reachable would need a genuinely external vantage
+     point — a "can the internet see me" probe against some public
+     checking service — a different kind of dependency than anything
+     else this app currently calls out to.
+
+  Not proposing to build any of this yet. (1) and (2) already have the
+  underlying data and mechanism; what's missing is a way to tell NMS
+  "I depend on inbound access" so it can treat those two differently
+  for that user (no such preference exists today — checked
+  `PreferencesView.swift`/`FeatureFlags.swift`, nothing there
+  distinguishes this persona). (3) is a real gap with no existing
+  mechanism to build on, unlike (1) and (2).
+
 - [x] ~~Add GitHub to the SaaS monitoring list.~~ **Built.** Confirmed
   live via `curl` first (`www.githubstatus.com`, standard `.statuspage`
   shape, healthy at verification time), then added as a plain
