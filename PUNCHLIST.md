@@ -71,25 +71,42 @@ new ones as they come up.
   view tree), weighed against just leaning on manual `screencapture` /
   the OS's own screenshot shortcut instead of maintaining this one.
 
-- [ ] **SNMP device web-detection prefers HTTP over HTTPS — a real
-  security tradeoff, flagged directly, not yet reconsidered.**
-  `DeviceWebDetectionService.detectWebURL` tries HTTP first: confirmed
-  live that this network's printer "succeeds" against its HTTPS port in
-  this probe's lenient trust-all `URLSession`, but real browsers
-  (Safari, Brave) refuse or warn on that same connection — plausibly
-  outdated TLS the probe doesn't check for. HTTP works cleanly, so it
-  now wins by default. Not specific to this printer or household —
-  consumer/prosumer LAN gear commonly ships with a self-signed cert and
-  a stale TLS stack, across NMS's whole userbase. The tradeoff this
-  accepts: a user who'd rather have an encrypted link even to a
-  self-signed/outdated-TLS device (better than plaintext, in their own
-  judgment) now silently gets an unencrypted one instead whenever both
-  answer — the choice isn't surfaced anywhere. Options worth real
-  consideration later, none built: show which protocol a link actually
-  uses (not just a bare icon); a preference to prefer HTTPS when
-  available despite the friction; or actually checking the negotiated
-  TLS version/cert validity to decide, rather than "HTTP always wins if
-  it answers at all."
+- [x] ~~SNMP device web-detection prefers HTTP over HTTPS — a real
+  security tradeoff, flagged directly, not yet reconsidered.~~
+  **Fixed** by doing the "actually checking" option this item's own
+  text called out, rather than a fixed protocol preference either way.
+  `DeviceWebDetectionService.detectWebURL` now tries HTTPS *twice*: once
+  with real, unmodified certificate validation (`strictSession` — no
+  delegate override, so it accepts exactly what a real browser would
+  accept without a warning) before HTTP, and once with the existing
+  lenient trust-all session after HTTP, as a last resort ahead of the
+  Aruba `4343` port. A device with a genuinely valid, modern cert now
+  gets its encrypted link automatically; a device with a self-signed or
+  outdated-TLS cert (confirmed live: this network's own printer) falls
+  through to HTTP exactly as before, since `strictSession` correctly
+  fails there the same way a real browser would. Verified against the
+  real network end-to-end (not just built): relaunched the app and
+  confirmed via `ui-state.log` that the printer and every other real
+  device on this network still resolve to their working `http://` URL,
+  with the strict-HTTPS path now genuinely exercised (and correctly
+  failing) ahead of it rather than skipped. No user-facing preference
+  added — this was the "just make the code correct" fix, not a decision
+  that needed exposing as a setting.
+
+  **Known, accepted verification gap, stated directly**: every device
+  on this network lacks a browser-trusted certificate, confirmed live
+  (all five — router, switch, both APs, printer — fell through to
+  HTTP). That exercises and confirms the *failure* branch of
+  `strictSession` correctly, but the "a device genuinely has a valid
+  cert, so HTTPS wins automatically" branch this fix exists for has
+  never actually succeeded against real hardware, on this network or
+  any other checked so far. The logic is straightforward enough to
+  trust by inspection (it's exactly what `URLSession` does by default
+  with no delegate override, the same validation any ordinary networking
+  client performs), but "trusted by inspection" and "confirmed working"
+  are different claims — this is the former only, same honesty this
+  file already applies to Printer Alerts' own never-triggered true
+  positive.
 
 - [ ] **Use SNMP against the router/switch itself to discover devices on
   subnets too large to sweep, instead of a raw IP sweep.** Follows

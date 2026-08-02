@@ -26,43 +26,71 @@ struct DeviceWebDetectionService {
         }
     }
 
-    private let session = URLSession(configuration: .ephemeral, delegate: TrustAllCertificatesDelegate(), delegateQueue: nil)
+    private let lenientSession = URLSession(configuration: .ephemeral, delegate: TrustAllCertificatesDelegate(), delegateQueue: nil)
+    /// Standard, unmodified certificate validation — no delegate override,
+    /// so this accepts exactly what a real browser would accept without a
+    /// warning. Checked *first*, ahead of the lenient session below, so a
+    /// device with a genuinely valid, modern cert gets an encrypted link
+    /// automatically rather than never being offered the chance.
+    private let strictSession = URLSession(configuration: .ephemeral)
 
-    /// Tries HTTP first, then HTTPS, then HTTPS on port 4343 — Aruba's own
-    /// non-standard admin-UI port, confirmed real on this network's own
-    /// AP1/AP2 (`sysDescr` "AOS-8 (MODEL: 535)") — see `DESIGN-NOTES.md`'s
-    /// "SNMP device web-detection: vendor-specific admin ports beyond
-    /// 80/443" for the finding. Returns the first candidate that answers
-    /// at all within a short LAN-appropriate timeout, `nil` if none do.
-    /// `4343` costs nothing extra for a device that doesn't use it — the
-    /// connection attempt just fails quickly, same as any other unused
-    /// port.
+    /// One candidate to probe: which URL, and which trust policy to probe
+    /// it with.
+    private struct Candidate {
+        let url: String
+        let session: URLSession
+    }
+
+    /// Tries, in order: HTTPS with real certificate validation, then
+    /// plain HTTP, then HTTPS again but trusting any certificate, then
+    /// HTTPS on port 4343 (Aruba's own non-standard admin-UI port,
+    /// confirmed real on this network's own AP1/AP2 — `sysDescr`
+    /// "AOS-8 (MODEL: 535)" — see `DESIGN-NOTES.md`'s "SNMP device
+    /// web-detection: vendor-specific admin ports beyond 80/443"). Returns
+    /// the first candidate that answers at all within a short
+    /// LAN-appropriate timeout, `nil` if none do. `4343` costs nothing
+    /// extra for a device that doesn't use it — the connection attempt
+    /// just fails quickly, same as any other unused port.
     ///
-    /// HTTP first, not HTTPS — confirmed live against this network's own
-    /// printer: this probe's lenient trust-all `URLSession` "succeeds"
-    /// against its HTTPS port (some response comes back), but real
-    /// browsers (Safari, Brave) refuse or warn on that same connection —
-    /// plausibly outdated TLS this probe doesn't check for, only that
-    /// *something* answered, while HTTP works cleanly in both. Not
-    /// specific to this one printer or household — consumer/prosumer LAN
-    /// gear (routers, APs, printers) commonly ships with a self-signed
-    /// cert and an old TLS stack that was never updated, across NMS's
-    /// whole userbase, not just this network. A device that only serves
-    /// HTTPS still falls through to it correctly (HTTP would simply fail
-    /// to connect there); this just stops a technically-answering but
-    /// browser-unfriendly HTTPS port from winning the race against a
-    /// plain HTTP admin UI that actually works better.
+    /// **This ordering resolves a real tradeoff, not an arbitrary
+    /// preference.** A first version tried plain HTTPS (trust-all) ahead
+    /// of HTTP, and that broke on this network's own printer: the
+    /// trust-all session "succeeded" against its HTTPS port (some
+    /// response came back), but real browsers (Safari, Brave) refused or
+    /// warned on that same connection — plausibly outdated TLS the
+    /// trust-all check couldn't see, only that *something* answered. The
+    /// fix isn't picking a different fixed winner (HTTP always first has
+    /// the opposite problem: a device with a perfectly valid modern cert
+    /// would never get offered its own encrypted link) — it's actually
+    /// checking. `strictSession` answers the real question ("would a
+    /// browser accept this without a warning?") instead of "did anything
+    /// answer at all?", so a genuinely trustworthy HTTPS server wins
+    /// first, a browser-unfriendly one falls through to HTTP (matching
+    /// what was actually observed working on this network's printer),
+    /// and only once both of those fail does a self-signed/outdated-TLS
+    /// HTTPS server get offered anyway — still better than no link, and
+    /// the same "let a failed click-through be the browser's own
+    /// fallback" posture the Local Router link already uses. Not specific
+    /// to this one printer or household — consumer/prosumer LAN gear
+    /// commonly ships with a self-signed cert and a stale TLS stack,
+    /// across NMS's whole userbase.
     ///
-    /// Any HTTP response counts as "detected," not just a 200 — a 401 or
-    /// 404 still proves a genuine web server is there, which a bare TCP
-    /// connect couldn't distinguish from an arbitrary non-HTTP service
-    /// (e.g. SNMP's own port) happening to accept a connection.
+    /// Any HTTP(S) response counts as "detected," not just a 200 — a 401
+    /// or 404 still proves a genuine web server is there, which a bare
+    /// TCP connect couldn't distinguish from an arbitrary non-HTTP
+    /// service (e.g. SNMP's own port) happening to accept a connection.
     func detectWebURL(forAddress address: String) async -> String? {
-        for candidate in ["http://\(address)/", "https://\(address)/", "https://\(address):4343/"] {
-            guard let url = URL(string: candidate) else { continue }
+        let candidates = [
+            Candidate(url: "https://\(address)/", session: strictSession),
+            Candidate(url: "http://\(address)/", session: lenientSession),
+            Candidate(url: "https://\(address)/", session: lenientSession),
+            Candidate(url: "https://\(address):4343/", session: lenientSession)
+        ]
+        for candidate in candidates {
+            guard let url = URL(string: candidate.url) else { continue }
             var request = URLRequest(url: url)
             request.timeoutInterval = 3
-            if (try? await session.data(for: request)) != nil {
+            if (try? await candidate.session.data(for: request)) != nil {
                 return url.absoluteString
             }
         }
