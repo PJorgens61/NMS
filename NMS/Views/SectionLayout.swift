@@ -61,6 +61,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     case speedTest
     case events
     case wifi
+    case ethernetLink
     case snmpDevices
     case dhcpHistory
     case printerAlerts
@@ -101,7 +102,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     var surfaces: Set<Surface> {
         switch self {
         case .pathToInternet, .speedTest, .events,
-             .wifi, .snmpDevices, .dhcpHistory, .printerAlerts, .saasMonitoring:
+             .wifi, .ethernetLink, .snmpDevices, .dhcpHistory, .printerAlerts, .saasMonitoring:
             return [.window]
         }
     }
@@ -156,6 +157,13 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // guaranteed to stay a fixed 3-service list now that users can
         // add their own sites to monitor (see `PUNCHLIST.md`).
         case (.wifi, .window): return 130
+        // Two rows (Speed, Duplex) — no signal-strength sparkline, no
+        // BSSID/channel/security the way Wi-Fi's box has, so it needs
+        // nowhere near as much room. Still boxed via `scrollBox` rather
+        // than left to size to content, for the same uniformity reason
+        // `wifi`/`saasMonitoring` are (see their own note above) — this
+        // box just never actually needs to scroll in practice.
+        case (.ethernetLink, .window): return 60
         case (.saasMonitoring, .window): return 150
 
         // Unreachable given the `appears(on:)` guard above (every case
@@ -166,7 +174,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // section. `pathToInternet`/`speedTest` aren't repeated here —
         // they already match every surface via the first case above.
         case (.events, _), (.snmpDevices, _), (.dhcpHistory, _), (.printerAlerts, _),
-             (.wifi, _), (.saasMonitoring, _):
+             (.wifi, _), (.ethernetLink, _), (.saasMonitoring, _):
             return nil
         }
     }

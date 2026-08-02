@@ -141,6 +141,44 @@ struct UntrustedTextTests {
     }
 }
 
+// MARK: - EthernetLinkService
+
+@Suite("EthernetLinkService.parse")
+struct EthernetLinkServiceTests {
+    @Test("Gigabit Ethernet, full duplex — this Mac's own real connection")
+    func gigabitFullDuplex() {
+        let info = EthernetLinkService.parse("1000baseT <full-duplex flow-control>")
+        #expect(info.speedMbps == 1000)
+        #expect(info.duplex == "Full Duplex")
+    }
+
+    @Test("100baseTX half duplex")
+    func fastEthernetHalfDuplex() {
+        let info = EthernetLinkService.parse("100baseTX <half-duplex>")
+        #expect(info.speedMbps == 100)
+        #expect(info.duplex == "Half Duplex")
+    }
+
+    @Test("10baseT/UTP parses the slash-qualified base token correctly")
+    func tenBaseTSlashVariant() {
+        let info = EthernetLinkService.parse("10baseT/UTP <half-duplex>")
+        #expect(info.speedMbps == 10)
+    }
+
+    @Test("10Gbase-T's G suffix means thousands, not units")
+    func tenGigabitEthernet() {
+        let info = EthernetLinkService.parse("10Gbase-T <full-duplex>")
+        #expect(info.speedMbps == 10000)
+    }
+
+    @Test("no link reports nil for both fields")
+    func noLink() {
+        let info = EthernetLinkService.parse("none")
+        #expect(info.speedMbps == nil)
+        #expect(info.duplex == nil)
+    }
+}
+
 // MARK: - IPClassifier
 
 @Suite("IPClassifier")

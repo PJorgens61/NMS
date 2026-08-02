@@ -100,6 +100,7 @@ struct NMSApp: App {
     @StateObject private var networkQuality: NetworkQualityViewModel
     @StateObject private var screenshot: ScreenshotViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
+    @StateObject private var ethernetLink: EthernetLinkViewModel
     @StateObject private var eventLog: EventLogViewModel
     @StateObject private var traceroute: TracerouteViewModel
     @StateObject private var snmp: SNMPViewModel
@@ -169,6 +170,7 @@ struct NMSApp: App {
         let networkQuality = NetworkQualityViewModel(snapshotStore: store)
         let screenshot = ScreenshotViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
+        let ethernetLink = EthernetLinkViewModel()
         let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let connectivity = ConnectivityViewModel(
@@ -197,6 +199,7 @@ struct NMSApp: App {
             dhcpLease: dhcpLease,
             screenshot: screenshot,
             wifiSSID: wifiSSID,
+            ethernetLink: ethernetLink,
             eventLog: eventLog,
             traceroute: traceroute,
             snmp: snmp,
@@ -213,6 +216,7 @@ struct NMSApp: App {
         _networkQuality = StateObject(wrappedValue: networkQuality)
         _screenshot = StateObject(wrappedValue: screenshot)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
+        _ethernetLink = StateObject(wrappedValue: ethernetLink)
         _eventLog = StateObject(wrappedValue: eventLog)
         _traceroute = StateObject(wrappedValue: traceroute)
         _snmp = StateObject(wrappedValue: snmp)
@@ -222,6 +226,10 @@ struct NMSApp: App {
         // than waiting for the next topology change to fire a scan.
         lanDiscovery.scan()
         wifiSSID.refresh(isWiFi: networkMonitor.currentInterface?.isWiFi ?? false)
+        ethernetLink.refresh(
+            isEthernet: networkMonitor.currentInterface?.isWiFi == false,
+            device: networkMonitor.currentInterface?.interfaceName
+        )
         // Same reasoning — `publicIP.currentIP` may already be a cached
         // value from last launch (`PublicIPViewModel.init()` reads
         // `snapshotStore.latestPublicIP()`), in which case
@@ -272,6 +280,7 @@ struct NMSApp: App {
         dhcpLease: DHCPLeaseViewModel,
         screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
+        ethernetLink: EthernetLinkViewModel,
         eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
         snmp: SNMPViewModel,
@@ -287,6 +296,7 @@ struct NMSApp: App {
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
+            ethernetLink: ethernetLink,
             traceroute: traceroute
         )
         wireDerivedStateDependencies(
@@ -333,6 +343,7 @@ struct NMSApp: App {
         ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
+        ethernetLink: EthernetLinkViewModel,
         traceroute: TracerouteViewModel
     ) {
         // `[weak networkMonitor]` because this closure is stored *on*
@@ -369,6 +380,14 @@ struct NMSApp: App {
             wifiSSID.refresh(
                 isWiFi: networkMonitor?.currentInterface?.isWiFi ?? false,
                 departingNetworkFingerprint: departingFingerprint
+            )
+            // Same reasoning, the Ethernet-side counterpart — falling
+            // back *to* Ethernet, or moving to a different switch port
+            // on the same cable, is exactly when the negotiated link
+            // speed is likely to have changed too.
+            ethernetLink.refresh(
+                isEthernet: networkMonitor?.currentInterface?.isWiFi == false,
+                device: networkMonitor?.currentInterface?.interfaceName
             )
             // A topology change (new network, interface failover) is
             // exactly the moment a DHCP lease is likely to have changed
@@ -583,6 +602,7 @@ struct NMSApp: App {
             networkQuality: networkQuality,
             screenshot: screenshot,
             wifiSSID: wifiSSID,
+            ethernetLink: ethernetLink,
             eventLog: eventLog,
             traceroute: traceroute,
             snmp: snmp,

@@ -885,9 +885,28 @@ from this list. This one remains, since it's an idea, not a defect):
   the top level) — filing these is purely for Apple's benefit at this
   point.
 
-- [ ] **Ethernet link speed telemetry.** Discussed alongside the Wi-Fi
-  telemetry work; deliberately out of scope then, no plan yet. Revisit if
-  it becomes relevant.
+- [x] ~~Ethernet link speed telemetry.~~ **Built.** Discussed alongside
+  the Wi-Fi telemetry work; scoped and shipped end-to-end this session.
+  `EthernetLinkService` shells `networksetup -getMedia <device>` — same
+  free-ride pattern as `ping`/`arp`/`traceroute`/`ipconfig`/`snmpget`,
+  no IOKit needed — verified against this Mac's own real Gigabit
+  connection before writing the parser (`1000baseT <full-duplex
+  flow-control>`). `EthernetLinkViewModel` mirrors
+  `WiFiSSIDViewModel.refresh(isWiFi:)`'s shape but simpler: no persisted
+  history, no events, no periodic timer — link speed only changes on a
+  physical event (cable swap, different switch port), which is exactly
+  when `NMSApp`'s existing topology-change wiring already calls
+  `refresh` again, so a timer polling a static value would add nothing.
+  New `SectionLayout.ethernetLink` case (window-only, 60pt — just Speed
+  and Duplex, no signal to chart, no BSSID/channel/security the way
+  Wi-Fi's box has), gated the same way as the Wi-Fi section it sits
+  alongside and is mutually exclusive with. No sparkline — a link speed
+  is a step function that only ever answers "still negotiated the same
+  it always does" or "cable's unplugged," not a continuously-varying
+  trend RSSI's own sparkline actually earns. Verified live end-to-end:
+  relaunched the real app, confirmed `ui-state.log`'s
+  `EthernetLinkViewModel.currentSpeedMbps | 1000.0` against this Mac's
+  actual Ethernet connection.
 
 - [x] ~~Decide whether to keep the printer alerts feature.~~ **Decided:
   keep.** Reasoning: the ~91ms-avg `lpstat -l -p` cost every round is

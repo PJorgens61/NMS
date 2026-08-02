@@ -436,6 +436,22 @@ extension ContentView {
         return "\(number) (\(band))"
     }
 
+    /// Ethernet's counterpart to `wifiSection` — window-only, boxed the
+    /// same way via `scrollBox`. Just two rows: no signal to chart, no
+    /// BSSID/channel/security the way a Wi-Fi radio has, since a wired
+    /// link has none of those concepts.
+    @ViewBuilder
+    var ethernetLinkSection: some View {
+        scrollBox(.ethernetLink) {
+            if let speed = ethernetLink.currentSpeedMbps {
+                row("Speed", "\(Int(speed)) Mbps")
+            }
+            if let duplex = ethernetLink.currentDuplex {
+                row("Duplex", duplex)
+            }
+        }
+    }
+
     // MARK: - Events
 
     @ViewBuilder

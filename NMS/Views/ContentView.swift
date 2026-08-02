@@ -11,6 +11,7 @@ struct ContentView: View {
     @ObservedObject var networkQuality: NetworkQualityViewModel
     @ObservedObject var screenshot: ScreenshotViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
+    @ObservedObject var ethernetLink: EthernetLinkViewModel
     @ObservedObject var eventLog: EventLogViewModel
     @ObservedObject var traceroute: TracerouteViewModel
     @ObservedObject var snmp: SNMPViewModel
@@ -260,6 +261,23 @@ struct ContentView: View {
                     .font(.headline)
 
                 wifiSection
+            }
+
+            // Ethernet's counterpart to the Wi-Fi section just above —
+            // mutually exclusive with it by construction (a Mac's default
+            // route is either Wi-Fi or Ethernet, never both), gated the
+            // same two ways: `SectionLayout` for the space question,
+            // `ethernetLink.currentSpeedMbps != nil` for "is there
+            // actually a negotiated link to report" (mirrors
+            // `wifiSSID.currentSSID != nil` above — nothing to show while
+            // the cable's unplugged either).
+            if SectionLayout.ethernetLink.appears(on: surface), ethernetLink.currentSpeedMbps != nil {
+                Divider()
+
+                Text("Ethernet")
+                    .font(.headline)
+
+                ethernetLinkSection
             }
 
             // Same two-independent-gates shape as SNMP Devices below:
