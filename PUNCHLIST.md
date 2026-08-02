@@ -156,6 +156,21 @@ new ones as they come up.
   your ISP's" message today, not the confirmed-CGNAT one, which is the
   right call given what these two real traces actually show.
 
+  **Externally corroborated, not just this app's own two observations**:
+  a web search turned up multiple independent, unrelated sources
+  describing `10.1.10.1` as Comcast's standard internal DOCSIS gateway/
+  modem management address — including an OPNsense forum thread titled
+  literally
+  ["Comcast Business 10.1.10.1"](https://forum.opnsense.org/index.php?topic=6878.0),
+  plus a [Netgate forum thread](https://forum.netgate.com/topic/187471/comcast-static-ip-30-setup-help-needed)
+  and a [Cisco Community thread](https://community.cisco.com/t5/small-business-security/isa570w-static-route-to-comcast-gateway-modem/td-p/2285824)
+  discussing the same address in the same role. This is a widely
+  recognized convention among people who run their own router behind
+  Comcast equipment, not a coincidence specific to these two real
+  connections — real, independent grounding for the per-ISP
+  hop-pattern-tracking idea elsewhere in this file, beyond just this
+  session's own two data points.
+
   **Both pieces of data this needs already exist in the app,
   unconnected**: `TracerouteViewModel.hops` (each hop's address) and
   `PublicIPViewModel.currentIP` (the independently-fetched real public
