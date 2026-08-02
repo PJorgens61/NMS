@@ -191,7 +191,7 @@ Swift code are normally caught before they manifest, not after.
 - **Found in build**: not recorded — reported before this field existed
 - **Fixed in build**: not recorded — see git log (`NetworkIdentityViewModel
   .reset()` returning the departing fingerprint)
-- **First reported**: off-site testing at Martha's
+- **First reported**: off-site testing
 
 In `wireTopologyChangeFanOut`, `networkIdentity.reset()` (clears
 `currentNetworkFingerprint` to `nil`) ran *before* `wifiSSID.refresh(...)`
@@ -230,7 +230,7 @@ else.
 - **Found in build**: not recorded — reported before this field existed
 - **Fixed in build**: not recorded — see git log (ping-based hop RTT
   enrichment)
-- **First reported**: off-site testing at Martha's
+- **First reported**: off-site testing
 
 `traceroute -n -q 1 -w 1 -m 4` sends exactly one probe per hop with no
 retry, and runs immediately on topology change — before a fresh Wi-Fi
@@ -269,7 +269,7 @@ timing rather than sitting static.
 - **Fixed in build**: `f92b584` (`ContentView.openWindowInFront`);
   auto-open gap below fixed same session, MacBook-local at time of
   writing
-- **First reported**: off-site testing at Martha's
+- **First reported**: off-site testing
 - **Confirmed via**: [GitHub issue #6](https://github.com/PJorgens61/NMS/issues/6),
   the MacBook reproducing it live and posting `sw_vers` + the
   `openWindowInFront` log line
@@ -516,7 +516,7 @@ what broke and how it got fixed.)
   network.
 - **Found in build**: not recorded — reported before this field existed
 - **Fixed in build**: `d5661da`
-- **First reported**: off-site testing at Martha's
+- **First reported**: off-site testing
 
 `NetworkIdentityViewModel.recognize(routerAddress:subnetMask:from:)`
 required the router's MAC to already be present in that *one* LAN scan's
