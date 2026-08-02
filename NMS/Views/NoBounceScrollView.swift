@@ -66,6 +66,27 @@ struct NoBounceScrollView<Content: View>: NSViewRepresentable {
 
         let hostingView = NSHostingView(rootView: AnyView(content))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
+        // Without this, `NSHostingView` sizes itself once via its default
+        // AutoLayout-driven `.standardBounds` behavior and doesn't
+        // reliably re-measure its SwiftUI content's true intrinsic height
+        // as that content changes shape later — found live via a real
+        // report: SNMP Devices' first row (`router`) rendered permanently
+        // clipped a few points from its own top on every launch. Root
+        // cause never fully pinned down (SwiftUI/AppKit-interop internals,
+        // not this app's own logic), but adding `.fixedSize(vertical:
+        // true)` to the wrapping `sysDescr` `Text` that exposed it (fixing
+        // a real long-string-truncation bug) reliably reproduced the
+        // clipping, and removing that same `fixedSize` reliably fixed it
+        // again — narrowing this to an `NSHostingView` intrinsic-size
+        // invalidation issue rather than anything specific to that one
+        // `Text`. `.intrinsicContentSize` (macOS 13+) is Apple's own
+        // documented switch for exactly this: it makes `NSHostingView`
+        // track and invalidate its intrinsic size against its actual
+        // SwiftUI content instead of the older, less reliable default.
+        // `.standardBounds` is kept alongside it (not replaced) since
+        // that's still what makes this view participate in the
+        // leading/trailing/top Auto Layout constraints below at all.
+        hostingView.sizingOptions = [.standardBounds, .intrinsicContentSize]
         scrollView.documentView = hostingView
         // Leading/trailing/top only — not bottom — so the hosting view's
         // width tracks the scroll view's visible width while its height

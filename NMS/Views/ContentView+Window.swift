@@ -545,11 +545,70 @@ extension ContentView {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(device.sysDescr)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                // Split into up to two *fixed-height* lines rather than
+                // one auto-wrapping `Text` — deliberately, not the
+                // obvious approach. sysDescr is a raw SNMP-provided
+                // string with no length guarantee, and a real one
+                // (this network's own switch) needs two lines to read in
+                // full. An unbounded, wrapping `Text` here reliably
+                // truncated to one line with a "…" live, inside this
+                // section's `NoBounceScrollView` box specifically
+                // (confirmed fine in a plain `VStack`) — and every fix
+                // tried for *that* (`.fixedSize(vertical: true)` alone,
+                // on the whole row, combined with `NSHostingView
+                // .sizingOptions`) reliably reintroduced a worse bug
+                // instead: this list's first row (`router`) rendering
+                // permanently clipped a few points from its own top. See
+                // `BUGS.md`'s "SNMP device sysDescr truncates" entry for
+                // the full account. Two separate `Text`s, each with its
+                // own `lineLimit(1)`, sidesteps that whole class of bug
+                // entirely — the same deterministic, single-line sizing
+                // `addressLine` above already uses safely in this exact
+                // box, just applied twice. Worst case (a single word too
+                // long for one line, or a description needing a third
+                // line) still degrades to a plain "…", same as before —
+                // never worse, often better.
+                ForEach(Array(Self.sysDescrLines(device.sysDescr).enumerated()), id: \.offset) { _, line in
+                    Text(line)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
         }
+    }
+
+    /// Splits `sysDescr` into at most two lines, breaking at the space
+    /// nearest the midpoint so neither line is wildly longer than the
+    /// other. Short strings (the common case — most devices' `sysDescr`
+    /// fits on one line already) come back unsplit: this only kicks in
+    /// past a length that's already overflowing one line at this row's
+    /// font/width, mirroring the two lines this exact box's own
+    /// `sysDescr` case needs (see the call site's doc comment for why
+    /// this exists instead of a wrapping `Text`).
+    // Not `private` — `@testable import NMS` in NMSTests.swift can only
+    // reach `internal`, same reason `SaaSStatusService`'s parsers and
+    // `NMSApp.openStoreWithFallback` are also plain `static func`.
+    static func sysDescrLines(_ text: String) -> [String] {
+        guard text.count > 70 else { return [text] }
+        let mid = text.index(text.startIndex, offsetBy: text.count / 2)
+        var breakIndex: String.Index?
+        var offset = 0
+        while breakIndex == nil, offset < text.count / 2 {
+            if let before = text.index(mid, offsetBy: -offset, limitedBy: text.startIndex),
+               text[before] == " " {
+                breakIndex = before
+            } else if let after = text.index(mid, offsetBy: offset, limitedBy: text.endIndex),
+                      after < text.endIndex, text[after] == " " {
+                breakIndex = after
+            }
+            offset += 1
+        }
+        guard let breakIndex else { return [text] }
+        let first = text[text.startIndex..<breakIndex].trimmingCharacters(in: .whitespaces)
+        let second = text[breakIndex...].trimmingCharacters(in: .whitespaces)
+        return [first, second]
     }
 
     private func deviceReachability(_ device: SNMPDevice) -> LayerStatus {
