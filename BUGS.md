@@ -38,7 +38,7 @@ than summarized away.
 - **Found in build**: `ec9b878+dirty` — read directly from the app's own
   `bugReportCaptured` events logged this session ("Build ec9b878+dirty"),
   not guessed from `git log`.
-- **First reported**: field-tested live at Martha's on Church St.
+- **First reported**: field-tested live at an off-site location
   ("not seeing the isp info. did a path to internet scan."), diagnosed
   from `~/Library/Logs/NMS/ui-state.log` and confirmed independently via
   a direct `curl` RDAP lookup against the live public IP, not assumed.
@@ -53,25 +53,25 @@ loading" or "genuinely nothing found," with nothing to tell them apart.
 twice, independently:**
 - The app's own `ui-state.log` shows `ISPIdentityViewModel.organizationName`
   correctly resolving to `"Comcast Cable Communications, LLC"` at
-  `17:39:23.915Z`, seconds after joining Martha's Wi-Fi.
-- A direct `curl -L https://rdap.org/ip/98.45.206.181` (the same public IP
+  `17:39:23.915Z`, seconds after joining the off-site network's Wi-Fi.
+- A direct `curl -L https://rdap.org/ip/203.0.113.10` (the same public IP
   logged by the app) returns the identical result right now, independent
   of the app entirely.
 
 **What actually happened, reconstructed from `ui-state.log`'s precise
 timestamps**: the Mac's Wi-Fi flapped three separate times in about 10
-seconds while joining Martha's network (matches direct field
+seconds while joining the off-site network (matches direct field
 observation: "bad wifi quality while sitting outside"):
 
 ```
-17:39:20.211  organizationName → nil       (reset: joining MarthaBros)
-17:39:20.307  Event: wifiNetworkChanged Thistle → MarthaBros
-17:39:21.447  Event: publicIPChanged to 98.45.206.181
+17:39:20.211  organizationName → nil       (reset: joining OffSiteWiFi)
+17:39:20.307  Event: wifiNetworkChanged Thistle → OffSiteWiFi
+17:39:21.447  Event: publicIPChanged to 203.0.113.10
 17:39:23.915  organizationName → "Comcast Cable Communications, LLC"  ✓ succeeded
 17:39:24.641  NetworkMonitorViewModel.lastChangeAt updates again (2nd flap)
 17:39:24.646  organizationName → nil       (reset: wiped 731ms after succeeding)
 17:39:24.730  Event: interfaceDown
-17:39:30.561  interface back up again (3rd flap, same MarthaBros/192.168.1.56)
+17:39:30.561  interface back up again (3rd flap, same OffSiteWiFi/192.168.1.56)
 17:39:30.565  organizationName → nil       (still nil — no further attempt)
 ```
 
@@ -89,7 +89,7 @@ re-populates it, `ispIdentity.identify(ip:)`, is normally called from
 `PublicIPViewModel.apply(_:)` only fires `if previousIP != currentIP`
 (`PublicIPViewModel.swift:84-85`) — i.e., only on an actual IP *value*
 change, not on every check. When the second/third flap's `publicIP.check()`
-resolved back to the same `98.45.206.181` already recorded from the first
+resolved back to the same `203.0.113.10` already recorded from the first
 flap, the "changed" guard correctly stayed silent — but `reset()` had
 already unconditionally cleared the display moments earlier, and nothing
 else was left to call `identify(ip:)` again.
@@ -120,8 +120,8 @@ pattern launch already uses — rather than depending solely on
   actually confirmed, with no way to tell from the UI alone.
 - **Found in build**: `ec9b878+dirty`, read from the app's own recent
   `bugReportCaptured` events.
-- **First reported**: field-tested live, moving from Martha's on
-  Church St. to a coffee shop ("noecafe") — asked directly whether Path
+- **First reported**: field-tested live, moving from an off-site
+  location to a coffee shop — asked directly whether Path
   to Internet had auto-selected the right hop there, then confirmed
   directly that it hadn't, in the sense that mattered.
 
@@ -135,16 +135,17 @@ via `defaults read Thistle.NMS NMS.monitoredHopNumber` → `3`, and via
 
 ```
 17:09:07  monitoredHopNumber = 2     (home network — single-NAT, hop 2 is the real edge)
-17:54:07  monitoredHopNumber = nil  (cleared while transitioning to Martha's)
-17:54:11  monitoredHopNumber = 3    (manually re-confirmed at Martha's — double-NAT, hop 3 is the real edge there)
+17:54:07  monitoredHopNumber = nil  (cleared while transitioning to the off-site network)
+17:54:11  monitoredHopNumber = 3    (manually re-confirmed at the off-site network — double-NAT, hop 3 is the real edge there)
 ```
 
 That `3` is still what's stored now, on a third, unrelated network
 (the coffee shop) — nothing cleared or re-asked when the network
 changed again. **It happens to still read correctly here only by
 coincidence**: this coffee shop's trace independently turns out to have
-the same shape as Martha's (two private hops, first public address at
-hop 3) — confirmed by comparing both real traces directly, not
+the same shape as the off-site network's (two private hops, first
+public address at hop 3) — confirmed by comparing both real traces
+directly, not
 assumed. Had this network's topology been shaped differently (say, a
 simple single-NAT setup where hop 2 is the real edge, or a longer
 corporate-style chain), hop 3 would have silently been monitored and
@@ -174,8 +175,8 @@ network's confirmation happened to be.
   the risk is a misleading permanent record, not a live-state problem.
 - **Found in build**: `ec9b878+dirty`, read from the app's own recent
   `bugReportCaptured` events.
-- **First reported**: field-tested live at NoeCafe (a coffee shop),
-  while moving off Martha's Wi-Fi — asked directly why the Events log
+- **First reported**: field-tested live at a coffee shop,
+  while moving off the off-site network's Wi-Fi — asked directly why the Events log
   showed both "Multiple NAT layers detected" and "Back to a single NAT
   layer" back to back, then diagnosed from `ui-state.log`, not guessed.
 
@@ -184,7 +185,7 @@ values across the transition, not inferred**:
 
 ```
 18:37:16.885  Full trace: 192.168.68.1 (private), 10.1.10.1 (private),
-              96.120.89.157 (public), 96.110.179.13 (public)
+              203.0.113.30 (public), 203.0.113.40 (public)
               → 2 leading private hops → isExtraNATed=true
               → "Multiple NAT layers detected" already logged
 
@@ -236,11 +237,10 @@ an analogous reason, just not yet extended to this function.
   unaffected (`accessibilityLabel` carries the full name regardless of
   what's visibly truncated).
 - **Found in build**: `ec9b878+` — read from the popover's own footer
-  line in the screenshot below.
-- **First reported**: field-tested live at Martha's on Church St.
+  line, confirmed live.
+- **First reported**: field-tested live at an off-site location
   ("the labels for the expert and networks buttons get truncated.
   Enlarge or reduce text?").
-- **Screenshot**: ![Popover footer showing "Expert Mod…" truncated next to "Networks…"](images/bugs/NMS-2026-08-02-footer-button-truncation.png)
 
 The popover's footer (`ContentView.swift:390`, `footerBar`'s `HStack`)
 packs 7 buttons — Refresh, Screenshot, Bug Report, Expert Mode…,
@@ -274,13 +274,12 @@ problem.
   timed out.") rather than silently, but there's no way to diagnose
   *why* after the fact, and no user-facing recourse beyond retrying.
 - **Found in build**: `ec9b878+` — read from the Expert Mode window's
-  own footer line in the screenshot below.
-- **First reported**: field-tested live at Martha's on Church St.
+  own footer line, confirmed live.
+- **First reported**: field-tested live at an off-site location
   ("the speedtest timed out. slow network?").
-- **Screenshot**: ![Expert Mode window, Speed Test showing "The request timed out." in red, Wi-Fi signal -58 dBm/SNR 43 dB directly below](images/bugs/NMS-2026-08-02-speedtest-timeout.png)
 
-**Not what it first looked like**: the Wi-Fi signal reading directly
-below the failure in the same screenshot is genuinely good — `-58 dBm`,
+**Not what it first looked like**: the Wi-Fi signal reading captured
+directly alongside the failure is genuinely good — `-58 dBm`,
 `SNR 43 dB`, `86 Mbps` PHY rate — not the weak-signal case "bad wifi"
 suggests. Whatever caused the timeout is more likely upstream
 instability (this network is confirmed double-NAT'd, "Multiple layers

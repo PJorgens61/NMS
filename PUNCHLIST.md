@@ -79,7 +79,7 @@ new ones as they come up.
   just be an older, still-legitimate deployment generation. Any real
   version of this needs to track *which* generations are known for a
   given ISP, not assume a single current shape, the same way this
-  session's own two Comcast data points (Martha's, noecafe) happened to
+  session's own two Comcast data points (an off-site network, a coffee shop) happened to
   agree only because they were probably provisioned close together in
   time — that agreement isn't guaranteed to hold against an older or
   newer installation on the same ISP.
@@ -94,7 +94,7 @@ new ones as they come up.
   from scratch on every trace.** Raised directly, prompted by exactly
   the finding right above: `10.1.10.1`/`docsis-gateway.hsd1.ca.comcast.net`
   showed up as hop 2 on two real, physically different Comcast
-  connections this session (Martha's, then a coffee shop). Recognizing
+  connections this session (an off-site network, then a coffee shop). Recognizing
   that pattern on sight — "this specific address/hostname shape is
   Comcast's own DOCSIS infrastructure, not a customer's extra router" —
   would let `multipleNATLayersDetected` say something more specific and
@@ -132,6 +132,64 @@ new ones as they come up.
   idea, prompted by real, repeated evidence that at least one such
   pattern (Comcast's) is stable enough across locations to be worth
   recognizing at all.
+
+- [ ] **A short-name/brand mapping layer for RDAP registrant names,
+  separate from the existing status-page table.** Raised directly:
+  RDAP returns real legal-entity strings (`"Comcast Cable
+  Communications, LLC"`, `"Sonic.net, LLC"`), not the brand a customer
+  actually recognizes — and one brand can resolve to *several* different
+  legal names depending on subsidiary/historical acquisition, not just
+  one. Already confirmed, not hypothetical: `ISPIdentityService
+  .statusPages`'s own doc comment records that Astound Broadband (the
+  current brand for what used to be marketed as RCN, Grande, and Wave
+  in different regions) turned up three distinct real ARIN registrant
+  names — `"Astound Broadband LLC"`, `"RCN Corporation"`, and bare
+  `"RCN"` — depending on which legacy entity's allocation a given
+  customer's address falls under. See `DESIGN-NOTES.md`'s new "How NMS
+  uses RDAP" section for the full reasoning and how this connects to
+  the RDAP-organization-walk idea elsewhere in this file.
+
+  **Shape**: a many-legal-names-to-one-brand table
+  (`[String: String]`, same type as `statusPages` but a different
+  mapping — several keys can point to the same display value), checked
+  in independently from whether that brand also has a linkable status
+  page. `ISPIdentityViewModel.organizationName` would display the
+  mapped brand when a match exists, falling back to the raw RDAP name
+  otherwise — same "don't guess, only show what's confirmed" posture
+  `statusPages` already uses, not a heuristic name-shortener. Same
+  build discipline too: one real, verified entity name added at a
+  time (Astound's three are the first real seed), not a speculative
+  table covering every ISP up front.
+
+  **Not just cosmetic** — this also feeds the RDAP-organization-walk
+  idea directly: if the walk is comparing "does this hop's org match my
+  own ISP's" using raw legal names, two different legal names for the
+  *same* real brand (Astound's three, or any similar case not yet
+  found) would incorrectly read as a mismatch. Resolving both names to
+  the same brand before comparing is a real accuracy improvement for
+  that walk, not just a display nicety for the Info tile.
+
+  **How to actually build this, checked directly rather than assumed**:
+  general web search reliably finds the *acquisition history* (Wikipedia,
+  SEC filings, press releases, industry M&A trackers) — confirmed live:
+  a quick search correctly surfaced Charter/Time Warner Cable/Bright
+  House's merger history, and turned up real, current 2026 activity
+  (Verizon completing its Frontier acquisition Jan 20, 2026 and its
+  Starry acquisition Jan 30, 2026; Cable One agreeing to acquire the
+  rest of Mega Broadband Investments/Vyve Broadband) — evidence the
+  subsidiary landscape keeps moving, not a one-time list to compile.
+  **But search can't substitute for the direct RDAP/ARIN query** to
+  confirm which exact legal-entity string(s) a given subsidiary's IP
+  allocations actually resolve to today — that step already has a
+  working precedent in this exact codebase (`statusPages`'s own doc
+  comment: "checked live via ARIN's org search," which is how Astound's
+  three names were actually found, not searched for). The realistic
+  build process: use web search to find *candidate* subsidiary/
+  acquisition names worth checking, then verify each one's real RDAP
+  registrant string(s) directly before adding it — same two-step
+  shape as the per-ISP hop-pattern idea's own "web search, then
+  cross-check against a real live trace" method above, just aimed at
+  ARIN/RDAP instead of a live traceroute.
 
 - [ ] **A "Corporate" mode feature flag — avoids probes that could trip
   a security alarm on an actively managed network, and separately
@@ -227,11 +285,11 @@ new ones as they come up.
   IP actually becomes real — is the NAT happening right at the local
   router, or much farther away (typical of CGNAT or a corporate WAN)?**
   Raised directly, from a real, live case this session already
-  produced by accident, not a hypothetical: at Martha's, Path to
-  Internet's own trace shows hop 3 (`96.120.90.213`) as the first
+  produced by accident, not a hypothetical: at an off-site network, Path to
+  Internet's own trace shows hop 3 (`203.0.113.20`) as the first
   public address — matching `multipleNATLayersDetected`'s "Multiple
   layers (2 hops)" finding — but that address is **not the same** as
-  this connection's actual detected Public IP (`98.45.206.181`,
+  this connection's actual detected Public IP (`203.0.113.10`,
   confirmed independently via both `PublicIPViewModel` and a direct
   RDAP lookup this session). Two different real numbers, both genuine,
   both public.
@@ -247,7 +305,7 @@ new ones as they come up.
   — for a NAT device, that's its own management/WAN address, not
   necessarily the translated source address it stamps onto outbound
   packets, which on real carrier-grade NAT gear is commonly a *different*
-  address on a shared pool entirely. Martha's trace is exactly this
+  address on a shared pool entirely. The off-site network's trace is exactly this
   case: hop 3 is genuinely public and genuinely the first non-private
   hop, but it's a different address from the one the rest of the
   internet actually sees this connection as — meaning the real
@@ -256,16 +314,16 @@ new ones as they come up.
   were counted.
 
   **Confirmed a second time, at a different real location (a coffee
-  shop, "noecafe"), same ISP — this is a recognized, recurring Comcast
+  shop), same ISP — this is a recognized, recurring Comcast
   pattern, not a one-off**: hop 2 there was `10.1.10.1`, hostname
   `docsis-gateway.hsd1.ca.comcast.net` — the *exact same private address*
-  as Martha's hop 2, a completely different physical connection. That's
+  as the off-site network's hop 2, a completely different physical connection. That's
   real evidence Comcast reuses `10.1.10.1` as a standardized internal
   label for the DOCSIS gateway's management interface across many
   subscriber connections, not a shared customer-facing NAT pool — while
   the actual public IP one hop further out differed between the two
-  locations (`96.120.89.157` at the cafe vs. `96.120.90.213` at
-  Martha's), confirming each connection still gets its own distinct
+  locations (`203.0.113.30` at the cafe vs. `203.0.113.20` at
+  the off-site network), confirming each connection still gets its own distinct
   public identity. Worth noting directly: `10.1.10.1` itself is an
   ordinary RFC1918 address, not in the CGNAT-reserved range
   (`100.64.0.0/10`) `IPClassifier.isCGNAT` checks for — so this
@@ -296,7 +354,7 @@ new ones as they come up.
   here, adjacent, simple single-NAT home setup"; no match at all, even
   after reaching a genuinely public hop, says "the real NAT boundary is
   further out than this trace can see" — itself a meaningful, distinct
-  finding from "multiple private hops," as Martha's case demonstrates
+  finding from "multiple private hops," as the off-site network's case demonstrates
   live.
 
   **Directly relevant to two other open items in this file**: the
@@ -322,7 +380,7 @@ new ones as they come up.
   assumed: this depends entirely on item 8 below ("Cross-check the
   router's own interfaces/routes via SNMP"), which just found a genuine
   split — the home router answers standard IP-MIB SNMP fine, but
-  Martha's ASUS RT-AC68P answers none at all (stock ASUS firmware has
+  the off-site network's ASUS RT-AC68P answers none at all (stock ASUS firmware has
   no SNMP support whatsoever, confirmed via web search, not just the
   live timeout). So this authoritative path is real *when available*,
   but traceroute-plus-Public-IP-correlation is still the only
@@ -1585,7 +1643,7 @@ from this list. This one remains, since it's an idea, not a defect):
   populated (see the neighboring "Use SNMP against the router/switch
   itself…" item), so `ipRouteTable`/`ifTable` are worth trying there
   specifically next. **But field-tested live against a second, real
-  router — Martha's ASUS RT-AC68P (`192.168.1.1`) — and it answers *no*
+  router — the off-site network's ASUS RT-AC68P (`192.168.1.1`) — and it answers *no*
   SNMP at all**, not even a basic `sysDescr`, tried under `public` and
   `private` (this app's configured `thistle` too), and under both
   SNMPv1 and SNMPv2c — every combination timed out identically.
