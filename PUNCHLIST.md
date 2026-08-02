@@ -972,6 +972,157 @@ from this list. This one remains, since it's an idea, not a defect):
   and a privacy notice in every state dump, both raised as follow-on
   ideas during the same pass.
 
+- [ ] **Auto-confirm the ISP Edge Router hop via an RDAP organization
+  walk, instead of always requiring a manual star.** Raised directly:
+  on most small/home networks, the ISP edge really is the 2nd hop (the
+  first non-RFC1918 address) — could NMS just trust that and start
+  polling, asking the user only when the topology is genuinely
+  ambiguous? Then extended, also raised directly: what about a
+  traditional corporate network using real public IP addresses
+  internally, with a complicated WAN — can RDAP detect *that* case
+  too? (It can — see below; the two questions turn out to need the
+  same underlying mechanism.)
+
+  **The needed signal mostly already exists.**
+  `TracerouteViewModel.suggestedEdgeHop` already picks the first
+  non-RFC1918 hop, and `TracerouteHop.isLocal` already folds CGNAT into
+  that same check — so a CGNAT hop is already correctly excluded, not
+  mistaken for the answer. `leadingNonInternetHopCount` already counts
+  exactly "how many private/CGNAT hops precede the first public one":
+  `1` is the simple single-NAT home case (your own router, then the
+  real internet); `2+` means an extra NAT layer — the customer's own
+  second router, or the ISP's own CGNAT — and its own doc comment
+  already says "traceroute alone can't tell which" at that point. So
+  "CGNAT makes it more complicated" is already handled correctly today;
+  the open question is only whether the simple (`== 1`) case is safe to
+  auto-confirm without asking.
+
+  **It isn't, on its own — `suggestedEdgeHop`'s own doc comment already
+  names the failure mode.** A campus/enterprise network produces the
+  *identical* signature: hop 1 = local gateway (RFC 1918), hop 2 = the
+  organization's own public-IP border router — same
+  `leadingNonInternetHopCount == 1` as a genuine home ISP, but hop 2
+  isn't the ISP. Auto-confirming on hop count alone would silently
+  start monitoring the wrong device there — worse than one manual
+  click, since nothing would visibly look broken afterward.
+
+  **A second, more extreme version of the same failure, also raised
+  directly: a traditional corporate network handing out real public IP
+  addresses internally, with a complicated multi-site WAN.** Some
+  large/older organizations never adopted RFC 1918 internally — the
+  Mac's own interface address, and every hop for a while, can already
+  be real, non-RFC1918, non-CGNAT public IPs, all still inside the
+  company's own network. `leadingNonInternetHopCount` would read `0`
+  here (nothing private to count), and `suggestedEdgeHop` would point
+  straight at hop 1 — confidently wrong, since hop 1 is just the
+  nearest corporate router, not any kind of internet edge.
+
+  **The fix generalizes to a single algorithm covering both failure
+  modes, not two separate special cases.** The real primitive both
+  scenarios need is "which organization does this address belong to,"
+  via RDAP (`ISPIdentityService.identify(ip:)` — already takes an
+  arbitrary IP, not just the Mac's own public one):
+  1. Identify "home org" — RDAP the Mac's own local interface address
+     if it's already public (the traditional-corporate-network case);
+     otherwise RDAP the first hop past the private/CGNAT prefix (the
+     home-network case, where "home org" is just the ISP itself, found
+     in one step).
+  2. Walk the trace forward from there, RDAP-ing each hop in turn
+     (skipping any still RFC1918/CGNAT — `isLocal` already identifies
+     those, and a CGNAT address won't carry an individually-delegated
+     RDAP registrant anyway, so it should be skipped rather than
+     treated as "no match, stop here").
+  3. **The first hop whose RDAP org genuinely differs from "home org"
+     is the real candidate** — not the first non-RFC1918 hop. On a
+     simple home network this is still hop 2, same answer as today. On
+     a corporate network with real public IPs and a complicated WAN, it
+     correctly walks *through* however many internal hops share the
+     company's own org before finding where the network actually
+     hands off to a different provider — the genuine edge, rather than
+     confidently naming hop 1.
+
+  **The goal, stated directly: auto-detect *and* auto-configure simple
+  networks; for complex ones, at minimum identify and explain what's
+  going on rather than presenting a bare hop list — and auto-configure
+  those too whenever the walk still lands on a confident answer.** This
+  is deliberately three tiers, not the binary "auto-confirm or fall
+  back to manual" it might sound like above:
+  1. **Simple** (home org found in one step, next hop is a different
+     org) — auto-configure. The common case, and where this pays off
+     most immediately.
+  2. **Complex but still resolvable** (several same-org hops walked
+     through — CGNAT, a multi-hop corporate WAN — before a confident
+     organization change is found) — **also auto-configure.** The walk
+     doesn't stop being trustworthy just because it took more than one
+     step; a corporate network with a 5-hop internal WAN that
+     eventually hands off to a clearly different org is exactly the
+     "auto-configuration of complex scenarios is even better" case,
+     not one to punt on by default.
+  3. **Genuinely ambiguous** (no RDAP org resolves for any hop, the
+     walk runs out of hops still matching "home org" without ever
+     finding a different one, multiple hops flip organizations back and
+     forth unconvincingly, or a hop is unreachable/times out before a
+     boundary is found) — fall back to asking, but *say what was
+     found*: which hops were walked, which organizations they
+     resolved to (or "no answer"), and why no confident boundary
+     emerged — not just today's plain numbered hop list with no
+     annotation. Even when NMS can't safely pick for you, it should be
+     able to say *why* this network's topology is the harder case,
+     which is real information the current UI (a bare list plus a
+     star) doesn't surface at all today.
+
+  Never confirm silently on address-space classification (RFC1918 vs.
+  not) alone in any tier — that raw classification is the exact
+  assumption both failure modes above break; the organization walk is
+  what actually earns the auto-configuration, at any hop count.
+
+  **Concrete next step before any code**, same discipline as the
+  neighboring "cross-check via SNMP"/"discover via router SNMP" items:
+  verify the org-match actually discriminates in practice on at least
+  two real, different topologies — this household's own simple network
+  (`leadingNonInternetHopCount == 1`) is one data point, not proof the
+  approach generalizes. A real corporate/campus network to test the
+  "walk past several same-org hops" behavior against would be
+  especially valuable, since that's the harder case neither this app
+  nor its author has real data on yet. RDAP registrant names are
+  already known to be inconsistent (legal entity vs. brand vs. reseller
+  — see this same file's ISP status-page table), so a same-org false
+  mismatch is a real risk worth checking for before trusting the
+  comparison to gate anything automatic.
+
+  **If built, this should log a new neutral `AppEventKind` — raised
+  directly as the natural place to explain tier 3, not just an
+  afterthought for tiers 1/2.** Same shape as `ispOrganizationChanged`/
+  `subnetTooLargeToScan`: informational, not an up/down pair, logged
+  once per genuine topology finding rather than on every 10-minute
+  retrace. Two cases, one kind, message text differing (same pattern
+  `multipleNATLayersDetected` already uses for its own two directions):
+  - **Tiers 1/2 (auto-configured):** "ISP Edge Router identified
+    automatically: hop N (organization)" — optionally naming how many
+    same-org hops were walked through for tier 2, so a complex-but-
+    resolved case reads differently from the trivial one. This is what
+    makes the auto-confirmation visible rather than silent — a user can
+    always see which hop is actually being monitored and object via the
+    existing manual star if it's ever wrong, the same "never silently
+    and permanently decide something health-critical" posture the rest
+    of this app already follows (see `SNMPViewModel.rebuildDeviceList`'s
+    own "pruning automatically is far worse to get wrong than leaving a
+    stale row" reasoning for the same instinct applied elsewhere).
+  - **Tier 3 (couldn't resolve automatically):** explains *why* —
+    e.g. "Couldn't identify your ISP automatically: N hops share your
+    own network's organization with no clear handoff — pick the right
+    one manually" or "no organization could be resolved for any hop."
+    This is the direct answer to "identify complex scenarios" even
+    when auto-configuration isn't safe: the user gets a real, specific
+    reason logged in Events, not just a bare hop list defaulting
+    silently to "Not confirmed" the way it does today.
+
+  Logged once per genuine change (a new trace landing on a different
+  tier or a different hop than last time), not on every periodic
+  retrace that reaches the same conclusion — same "only a real
+  transition logs anything" convention `logAddressingChangeIfNeeded`
+  already follows for `multipleNATLayersDetected`.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
