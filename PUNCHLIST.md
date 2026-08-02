@@ -21,6 +21,31 @@ new ones as they come up.
   `PreferencesView.swift`'s "Periodically checks the public status pages
   of..." description text to include it.
 
+- [ ] **Add Cloudflare, Figma, HubSpot, and Docusign to the SaaS
+  monitoring list.** All four confirmed live via `curl` as plain
+  `.statuspage`-shaped `MonitoredService` entries — zero new parsing
+  code, same as the GitHub item above:
+  - Cloudflare: `https://www.cloudflarestatus.com/api/v2/summary.json`
+    (confirmed live *during* a real "Minor Service Outage" — not just
+    the healthy path)
+  - Figma: `https://status.figma.com/api/v2/summary.json`
+  - HubSpot: `https://status.hubspot.com/api/v2/summary.json`
+  - Docusign: `https://status.docusign.com/api/v2/summary.json`
+
+  **Three other obvious candidates checked and found not to be
+  drop-ins — don't re-attempt these the same way:**
+  - **Stripe** (`status.stripe.com`) doesn't serve
+    `/api/v2/summary.json` at all (404) — different shape or path,
+    not confirmed.
+  - **Okta** (`status.okta.com`) returns an HTML redirect page at that
+    path, not JSON.
+  - **Salesforce** (`status.salesforce.com`) explicitly blocks it:
+    `{"error":"Direct API access not allowed"}` — a locked-down custom
+    Trust site, not Statuspage.
+  - **Intercom**'s old `intercomstatus.com` domain 301s to
+    `finstatus.com` entirely (a status-page-vendor migration) — the
+    old API path is just gone; whatever the new one is wasn't checked.
+
 - [ ] **The in-app Screenshot/Bug Report capture doesn't render the same
   layout the live app uses — raised directly ("the screenshots don't
   seem to work... i can do manual screenshots faster"), and just caused
@@ -295,6 +320,35 @@ new ones as they come up.
   same shape as the Workday/ADP fallback already designed), or treat it
   as the first candidate for the separate tenant-auth project in
   `DESIGN-NOTES.md`. No pull toward one yet.
+
+- [ ] **iCloud needs a scoping decision too — it isn't one service.**
+  Raised directly. Apple's system status feed
+  (`https://www.apple.com/support/systemstatus/data/system_status_en_US.js`)
+  is real, live, and unauthenticated — confirmed against a real
+  *resolved* incident (Apple Cash, 07/31/2026), whose event shape is
+  `{"messageId", "statusType", "message", "datePosted", "startDate",
+  "endDate", "epochStartDate", "epochEndDate", "usersAffected",
+  "affectedServices", "eventStatus": "resolved"}`. Two real problems,
+  neither a drop-in the way Cloudflare/Figma/HubSpot/Docusign were:
+  - **Completely different shape** from every existing entry: one flat
+    list of ~78 named Apple services, each carrying its own `events`
+    array (empty when healthy), not a Statuspage `status.indicator`
+    summary. Would need a new `Shape` case — structurally closer to
+    the existing `.googleIncidents` parser (a rolling incident list,
+    "healthy" is the absence of one) than to `.statuspage`.
+  - **"iCloud" is 13 separate entries on this feed**, not one: iCloud
+    Account & Sign In, Backup, Bookmarks & Tabs, Calendar, Contacts,
+    Drive, Keychain, Mail, Notes, Private Relay, Reminders, Storage
+    Upgrades, Web Apps (iCloud.com), plus iWork for iCloud. Needs a
+    decision — track one representative sub-service (which one?), or
+    aggregate all 13 into a single rolled-up "iCloud" status (red if
+    *any* has an active event).
+
+  Also unconfirmed: the *active* (not-yet-resolved) event shape — only
+  a resolved one has been observed live, so whether `endDate`/
+  `eventStatus` reliably distinguish "still ongoing" isn't verified yet.
+  Worth checking the next time any of these 78 services has a real,
+  ongoing issue before writing the parser.
 
 - [ ] **Let users add their own website(s) to monitor, via Preferences.**
   Explicitly requested — reverses a scope cut made earlier this session
