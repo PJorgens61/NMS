@@ -112,6 +112,95 @@ network-change handler (`NMSApp.swift:368-372`), the same direct-call
 pattern launch already uses — rather than depending solely on
 `onCurrentIPChanged`'s value-change guard to eventually re-trigger it.
 
+### Footer buttons truncate ("Expert Mod…", "Networks…") in the popover
+
+- **Status**: Open
+- **Severity**: Low — cosmetic; every button still works, VoiceOver is
+  unaffected (`accessibilityLabel` carries the full name regardless of
+  what's visibly truncated).
+- **Found in build**: `ec9b878+` — read from the popover's own footer
+  line in the screenshot below.
+- **First reported**: field-tested live at Martha's on Church St.
+  ("the labels for the expert and networks buttons get truncated.
+  Enlarge or reduce text?").
+- **Screenshot**: ![Popover footer showing "Expert Mod…" truncated next to "Networks…"](images/bugs/NMS-2026-08-02-footer-button-truncation.png)
+
+The popover's footer (`ContentView.swift:390`, `footerBar`'s `HStack`)
+packs 7 buttons — Refresh, Screenshot, Bug Report, Expert Mode…,
+Networks…, Preferences…, Quit — into the popover's fixed `.frame(width:
+560)` (`ContentView.swift:172`/`190`) with the `HStack`'s default
+spacing. "Expert Mode…" is long enough that it doesn't fit, and SwiftUI
+truncates the `Text` to "Expert Mod…" — its own trailing "…" (part of
+the label text itself) compounding with the system's added truncation
+ellipsis.
+
+Confirmed this isn't a documented, tuned constraint the way the
+popover's *height* budget is (`SectionLayout`'s 17pt/row calibration,
+explained at length elsewhere in this codebase) — `grep`ing
+`DESIGN-NOTES.md` for `560` turns up nothing. The width appears to be
+an unremarked constant, not a deliberately chosen one.
+
+**Recommended fix, not yet attempted, in order of how localized/safe
+each is**: (1) tighten the footer `HStack`'s spacing first — buys back
+room without touching font size or the frame; (2) if still short,
+reduce font size on just these labels; (3) only as a last resort,
+widen the fixed 560pt frame, since that also reshapes the two-column
+tile layout above it and isn't otherwise established as adjustable.
+Widening the whole popover was considered and set aside — it's the
+broadest change for what's really a 7-buttons-in-one-row spacing
+problem.
+
+### Speed Test times out on a real degraded connection, with no telemetry to say why
+
+- **Status**: Open
+- **Severity**: Low — the test correctly fails visibly ("The request
+  timed out.") rather than silently, but there's no way to diagnose
+  *why* after the fact, and no user-facing recourse beyond retrying.
+- **Found in build**: `ec9b878+` — read from the Expert Mode window's
+  own footer line in the screenshot below.
+- **First reported**: field-tested live at Martha's on Church St.
+  ("the speedtest timed out. slow network?").
+- **Screenshot**: ![Expert Mode window, Speed Test showing "The request timed out." in red, Wi-Fi signal -58 dBm/SNR 43 dB directly below](images/bugs/NMS-2026-08-02-speedtest-timeout.png)
+
+**Not what it first looked like**: the Wi-Fi signal reading directly
+below the failure in the same screenshot is genuinely good — `-58 dBm`,
+`SNR 43 dB`, `86 Mbps` PHY rate — not the weak-signal case "bad wifi"
+suggests. Whatever caused the timeout is more likely upstream
+instability (this network is confirmed double-NAT'd, "Multiple layers
+(2 hops)," per Path to Internet's own live trace this session) than a
+poor local radio link to the AP.
+
+**`NetworkQualityService.swift`'s design already does what a first
+instinct here would suggest** — raised directly this session before
+checking: "starting with a small download might be good." It already
+does exactly that: a 2MB probe first, escalating to the full 25MB only
+if the probe finishes under 2 seconds
+(`NetworkQualityService.measureDownload`/`measureUpload`). That the
+timeout still happened despite this means either the 2MB probe itself
+couldn't complete (a very poor link), or — more interesting — the
+probe finished under the 2s threshold on a brief good moment, escalated
+to the full 25MB, and *that* transfer hit real trouble a probe-based
+heuristic can't see coming. Both are real possibilities; nothing
+available distinguishes them.
+
+**Checked and confirmed a real diagnostic gap**: `grep`ing
+`~/Library/Logs/NMS/ui-state.log` for `NetworkQualityViewModel` across
+this entire session returns nothing at all — unlike
+`TracerouteViewModel`/`ConnectivityViewModel`, this view model was
+never wired into the UI state logger (`UIStateLogger`). So there's no
+way to tell, after the fact, which stage (probe or full transfer) was
+in flight when the 45s timeout fired, or how far it got. The
+`isRunning`/`lastError`/`recentRuns` properties would need `didSet {
+UIStateLogger.log(...) }` added, the same pattern every other
+instrumented view model in this app already uses.
+
+**Not yet attempted**: adding that instrumentation, and/or considering
+whether the probe stage should have its own, shorter timeout separate
+from the 45s full-resource one — right now both stages share the same
+`URLSession` configuration (`NetworkQualityService.swift:67-73`), so a
+probe that's genuinely stuck waits the full 45s before failing, same
+as the large transfer would.
+
 ## Fixed
 
 ### SNMP device `sysDescr` truncated to one line live, despite no `lineLimit`

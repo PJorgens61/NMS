@@ -8,6 +8,59 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Determine how many hops separate this Mac from where its public
+  IP actually becomes real — is the NAT happening right at the local
+  router, or much farther away (typical of CGNAT or a corporate WAN)?**
+  Raised directly, from a real, live case this session already
+  produced by accident, not a hypothetical: at Martha's, Path to
+  Internet's own trace shows hop 3 (`96.120.90.213`) as the first
+  public address — matching `multipleNATLayersDetected`'s "Multiple
+  layers (2 hops)" finding — but that address is **not the same** as
+  this connection's actual detected Public IP (`98.45.206.181`,
+  confirmed independently via both `PublicIPViewModel` and a direct
+  RDAP lookup this session). Two different real numbers, both genuine,
+  both public.
+
+  **Why that gap matters, and why it's a different question than the
+  one already answered**: `leadingNonInternetHopCount`/
+  `multipleNATLayersDetected` (`TracerouteViewModel.swift`) already
+  answers "how many RFC1918/CGNAT-range hops precede the first public
+  address" — a question about *address classification* per hop. This
+  is a different question: *does any hop's address literally match the
+  externally-detected Public IP*, and if so, at which hop? A traceroute
+  hop's address is that router's own interface answering the ICMP probe
+  — for a NAT device, that's its own management/WAN address, not
+  necessarily the translated source address it stamps onto outbound
+  packets, which on real carrier-grade NAT gear is commonly a *different*
+  address on a shared pool entirely. Martha's trace is exactly this
+  case: hop 3 is genuinely public and genuinely the first non-private
+  hop, but it's a different address from the one the rest of the
+  internet actually sees this connection as — meaning the real
+  translation point is invisible to traceroute, farther out than
+  anything reached, even though only "2 hops" of private addressing
+  were counted.
+
+  **Both pieces of data this needs already exist in the app,
+  unconnected**: `TracerouteViewModel.hops` (each hop's address) and
+  `PublicIPViewModel.currentIP` (the independently-fetched real public
+  identity). A cheap first version: check whether any hop's address
+  equals `publicIP.currentIP` — a match at hop 2 says "the NAT is right
+  here, adjacent, simple single-NAT home setup"; no match at all, even
+  after reaching a genuinely public hop, says "the real NAT boundary is
+  further out than this trace can see" — itself a meaningful, distinct
+  finding from "multiple private hops," as Martha's case demonstrates
+  live.
+
+  **Directly relevant to two other open items in this file**: the
+  RDAP-organization-walk idea (auto-confirming the ISP Edge Router hop)
+  would benefit from knowing this distinction rather than just walking
+  org-name changes blind, and the "user depending on inbound
+  connections (VPN/DNAT)" persona item cares about exactly this fact —
+  a hidden, far-away CGNAT boundary breaks inbound port-forwarding
+  regardless of any local router configuration, which is precisely what
+  "how many hops until the public IP becomes real" would surface
+  directly instead of leaving inferred from a private-hop count alone.
+
 - [ ] **Idea: build Mermaid network diagrams from the SNMP-discovered
   topology, rendered via an external link rather than in-app.** Raised
   directly, right after this session's own live SNMP verification (see
