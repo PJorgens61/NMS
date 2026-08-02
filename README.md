@@ -1,5 +1,10 @@
 # NMS
 
+**[Who's it for? →](https://pjorgens61.github.io/NMS/)** — a short
+project site, styled like a traceroute, with a hop for whoever you are
+(remote worker, field tech, homelab enthusiast, corporate IT, Swift
+programmer, or just open-source curious).
+
 A macOS native menu bar app that automatically discovers your local
 network and Internet connectivity path. Monitors the status of critical
 network elements, reports failures and locates problems. Use it to

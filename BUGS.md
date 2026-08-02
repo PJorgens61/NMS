@@ -350,8 +350,6 @@ line (`MenuBarLabel.autoOpenWindow | nms-window → nms-window`).
   unsandboxed Terminal.app build (ruling out a coding-agent tool sandbox
   as the cause, which was suspected for a while — see the dead end
   below), then fixed and reconfirmed the same way
-- **Screenshots**:
-  ![footer with no build id](docs/images/bugs/NMS-2026-07-31-135321.png)
 
 **Root cause**: the "Stamp build info" script phase (`4104b24`)
 declared no inputs and no outputs at all. Xcode's build system had no
