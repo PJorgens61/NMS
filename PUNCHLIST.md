@@ -8,6 +8,35 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **The in-app Screenshot/Bug Report capture doesn't render the same
+  layout the live app uses — raised directly ("the screenshots don't
+  seem to work... i can do manual screenshots faster"), and just caused
+  a real diagnostic miss.** Found while fixing the "snmp needs more
+  space for text" report (`NMS-2026-08-01-165919.png`, see `BUGS.md`):
+  the attached screenshot showed the Switch device's `sysDescr` wrapping
+  correctly across two lines — because `capture(_:)`/`captureBugReport(_:)`
+  render `scrollableContent` with `isCapturingScreenshot = true`, which
+  makes every `scrollBox`-boxed section (Events, SNMP Devices, DHCP
+  History, Speed Test, traceroute hops) skip `NoBounceScrollView`
+  entirely and render as a plain, unclipped `VStack` instead (see
+  `scrollBox`'s own doc comment — this was deliberate, to work around
+  `ImageRenderer` not rendering `NSViewRepresentable`/`ScrollView`
+  content off-screen at all). The live window, going through the real
+  `NoBounceScrollView`/`NSHostingView`, was actually truncating that
+  same text to one line with a "…" — confirmed only by scrolling the
+  real running app and comparing screenshots by hand, not by anything
+  in the report itself. So the capture path's whole design (unclip
+  everything so `ImageRenderer` has something to draw) makes it
+  structurally unable to reproduce a layout bug that only exists
+  *inside* the boxes it's deliberately avoiding — exactly the failure
+  mode that prompted this report to begin with. Nothing built yet;
+  worth a real pass on what a screenshot tool that can actually show
+  `NoBounceScrollView` content would need (a different capture
+  mechanism entirely, e.g. `screencapture`-driven against the real
+  `NSWindow` rather than `ImageRenderer` against a modified copy of the
+  view tree), weighed against just leaning on manual `screencapture` /
+  the OS's own screenshot shortcut instead of maintaining this one.
+
 - [ ] **SNMP device web-detection prefers HTTP over HTTPS — a real
   security tradeoff, flagged directly, not yet reconsidered.**
   `DeviceWebDetectionService.detectWebURL` tries HTTP first: confirmed

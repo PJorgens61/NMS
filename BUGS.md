@@ -33,6 +33,103 @@ Nothing open right now.
 
 ## Fixed
 
+### SNMP device `sysDescr` truncated to one line live, despite no `lineLimit`
+
+- **Status**: Fixed
+- **Severity**: Low — cosmetic, readable via the device's admin page link,
+  and only affects devices whose `sysDescr` is long enough to wrap.
+- **Found in build**: `a59755c`
+- **Fixed in build**: not yet released — see git log
+- **First reported**: field-tested and filed through the app's own Bug
+  Report button ("snmp needs more space for text",
+  `NMS-2026-08-01-165919.png`), then diagnosed live at the user's direct
+  prompt ("in snmp devices the switch needs more space for text. a
+  third line?").
+- **Screenshot**: ![SNMP Devices, Switch's sysDescr split cleanly across two full lines, router's row unclipped above it](images/bugs/NMS-2026-08-01-snmp-sysdescr-fixed.png)
+
+`infrastructureRows`' `sysDescr` `Text` (`ContentView+Window.swift`) had
+no `lineLimit`, deliberately — SNMP-provided strings have no length
+guarantee, so it was meant to wrap to as many lines as it needs rather
+than truncate. It did exactly that in a plain `VStack`, but the live
+app boxes this section in `NoBounceScrollView` (an `NSHostingView`
+inside an `NSScrollView`, see that type's own doc comment for why
+that's a bespoke replacement for `ScrollView` at all) — and *there* it
+truncated to one line with a "…" for any `sysDescr` long enough to
+wrap, exactly the case this network's own "Switch" device hits
+(`GC108P 8-Port Gigabit Ethernet PoE+ Insight Managed Smart Cloud
+Switch with 8 PoE+ Ports (64W), Software Version 1.0.8.9, Boot Version
+1.0.0.3`).
+
+**The bug report's own attached screenshot didn't show any of this**,
+which is what made it non-obvious at first: `captureBugReport`/`capture`
+render with `isCapturingScreenshot = true`, which makes `scrollBox`
+skip `NoBounceScrollView` entirely and render the section as a plain,
+unclipped `VStack` instead — the workaround already in place for
+`ImageRenderer` not rendering `NSViewRepresentable`/`ScrollView`
+content off-screen at all (see that function's doc comment). That
+workaround means the capture path never actually exercises the layout
+the live window uses, so it couldn't reproduce this bug even though it
+was the thing being reported. Confirmed only by scrolling the real
+running app directly (dragging `NoBounceScrollView`'s `NSScroller`,
+screenshotted live) and comparing against the attached report
+screenshot by hand — see the punchlist item on the capture mechanism
+itself.
+
+**Three auto-wrap fix attempts tried live, each reverted** before
+landing on the real fix — every one that made the `Text` itself wrap
+correctly introduced a *worse*, unrelated regression in the same box:
+the list's first row (`router`) rendering permanently clipped a few
+points from its own top, confirmed and un-reproduced live by
+adding/removing the fix alone, repeatably:
+1. `.fixedSize(horizontal: false, vertical: true)` on the `sysDescr`
+   `Text` — the same fix already in place on `PreferencesView
+   .caption(_:)` for an analogous problem (a `Text` rendering within
+   whatever height its parent *proposes* rather than what its wrapped
+   content needs). Fixed the wrap; clipped `router`.
+2. The same `fixedSize`, moved to the whole per-device row instead of
+   just the `Text` — same result.
+3. `NSHostingView.sizingOptions = [.standardBounds,
+   .intrinsicContentSize]` (macOS 13+, Apple's own documented switch for
+   `NSHostingView` tracking its SwiftUI content's true intrinsic size)
+   in `NoBounceScrollView.makeNSView`, plus explicit
+   `invalidateIntrinsicContentSize()`/`layoutSubtreeIfNeeded()` calls in
+   `updateNSView` on every content update. `sizingOptions` *alone*
+   (no `fixedSize` anywhere) left `router` unclipped but didn't fix the
+   wrap either. Adding `fixedSize` back on top reintroduced the
+   `router` clip again. The explicit invalidate/layout pair fixed
+   neither problem and was dropped outright on its own merits: forcing
+   a synchronous relayout on every SwiftUI diff is a real, needless
+   performance cost on the Events box specifically, which can hold
+   hundreds of rows. `sizingOptions` itself was kept in
+   `NoBounceScrollView.makeNSView` regardless — a real, low-risk,
+   Apple-documented improvement independent of this bug.
+
+Root cause of the `fixedSize`/clipping interaction was never pinned
+down — genuinely looks like a SwiftUI/AppKit interop issue inside
+`NSHostingView`'s intrinsic-size negotiation with its enclosing
+`NSScrollView`, not this app's own logic.
+
+**Actually fixed** by sidestepping the whole class of problem instead
+of continuing to fight it: `sysDescr` no longer relies on one
+auto-wrapping `Text` at all. `infrastructureRows` now splits it into at
+most two separate `Text`s (`Self.sysDescrLines(_:)`), each with its own
+`lineLimit(1)` — the same deterministic, single-line sizing
+`addressLine` right above it already uses safely in this exact box.
+Splitting happens once per render, breaking at the space nearest the
+string's midpoint so neither line is wildly longer than the other;
+short `sysDescr` strings (the common case) come back unsplit. No
+dynamic multi-line `Text`, no intrinsic-height renegotiation with
+`NSHostingView` — nothing left for that interop issue to affect. Worst
+case (a single word too long for one line, or a description that
+genuinely needs a third line) still degrades to a plain "…" on the
+affected line, never worse than the original bug, and the common case
+(this exact "Switch" device) now reads cleanly across two full lines.
+
+The SNMP Devices box's fixed height (`SectionLayout.boxHeight`, 300pt
+on `.window`, bumped from 250pt on request for unrelated breathing
+room) was unaffected by any of this — confirmed independently at both
+values.
+
 ### Two overlapping-round races found by code review, not live reproduction
 
 - **Status**: Fixed

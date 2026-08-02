@@ -143,7 +143,10 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // sections. Picked generously round instead, each independently,
         // rather than trimmed to the row count on hand at the time.
         case (.events, .window): return 350
-        case (.snmpDevices, .window): return 250
+        // 250 originally — bumped to give the list more room before it
+        // needs to scroll, on request. See `NoBounceScrollView`'s doc
+        // comment for the box-scrolling issue found alongside this.
+        case (.snmpDevices, .window): return 300
         case (.dhcpHistory, .window): return 150
         case (.printerAlerts, .window): return 85
         // Both were previously "read-at-a-glance current state, sizes to
