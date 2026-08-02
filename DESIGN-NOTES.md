@@ -68,6 +68,7 @@ friend's actual name).
 - [Remediation guides: turning a detected problem into actionable advice](#remediation-guides-turning-a-detected-problem-into-actionable-advice)
 - [Timer-scaling as a stress test — not a fuzzer, a race-condition hunter](#timer-scaling-as-a-stress-test--not-a-fuzzer-a-race-condition-hunter)
 - [ISP status pages: identifying the ISP without location, then a real finding about linking to it](#isp-status-pages-identifying-the-isp-without-location-then-a-real-finding-about-linking-to-it)
+- [How NMS uses RDAP: the technical reference, one level below the ISP-status-page story above](#how-nms-uses-rdap-the-technical-reference-one-level-below-the-isp-status-page-story-above)
 - [Testing races: the confirmation gap is systemic, and the real blocker is dependency injection](#testing-races-the-confirmation-gap-is-systemic-and-the-real-blocker-is-dependency-injection)
 - [AI-assisted troubleshooting: an alternative to hand-curated remediation guides](#ai-assisted-troubleshooting-an-alternative-to-hand-curated-remediation-guides)
 
@@ -4866,6 +4867,128 @@ status-page model is: it's the same shape as SNMP-polling a router or
 switch, not a webpage to link to. If a Starlink household is ever in
 scope, that's the natural integration — a `StarlinkService` alongside
 `SNMPService`, not an entry in the ISP status-link table.
+
+## How NMS uses RDAP: the technical reference, one level below the ISP-status-page story above
+
+The section above tells the *story* of why RDAP was chosen (a sharper
+signal than location, no permission needed). This one is the
+consolidated *reference* — exactly what's implemented today, the
+real-world characteristics of RDAP data confirmed empirically along
+the way, and how a second, different feature now being designed
+(elsewhere in `PUNCHLIST.md`) reuses the identical primitive for a
+completely different question. Written because RDAP now threads
+through several places in this codebase and its punchlist, and none of
+them was the natural home for "how does this actually work" on its
+own.
+
+### What's implemented today
+
+One function, `ISPIdentityService.identify(ip:) async throws -> String`
+— takes any IPv4 address, returns the RDAP-registered organization
+name for whatever allocation it falls in. Two call sites today, both
+via `ISPIdentityViewModel`:
+
+- **The Info tile's "ISP" row** — `identify(ip: publicIP.currentIP)`,
+  called whenever the Mac's own detected public IP changes (or at
+  launch, directly, for the cached-value case — see
+  `ISPIdentityViewModel`'s own doc comment for why that launch call
+  can't rely solely on the "did it change" callback).
+- **The status-page link next to that row** — a separate, local
+  lookup (`statusPageURL(forOrganization:)`) against a small curated
+  `[String: String]` table, keyed on the *exact* RDAP-returned name.
+  Not RDAP itself; RDAP only supplies the key to look up.
+
+Mechanically: `rdap.org/ip/<address>` is a bootstrap endpoint that
+redirects to whichever regional registry (ARIN/RIPE/APNIC/...) actually
+holds the record, so one URL works globally with no region-detection
+step of its own. The response is walked by hand
+(`parseRegistrantName(_:)`, `JSONSerialization` rather than `Codable` —
+RDAP's `vcardArray` mixes types per-element in a way `Codable` doesn't
+represent cleanly): find the entity tagged `"registrant"` in `roles`
+(falling back to the first entity if none is tagged, since registries
+aren't perfectly consistent about that), then its `vcardArray`'s `"fn"`
+property, whose value is the name. No API key, no auth, no permission
+prompt — confirmed live against this project's own real development
+connections before being trusted.
+
+### Real-world characteristics, confirmed empirically rather than assumed
+
+- **Registrant names are real-world legal-entity strings, not clean,
+  predictable brand names** — `"Sonic.net, LLC"`, `"Comcast Cable
+  Communications, LLC"`, `"AT&T Services, Inc."`. Building any lookup
+  keyed on this value means keying on the messy legal name, not the
+  brand a customer would recognize.
+- **One consumer brand can resolve to several different legal
+  registrant names**, not just one — confirmed directly while building
+  the status-page table: Astound Broadband (the current brand for what
+  used to be marketed separately as RCN, Grande, and Wave in different
+  regions) turned up three distinct real registered names across ARIN
+  searches — `"Astound Broadband LLC"`, `"RCN Corporation"`, and just
+  `"RCN"` — depending on which legacy entity's allocation a given
+  customer's address happens to fall under. A lookup table keyed
+  one-name-to-one-brand would silently miss two of those three.
+  **Idea, not yet built**: a short-name/brand mapping layer, separate
+  from the existing status-page table — many legal registrant names
+  (subsidiaries, historical acquisitions) mapping to one recognizable
+  brand for *display* (`"Comcast Cable Communications, LLC"` → shown
+  as "Comcast" or "Xfinity"), independent of whether that brand also
+  happens to have a linkable status page. Same "verify one real entry
+  at a time, not speculatively" discipline the status-page table
+  already follows — Astound's own three-name finding above is the
+  concrete seed for this, not a hypothetical.
+- **Not every allocation resolves to something useful** — a CGNAT
+  address (`100.64.0.0/10`, RFC 6598) is a reserved range, not
+  individually delegated to a specific customer or even necessarily a
+  specific ISP's own named entity in the way a real routable allocation
+  is; an RDAP lookup there is expected to return nothing usable, or a
+  generic reservation record, not a real registrant. This matters
+  beyond the status-page feature: it's why the RDAP-organization-walk
+  idea below explicitly skips CGNAT-range hops rather than attempting
+  to RDAP-check them at all.
+- **Consumer ISPs never converged on one shared, structured status-page
+  platform** the way the SaaS/Statuspage.io ecosystem did (see the
+  section above) — a real, structural finding, not a gap in the
+  curated table. RDAP gets you the *name* reliably; a linkable status
+  page for that name is a separate, per-ISP research question with no
+  shortcut.
+
+### A second, unrelated use for the same primitive: the RDAP organization walk
+
+Everything above answers one question — "whose network is my own
+public IP on." A different, harder question, being designed now (see
+`PUNCHLIST.md`'s "Auto-confirm the ISP Edge Router hop via an RDAP
+organization walk"): *which traceroute hop is genuinely the boundary
+between my own network and the ISP's*, so NMS can start monitoring it
+without requiring a manual star every time.
+
+The reason this reuses `identify(ip:)` rather than needing new
+machinery: that function already takes an arbitrary IP, not just the
+Mac's own public one — nothing about it is specific to the "what's my
+ISP" question. The proposed walk calls it repeatedly, once per
+traceroute hop past the private/CGNAT prefix, looking for the first hop
+whose organization genuinely differs from the network's own — that
+organization *change*, not raw RFC 1918 classification, is what
+actually marks a real network boundary. This is also why the two
+real-world characteristics above matter directly to a feature that
+isn't about ISP identification at all: registrant-name inconsistency is
+exactly the kind of noise that could make a genuine same-organization
+hop look like a false "boundary found here," and the CGNAT-has-no-real-
+registrant fact is why that walk skips CGNAT hops structurally rather
+than RDAP-querying them and hoping for a clean non-match.
+
+Several other open `PUNCHLIST.md` ideas lean on this same walk once
+built, rather than duplicating it: tracking known per-ISP hop
+*patterns* (e.g. a confirmed Comcast DOCSIS-gateway convention) as an
+independent confidence signal alongside the org-match; a broader
+"corporate mode" flag that changes the walk's behavior — never
+auto-confirming, always explaining what was found instead — on a
+network where the naive heuristic is known to be unreliable; and
+correlating a hop's address against the independently-fetched Public IP
+to tell "the NAT is right here" apart from "the real boundary is
+farther out than this trace can see." None of those is built yet;
+listed here so a future reader has one place that explains why RDAP
+shows up in all of them, rather than re-deriving the connection from
+four separate punchlist entries.
 
 ## Testing races: the confirmation gap is systemic, and the real blocker is dependency injection
 
