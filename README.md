@@ -46,8 +46,11 @@ rendered directly by GitHub — no separate build or deploy step, just push.
   - [Path to Internet](#path-to-internet)
   - [Speed Test](#speed-test)
   - [Events](#events)
+  - [Wi-Fi](#wi-fi)
   - [SNMP Devices](#snmp-devices)
   - [DHCP History](#dhcp-history)
+  - [Printer Alerts](#printer-alerts)
+  - [SaaS Status](#saas-status)
   - [Correlation](#correlation)
   - [What's hidden](#whats-hidden)
   - [Data retention](#data-retention)
@@ -83,14 +86,12 @@ screen sizes or macOS versions.
 
 ## The popover
 
-560pt wide, arranged top to bottom:
+560pt wide. Deliberately minimal — scoped to "can I work right now, and
+what's restricted," not full diagnostics (see "Expert Mode" below for
+where the rest lives):
 
-- A 2×2 tile grid — **Network Health** and **Path to Internet** in the
-  left column, **Info** and **Speed Test** in the right — each its own
-  bordered box. The two columns size independently (not a synchronized
-  grid), so one column can run longer than the other without leaving a
-  gap under the shorter tile.
-- **Events**, full width.
+- **Network Health** and **Info** side by side, each its own bordered
+  box.
 - A footer: **Refresh**, a camera icon (screenshot), a ladybug icon (Bug
   Report — a screenshot plus a state dump plus a comment field, for
   describing what you're seeing), **Expert Mode…**, **Networks…**,
@@ -104,26 +105,30 @@ screen sizes or macOS versions.
 which means every screen-fit problem has to be solved by trimming
 content rather than letting the container adapt — a recurring source of
 work documented at length in `DESIGN-NOTES.md`. **Expert Mode** opens
-the same live data in a real, resizable window instead: each history
-section (Events, SNMP Devices, DHCP History, Speed Test, traceroute
-hops) scrolls independently in its own taller box, and an always-visible
-scrollbar on the right reaches whatever doesn't fit on screen. A
-permanent, always-available part of the app — not behind a feature flag
-the way it started out — both stay open to the same underlying state.
+the same live data in a real, resizable window instead, with every
+diagnostic section the popover deliberately doesn't carry: **Path to
+Internet**, **Speed Test**, **Events**, **Wi-Fi**, **SaaS Status**,
+**SNMP Devices**, **DHCP History**, and **Printer Alerts** (hidden when
+no printer is configured). A permanent, always-available part of the
+app — not behind a feature flag the way it started out — both surfaces
+stay open to the same underlying state.
 
-The window also has sections the popover never will — the popover's
-fixed height is exactly the budget these shouldn't spend on every fresh
-install by default:
+Network Health and Info stack full-width in the window, one above the
+other, along with Path to Internet and Speed Test — more room for text
+than the popover's side-by-side pair affords. Every history section
+(Events, SNMP Devices, DHCP History, Wi-Fi, SaaS Status, Speed Test,
+traceroute hops) scrolls independently in its own fixed-height box, and
+an always-visible scrollbar on the right reaches whatever doesn't fit
+on screen.
 
-- **DHCP History**, **Printer Alerts** (hidden when no printer is
-  configured), and **Wi-Fi** (signal strength with a short trend line,
-  channel/band, negotiated PHY rate, security, visible only on Wi-Fi) —
-  gated to the window itself, no feature flag involved.
-- **SNMP Devices** — window-only *and* behind `FeatureFlags.snmpDevices`
-  (off by default; see "Experimental features" below), since a
-  scrollable per-device list is niche detail *and* this is active
-  network probing, two independent reasons that happen to gate the same
-  section.
+Two sections carry an additional gate beyond being window-only:
+
+- **SNMP Devices** is also behind `FeatureFlags.snmpDevices` (off by
+  default; see "Experimental features" below) — active network probing
+  against whatever LAN the Mac is on, not just a UI preference.
+- **SaaS Status** is also behind `FeatureFlags.saasMonitoring` (on by
+  default) — it reaches out to each service's own status page directly,
+  not just your own network.
 
 ### Network Health
 
@@ -141,12 +146,15 @@ in the list explains everything failing above it:
 | DNS | A fresh, cache-busting name resolution |
 | HTTP | A real HTTPS fetch — catches a captive portal or filtering that a raw ping wouldn't |
 
-Each of the six probe-backed rows (everything but Network) carries an
-inline sparkline of its last 30 checks, scaled independently per row so a
-sub-millisecond row and a tens-of-milliseconds row don't share an axis. A
-failed check breaks the line rather than interpolating across it, and
-gets a red mark along the bottom — an outage should never render as a
-fast response.
+Each of the six probe-backed rows carries an inline sparkline of its
+last 30 checks, scaled independently per row so a sub-millisecond row
+and a tens-of-milliseconds row don't share an axis. A failed check
+breaks the line rather than interpolating across it, and gets a red
+mark along the bottom — an outage should never render as a fast
+response. The **Network** row gets a sparkline too, on Wi-Fi only — signal
+strength (RSSI) in place of the name, since that name already reads
+correctly from the Info tile's own row; on Ethernet it still just shows
+the network's name.
 
 **If you're watching DNS query logs on this network, here's why you'll
 see nonsense lookups against `apple.com` every 30 seconds (5s during an
@@ -196,15 +204,16 @@ has recognized the current network before — identified by gateway MAC
 *and* subnet, so a main LAN and a guest VLAN on the same router (which
 share a MAC) still count as distinct networks.
 
-Events, SNMP Devices, and DHCP History are all scoped to whichever
-network is current — visiting another network never mixes its data into
-your own history. **Networks…** in the footer opens a list of every
-network this Mac has connected to, with a way to forget one (and every
-event/lease/device it was the source of) entirely, or **Review** one to
-see its recorded Events/SNMP Devices/DHCP History/Wi-Fi telemetry
-read-only — no Scan or Refresh, since you aren't actually connected to
-it. Useful for a field technician revisiting a site who wants to see
-what this Mac last saw there.
+Events, SNMP Devices, DHCP History, Wi-Fi samples, and Speed Test
+history are all scoped to whichever network is current — visiting
+another network never mixes its data into your own history.
+**Networks…** in the footer opens a list of every network this Mac has
+connected to, with a way to forget one (and every event/lease/device it
+was the source of) entirely, or **Review** one to see its recorded
+Events/SNMP Devices/DHCP History/Wi-Fi telemetry read-only — no Scan or
+Refresh, since you aren't actually connected to it (Speed Test history
+isn't part of Review's four sections). Useful for a field technician
+revisiting a site who wants to see what this Mac last saw there.
 
 **Printer monitoring is the one exception to that scoping, deliberately.**
 Every configured printer (System Settings → Printers & Scanners) is
@@ -222,7 +231,7 @@ mid-session) that's rare in practice.
 
 ### Path to Internet
 
-Traces the route to the internet (`traceroute -n -q 1 -w 1 -m 4`) and
+*Window-only.* Traces the route to the internet (`traceroute -n -q 1 -w 1 -m 4`) and
 suggests the first non-private hop as the likely ISP edge — a starting
 point, not an auto-trusted answer, since a campus/enterprise network can
 hand out public address space before traffic reaches the real ISP. Tap
@@ -237,15 +246,19 @@ hop's ISP-edge ping itself transitions.
 Every trace also checks for **more than one non-private hop before
 reaching the real internet** — an extra NAT layer between this Mac and
 the internet, either an extra router of your own or your ISP's own
-carrier-grade NAT (CGNAT). Logged as an Events entry only when this
-changes (not on every trace, and not on the very first one), since it
-means your public IP may be shared with other customers rather than
-identifying just this connection. Traceroute can't tell which cause it
-is — the event says so rather than guessing.
+carrier-grade NAT (CGNAT). Shown right in the tile as an orange "NAT"
+row whenever it applies ("CGNAT — shared public IP" or "Multiple layers
+(N hops)", depending on how confident the detection is), and logged as
+an Events entry only when it changes (not on every trace, and not on
+the very first one). Traceroute can't always tell whether the extra hop
+is your own second router or your ISP's own CGNAT — the confident
+"CGNAT" wording only appears when a hop actually falls in the
+carrier-grade NAT address range; otherwise it hedges rather than
+guessing.
 
 ### Speed Test
 
-Two independent sources, one shared history list:
+*Window-only.* Two independent sources, one shared history list:
 
 - **Cloudflare** (`Run Speed Test`): a plain HTTPS GET/POST against
   Cloudflare's public speed-test endpoint, sequential (never concurrent,
@@ -262,22 +275,32 @@ Two independent sources, one shared history list:
   bufferbloat measurement), always in sequential mode, since RPM is only
   emitted that way. Takes 25–40 seconds.
 
-Both write to the same history list (10 most recent, newest first) and
-share one "running" state, so they can't contend for the link at the same
-time. A Cloudflare row is one line; an Apple-sourced row gets a second
-line for RPM and idle base latency.
+Both write to the same history list (10 most recent, newest first,
+scoped to whichever network is current — see Info above) and share one
+"running" state, so they can't contend for the link at the same time. A
+Cloudflare row is one line; an Apple-sourced row gets a second line for
+RPM and idle base latency.
 
 ### Events
 
-A transition log, not a stream of every check — one line when something
-starts failing, one when it recovers, nothing while a state persists.
-Recoveries render in green, failures in red, neutral changes
-(`interfaceChanged`, `publicIPChanged`, `dhcpLeaseChanged`,
-`screenshotCaptured`) in the default text color. Scrollable, ~8 visible
-rows.
+*Window-only.* A transition log, not a stream of every check — one line
+when something starts failing, one when it recovers, nothing while a
+state persists. Recoveries render in green, failures in red, neutral
+changes (`interfaceChanged`, `publicIPChanged`, `dhcpLeaseChanged`,
+`screenshotCaptured`) in the default text color. A long message wraps
+to multiple lines rather than truncating, and a SaaS-outage entry
+carries a clickable link icon straight to the incident. Scrolls
+independently in its own fixed-height box.
+
+### Wi-Fi
+
+*Window-only, visible only on Wi-Fi.* BSSID, signal strength (RSSI,
+with a short trend line, plus SNR when the adapter reports noise),
+channel number and band, negotiated PHY rate, and security type.
 
 ### SNMP Devices
 
+*Window-only, and behind `FeatureFlags.snmpDevices` (off by default).*
 Discovers switches, APs, routers, and printers that answer SNMP
 (`snmpget`, community string `public` by default — editable as an
 ordered, comma-separated list under "Change," tried in sequence). Each
@@ -296,15 +319,44 @@ separate devices.
 
 ### DHCP History
 
-Every real lease change (server, address, or timing actually differed),
-newest first — the newest entry doubles as the current lease. Each entry
-is two lines: server + assigned address + timestamp on the first, every
-other parsed field (broadcast, gateway, DNS, domain, lease/T1/T2 timers,
-transaction ID) on the second, with a tooltip explaining T1/T2 and the
-transaction ID. Checked every 5 minutes. Two failure signals fire
-independently of a normal renewal: falling back to a self-assigned
-`169.254.x.x` address, and the transaction ID failing to change past its
-own lease's T2 (rebinding) deadline.
+*Window-only.* Every real lease change (server, address, or timing
+actually differed), newest first — the newest entry doubles as the
+current lease. Each entry is two lines: server + assigned address +
+timestamp on the first, every other parsed field (broadcast, gateway,
+DNS, domain, lease/T1/T2 timers, transaction ID) on the second, with a
+tooltip explaining T1/T2 and the transaction ID. Checked every 5
+minutes. Two failure signals fire independently of a normal renewal:
+falling back to a self-assigned `169.254.x.x` address, and the
+transaction ID failing to change past its own lease's T2 (rebinding)
+deadline.
+
+### Printer Alerts
+
+*Window-only, hidden entirely when no printer is configured.* Every
+printer set up in System Settings → Printers & Scanners gets its own
+row: a reachability dot and its CUPS-reported fault state (out of
+paper, cover open, low toner, or "OK"). A fault is orthogonal to
+whether the printer is reachable at all — a printer can report this
+while still fully responding on the network.
+
+### SaaS Status
+
+*Window-only, and behind `FeatureFlags.saasMonitoring` (on by
+default).* Periodically checks the public status pages of a fixed list
+of business SaaS services — Slack, Claude, ChatGPT, Jira/Confluence,
+Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, GitHub,
+Cloudflare, Figma, HubSpot, Docusign, Google Cloud, and Google
+Workspace — a different question from the rest of this app: "are the
+specific services this business depends on reachable," not "is my own
+network healthy." Reaches out to each service directly over the
+internet, not just your own LAN.
+
+Each row shows a colored status dot (green for healthy, yellow for a
+minor issue, red for major/critical, blue for a scheduled maintenance
+window, gray if a service's status page couldn't be parsed at all), the
+current status description, and a link icon straight to that service's
+status page. Which services are checked is configurable in
+Preferences — see "Experimental features" below.
 
 ### Correlation
 
@@ -336,26 +388,38 @@ pruned — they're small, and their whole value is their age.
 
 ## Experimental features
 
-One feature isn't on by default for a fresh install, now that this runs
-on more than the two Macs it was developed on — friends testing it on
-their own machines get the stable, core experience unless they opt in.
-Unlike the debug tooling below, this works in *any* build (Release
-included), backed by plain `UserDefaults`:
+Two feature flags control whether a section is even active, now that
+this runs on more than the two Macs it was developed on — friends
+testing it on their own machines get to decide what they're
+comfortable with rather than everything being on by default. Unlike the
+debug tooling below, both work in *any* build (Release included),
+backed by plain `UserDefaults`, and both apply immediately in
+Preferences with no restart needed:
 
 ```
 defaults write Thistle.NMS FeatureSNMPDevices -bool true
+defaults write Thistle.NMS FeatureSaaSMonitoring -bool false
 ```
 
-- **`FeatureSNMPDevices`** — SNMP device discovery/monitoring. Off by
-  default specifically because it's active network probing (SNMP
+- **`FeatureSNMPDevices`** — SNMP device discovery/monitoring. **Off by
+  default**, specifically because it's active network probing (SNMP
   sweeps) against whatever LAN the Mac is on — worth turning on only if
   you're comfortable with that on your own network. When off, the
   feature is fully inert (no sweeps, no polling), not just hidden from
-  the popover. Toggling this in Preferences applies immediately, no
-  restart needed.
+  the window.
+- **`FeatureSaaSMonitoring`** — the SaaS Status section. **On by
+  default** — it only ever reaches out to third-party status pages
+  directly, never your own LAN, so it doesn't carry the same
+  on-your-own-network tradeoff SNMP discovery does. Which services are
+  checked is a separate sub-preference (`FeatureSaaSEnabledServices`,
+  a `[String]` of service names), set via the checkboxes in
+  Preferences rather than a single on/off default — a fresh install
+  with no customization checks every service in the list; once any
+  box is touched, newly-added services stop being included
+  automatically until re-checked (or "Select All" is clicked again).
 
-Delete the key (`defaults delete Thistle.NMS FeatureSNMPDevices`) to go
-back to the default (off).
+Delete a key (e.g. `defaults delete Thistle.NMS FeatureSNMPDevices`) to
+go back to its default.
 
 Expert Mode (see above) used to live here too, behind
 `FeatureComparisonWindow` — that flag is gone; it's a permanent,
@@ -440,15 +504,20 @@ NMS/
 │   │   └── WiFiSampleRecord.swift             # SwiftData model, periodic Wi-Fi signal/link history
 │   ├── Services/
 │   │   ├── AppleNetworkQualityService.swift   # networkQuality CLI wrapper (RPM/responsiveness)
+│   │   ├── BlockingWork.swift                 # Runs a genuinely blocking call off the async context
+│   │   ├── BugReportExportService.swift       # Zips a bug report's screenshot + comment to the Desktop
 │   │   ├── BuildInfoService.swift             # Reads git HEAD from the known checkout
 │   │   ├── ConnectivityService.swift          # Pings a target via /sbin/ping
 │   │   ├── CorrelationService.swift           # Time-proximity failure/change matching
+│   │   ├── DebugArtifactRetention.swift       # Shared pruning for the debug-artifact directories
+│   │   ├── DeviceWebDetectionService.swift    # Probes a LAN IP for an admin web server
 │   │   ├── DHCPLeaseService.swift             # Reads the cached lease via ipconfig getpacket
 │   │   ├── DNSResolutionService.swift         # Resolves a hostname via getaddrinfo
 │   │   ├── FailureInjector.swift              # DEBUG-only failure/override injection
 │   │   ├── FeatureFlags.swift                 # UserDefaults-backed experimental-feature gating
 │   │   ├── HTTPCheckService.swift             # Real HTTP fetch via Apple's captive-portal probe
 │   │   ├── IPClassifier.swift                 # RFC 1918 private-address classification
+│   │   ├── ISPIdentityService.swift           # Identifies the ISP behind the public IP via RDAP
 │   │   ├── LANDiscoveryService.swift          # Enumerates LAN devices via arp -n -a
 │   │   ├── LocationAuthorizationService.swift # Requests Core Location auth (for SSID)
 │   │   ├── NetworkQualityService.swift        # Cloudflare-endpoint throughput measurement
@@ -456,6 +525,7 @@ NMS/
 │   │   ├── PrinterDiscoveryService.swift      # Configured-printer discovery via lpstat -v
 │   │   ├── PublicIPService.swift              # Looks up WAN IP via api.ipify.org
 │   │   ├── ReverseDNSService.swift            # PTR lookup via getnameinfo
+│   │   ├── SaaSStatusService.swift            # Checks business SaaS vendors' public status pages
 │   │   ├── SNMPService.swift                  # SNMP GET/sweep via /usr/bin/snmpget
 │   │   ├── ScreenshotService.swift            # ImageRenderer capture + live-height measurement
 │   │   ├── SnapshotStore.swift                # Reads/writes all persisted history, retention/pruning
@@ -472,26 +542,31 @@ NMS/
 │   │   ├── ConnectivityViewModel.swift        # Bridges ConnectivityService -> SwiftUI
 │   │   ├── DHCPLeaseViewModel.swift           # Bridges DHCPLeaseService -> SwiftUI
 │   │   ├── EventLogViewModel.swift            # Fetches/exposes the event log
+│   │   ├── ISPIdentityViewModel.swift         # Bridges ISPIdentityService -> SwiftUI
 │   │   ├── LANDiscoveryViewModel.swift        # Bridges LANDiscoveryService -> SwiftUI
 │   │   ├── NetworkIdentityViewModel.swift     # Recognizes/labels the current network
 │   │   ├── NetworkMonitorViewModel.swift      # Bridges SystemConfigurationService -> SwiftUI
 │   │   ├── NetworkQualityViewModel.swift      # Bridges both speed-test sources -> SwiftUI
 │   │   ├── NetworkReviewViewModel.swift       # One-shot, read-only load of a past network's history
 │   │   ├── PublicIPViewModel.swift            # Bridges PublicIPService -> SwiftUI
+│   │   ├── SaaSMonitoringViewModel.swift      # Periodic checks against SaaSStatusService's vendor list
 │   │   ├── SNMPViewModel.swift                # SNMP discovery, polling, restart/upgrade events
 │   │   ├── ScreenshotViewModel.swift          # Screenshot + store-dump + live-height capture action
 │   │   ├── TracerouteViewModel.swift          # Bridges TracerouteService -> SwiftUI
 │   │   └── WiFiSSIDViewModel.swift            # Bridges WiFiSSIDService -> SwiftUI
 │   └── Views/
-│       ├── ContentView.swift                  # Menu bar popover UI
+│       ├── ContentView.swift                  # Menu bar popover UI (+ what's shared with the window)
+│       ├── ContentView+Window.swift           # Window-only sections: Path to Internet, Speed Test,
+│       │                                      #   Events, Wi-Fi, SNMP Devices, DHCP History, Printer Alerts
 │       ├── KnownNetworksView.swift            # Known-networks list window, with delete + Review
 │       ├── NetworkReviewView.swift            # Read-only Events/SNMP/DHCP/Wi-Fi view of a past network
 │       ├── NoBounceScrollView.swift           # AppKit-backed non-bouncing scroll container
 │       ├── PreferencesView.swift              # Experimental-feature toggles window
+│       ├── SectionLayout.swift                # Which sections appear on which surface, and their box heights
 │       ├── Sparkline.swift                    # Hand-drawn Canvas latency sparkline
 │       └── ToolTip.swift                      # AppKit-backed tooltip (SwiftUI's .help() doesn't render here)
-├── NMSTests/                                  # Default template test target (unused so far)
-└── NMSUITests/                                # Default template UI test target (unused so far)
+├── NMSTests/                                  # 105 unit tests (Swift Testing)
+└── NMSUITests/                                # 3 UI tests (XCTest)
 ```
 
 ## Building a universal (Intel + Apple Silicon) binary
@@ -659,7 +734,7 @@ script/test-max.sh     # NMSTests + NMSUITests + script/scenarios.sh — a
                         # (which runs this tier itself as a preflight step)
 ```
 
-**`NMSTests`** (95 tests, Swift Testing, runs in well under a second)
+**`NMSTests`** (105 tests, Swift Testing, runs in well under a second)
 covers the logic that is *pure* — no network, no SwiftData container, no
 `@MainActor` view model construction, so it runs anywhere including CI:
 `SubnetCalculator`'s sweep-size guard and subnet math, `IPClassifier`'s
@@ -678,15 +753,14 @@ which is a genuine improvement rather than a testing concession: none
 read any instance state, so keeping them unreachable from `NMSTests`
 bought nothing except making a real regression untestable.
 
-**`NMSUITests`** (4 tests, XCTest, about a minute) launches the real app
+**`NMSUITests`** (3 tests, XCTest, about a minute) launches the real app
 and checks real content renders (`testWindowOpensWithRealContent`), plus
-a launch-performance benchmark and screenshot sweep
-(`NMSUITestsLaunchTests`). That sweep has a real, deliberately-accepted
-side effect worth knowing about before running `test-max.sh`: it
-toggles this Mac's system appearance to cover both light and dark —
-see that file's own doc comment for why an automatic restore isn't
-reliable (a TCC "Automation" permission gap), and switch back by hand
-via Control Center if a run doesn't leave things how it found them.
+a launch-performance benchmark and a launch screenshot
+(`NMSUITestsLaunchTests`). That launch test used to sweep the host
+Mac's own system appearance through both light and dark on every
+run — removed on request (disruptive to a real dev machine's actual
+appearance) — so it now just runs once in whatever appearance the Mac
+is already in.
 
 **`script/scenarios.sh`** covers what neither suite above can — the live
 behaviour of a running app against a real network, driven through the

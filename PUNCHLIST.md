@@ -346,54 +346,25 @@ new ones as they come up.
   Worth checking the next time any of these 78 services has a real,
   ongoing issue before writing the parser.
 
-- [ ] **README.md has fallen behind real, shipped behavior — needs a
-  refresh pass.** Requested directly. Checked against the current code,
-  not assumed stale:
-  - **The 2×2 tile grid description is wrong on two counts.** It says
-    "Network Health and Path to Internet in the left column, Info and
-    Speed Test in the right" — that pairing never matched the real
-    layout even before this session (it was always Network
-    Health+Info as one row, Path to Internet+Speed Test as the
-    other). It's now wrong a second way too: the window stacks all
-    four full-width in a single column (this session's tile-layout
-    change); only the popover still shows the old 2-up Network
-    Health+Info pair (Path to Internet/Speed Test are window-only).
-  - **"Each of the six probe-backed rows (everything but Network)
-    carries an inline sparkline"** is now false — the Network row
-    gets a Wi-Fi RSSI sparkline too (this session), just sourced from
-    `WiFiSSIDViewModel.recentSamples` instead of `latencyHistory`.
-  - **CGNAT/double-NAT detection** is described as Events-log-only —
-    doesn't mention the new always-visible "NAT" row in the Path to
-    Internet tile itself (this session).
-  - **SaaS Monitoring is entirely undocumented** — not in "The
-    popover" contents, not in "Experimental features"
-    (`FeatureFlags.saasMonitoring`/`FeatureSaaSMonitoring` isn't
-    mentioned at all, despite being a real, on-by-default flag gating
-    a whole tile: Slack, Claude, ChatGPT, Jira/Confluence, Zendesk,
-    Zoom, Trello, Asana, Notion, Dropbox, Discord, Google Cloud,
-    Google Workspace today, GitHub/Cloudflare/Figma/HubSpot/Docusign
-    pending per the items above).
-  - **Info's per-network-scoping list is incomplete**: says
-    "Events, SNMP Devices, and DHCP History are all scoped" — Speed
-    Test history and Wi-Fi samples are too now (this session's fixes),
-    and aren't mentioned.
-  - **Events section** doesn't mention multi-line message wrapping or
-    the clickable link icon for SaaS-outage events (both this
-    session).
-  - **The NMSUITests paragraph describes a side effect that's already
-    gone**: "it toggles this Mac's system appearance to cover both
-    light and dark" — that behavior was deliberately removed earlier
-    this session (commit `a59755c`); the whole paragraph warning about
-    it is now describing something that doesn't happen.
-  - **Test count is stale**: says "95 tests" — actually 105+ as of
-    this session's additions (the SaaS maintenance-indicator fixture
-    test, plus whatever the other Mac's own commits added).
-  - Minor: Printer Alerts and Wi-Fi are mentioned only in passing
-    inside the Expert Mode paragraph, unlike DHCP History/SNMP
-    Devices, which get their own `###` subsections with real detail —
-    worth deciding whether they deserve the same treatment now that
-    SaaS Status would join them as a fourth window-only section with
-    nothing of its own.
+- [x] ~~README.md has fallen behind real, shipped behavior — needs a
+  refresh pass.~~ **Done.** All items found in the original audit fixed:
+  the popover's actual current shape (Network Health + Info + footer
+  only — the "2×2 grid"/"Events, full width" description was stale on
+  two independent counts, predating this session in one case), the
+  Network row's new Wi-Fi sparkline, the Path to Internet tile's new
+  "NAT" row, a full SaaS Status writeup (new section, new TOC entry, new
+  Experimental Features entry for `FeatureSaaSMonitoring` — including
+  the `FeatureSaaSEnabledServices` new-service gotcha found live this
+  session), Info's per-network-scoping list, Events' multi-line
+  wrapping and link icon, and the stale NMSUITests appearance-toggle
+  paragraph. Test counts corrected (105 unit, 3 UI). Also gave Wi-Fi and
+  Printer Alerts their own `###` subsections to match DHCP
+  History/SNMP Devices/SaaS Status, and found (via a script checking
+  every `NMS/**/*.swift` filename against the README) that Project
+  Layout was missing seven real files entirely —
+  `BugReportExportService`, `BlockingWork`, `DebugArtifactRetention`,
+  `DeviceWebDetectionService`, `ISPIdentityService`/`ISPIdentityViewModel`,
+  `SaaSMonitoringViewModel`, and `SaaSStatusService` itself — all added.
 
 - [ ] **Let users add their own website(s) to monitor, via Preferences.**
   Explicitly requested — reverses a scope cut made earlier this session
