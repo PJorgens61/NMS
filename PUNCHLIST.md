@@ -799,12 +799,25 @@ from this list. This one remains, since it's an idea, not a defect):
   done; this only removed the reason it couldn't be.
 
 - [ ] **File the two `swift-frontend` compiler crashes with Apple
-  Feedback Assistant.** Both were "failed to produce diagnostic for
-  expression", triggered by conditional `Window` scenes inside
-  `@SceneBuilder`. Raised as a to-do three times now and never actually
-  filed. Workaround is documented (push the conditional down to the
-  *View* level, where the builder is far more robust) — see
-  DESIGN-NOTES.md's "Feature flags" section.
+  Feedback Assistant.** Two genuinely different crashes, not two copies
+  of one — the previous wording here conflated them: (1) "failed to
+  produce diagnostic for expression" at type-checking, on a conditional
+  `Window` scene inside `@SceneBuilder`; (2) an `EarlyPerfInliner` SIL-
+  optimizer crash, Release/Archive builds only, on a class's
+  synthesized `deinit` when that class is nested inside a generic type.
+  Raised as a to-do three times now and never actually filed — actual
+  submission needs the user's Apple ID in Feedback Assistant's own app,
+  not something doable from here.
+
+  **Both reports fully drafted and ready to paste in** — title,
+  description, minimal standalone repro code, and the toolchain
+  versions they were found on (Xcode 26.3/17C529, Swift 6.2.4, macOS
+  15.7.7). Delivered to the user as a file; not committed here since its
+  only job is a one-time paste into Feedback Assistant, not ongoing
+  project documentation. Both workarounds already live in the real code
+  (`NMSApp`'s `comparisonWindowContent`; `NoBounceScrollCoordinator` at
+  the top level) — filing these is purely for Apple's benefit at this
+  point.
 
 - [ ] **Ethernet link speed telemetry.** Discussed alongside the Wi-Fi
   telemetry work; deliberately out of scope then, no plan yet. Revisit if
