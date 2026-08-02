@@ -173,24 +173,17 @@ new ones as they come up.
      all beyond color) can't actually be tested or demoed today, only
      the "is something wrong at all" case.
 
-- [ ] **Network Health's "Network" row: Wi-Fi signal sparkline, or plain
-  "Ethernet."** Requested directly — narrower and more concrete than
-  the general "Add Wi-Fi signal strength to Network Health" item below,
-  which this mostly answers: attach the sparkline to the existing
-  combined Network row (`ContentView.swift`'s `networkLayer`,
-  built from `networkDisplay(_:)` — already correctly shows plain
-  `"Ethernet"` with no name when not on Wi-Fi, confirmed reading the
-  code) rather than adding a new row or a new health-status color.
-  Real wiring gap: `connectionHealthSection`'s sparkline slot
-  (`latencyHistory[layer.id]`) is typed for `LatencySample.latencyMs`
-  from `ConnectivityViewModel.latencyHistory()` — RSSI comes from a
-  different source entirely (`WiFiSSIDViewModel.recentSamples`,
-  already used by the existing Wi-Fi section's own Signal row). Needs
-  either a small special case for `layer.id == "network"` when
-  `info.isWiFi` (use `wifiSSID.recentSamples` instead of
-  `latencyHistory` for that one row) or a slightly more general
-  sparkline-source parameter — not a drop-in reuse of the existing
-  slot as-is.
+- [x] ~~Network Health's "Network" row: Wi-Fi signal sparkline, or plain
+  "Ethernet."~~ **Built.** The wiring gap this item flagged
+  (`connectionHealthSection`'s sparkline slot was typed for
+  `latencyHistory`, not RSSI) resolved with the small special case
+  already anticipated: `layer.id == "network"` when `info.isWiFi` now
+  reads `wifiSSID.recentSamples` instead, same values/reversal
+  `wifiSection`'s own Signal row already uses. Final spec, requested
+  directly: "Name" + "Ethernet" (`networkDisplay(_:)`, unchanged) or a
+  sparkline + "Wi-Fi" — the network's name is dropped from this row on
+  Wi-Fi specifically (the Info tile's own row still shows it), not
+  appended alongside the sparkline as first drafted here.
 
 - [ ] **Shrink SNMP Devices and Printer Alerts' box heights.**
   `SectionLayout.boxHeight(on:)`:

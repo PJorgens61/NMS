@@ -833,7 +833,14 @@ struct ContentView: View {
         let networkLayer: ConnectionLayer
         if let info {
             let hasName = (networkIdentity.currentNetwork?.label?.isEmpty == false) || wifiSSID.currentSSID != nil
-            let detail = networkDisplay(info)
+            // On Wi-Fi this row shows a signal-strength sparkline instead
+            // of the network's name (see `connectionHealthSection`'s own
+            // per-row rendering) — the name still reads correctly from
+            // the Info tile's own row, which reuses `networkDisplay(_:)`
+            // unchanged. Requested directly: "Name" + "Ethernet" (via
+            // `networkDisplay`, unchanged) or a sparkline + "Wi-Fi"
+            // (here), not "Name" + "Wi-Fi" as before.
+            let detail = info.isWiFi ? "Wi-Fi" : networkDisplay(info)
             if info.isWiFi && !hasName {
                 // Not a connectivity failure — just missing information
                 // (e.g. Location permission not granted yet) — so this is
@@ -990,9 +997,18 @@ struct ContentView: View {
                     // Inline rather than on its own row: sized to one
                     // line of text, so it costs width but no height —
                     // the popover fits a 13" MacBook Air exactly.
-                    // Absent for Network/Interface, which have no
-                    // latency concept.
-                    if let samples = latencyHistory[layer.id] {
+                    // Network's own sparkline (Wi-Fi only — Ethernet has
+                    // no signal strength to chart) uses RSSI history from
+                    // `wifiSSID.recentSamples`, not `latencyHistory`: this
+                    // row isn't a ping-latency check, so `latencyHistory`
+                    // has no entry for it at all (confirmed absent below).
+                    // Same values/reversal `wifiSection`'s own Signal row
+                    // already uses for the identical chart.
+                    if layer.id == "network", viewModel.currentInterface?.isWiFi == true {
+                        if wifiSSID.recentSamples.count > 1 {
+                            Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
+                        }
+                    } else if let samples = latencyHistory[layer.id] {
                         Sparkline(values: samples.map(\.latencyMs))
                     }
                     Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
