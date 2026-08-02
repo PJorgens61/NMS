@@ -146,11 +146,14 @@ enum SectionLayout: String, CaseIterable, Sendable {
         case (.snmpDevices, .window): return 250
         case (.dhcpHistory, .window): return 150
         case (.printerAlerts, .window): return 85
-
-        // Read-at-a-glance current state, not scrollable history — sizes
-        // to its content, no box. Same reasoning for saasMonitoring: a
-        // fixed 3-service list, no growth, nothing to scroll.
-        case (.wifi, _), (.saasMonitoring, _): return nil
+        // Both were previously "read-at-a-glance current state, sizes to
+        // its content, no box" — reversed after offsite testing asked for
+        // every window section to scroll uniformly rather than some
+        // boxed and some not. `saasMonitoring` in particular is no longer
+        // guaranteed to stay a fixed 3-service list now that users can
+        // add their own sites to monitor (see `PUNCHLIST.md`).
+        case (.wifi, .window): return 130
+        case (.saasMonitoring, .window): return 150
 
         // Unreachable given the `appears(on:)` guard above (every case
         // here is window-only as of the audience split, so `.popover`
@@ -159,7 +162,8 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // fails to compile instead of silently rendering an unboxed
         // section. `pathToInternet`/`speedTest` aren't repeated here —
         // they already match every surface via the first case above.
-        case (.events, _), (.snmpDevices, _), (.dhcpHistory, _), (.printerAlerts, _):
+        case (.events, _), (.snmpDevices, _), (.dhcpHistory, _), (.printerAlerts, _),
+             (.wifi, _), (.saasMonitoring, _):
             return nil
         }
     }

@@ -62,6 +62,20 @@ final class SNMPViewModel: ObservableObject {
     /// probe — an address with no PTR record just gets retried every
     /// poll rather than caching a permanent "no hostname."
     private var hostnameByAddress: [String: String] = [:]
+    /// Which network's fingerprint the two caches above were last built
+    /// against — see `rebuildDeviceList()`'s use of this. Both caches are
+    /// keyed by bare IP address with no network component, which is a
+    /// real problem the moment two networks share a common private
+    /// address (a router or printer at `192.168.1.1`/`.254` on both):
+    /// reported directly from offsite testing as an old network's printer
+    /// info showing up on a new one. `rebuildDeviceList()`'s patch loop
+    /// reads these caches by address alone and overwrites whatever
+    /// `Self.device(from:)` just read from the newly-fetched, correctly
+    /// fingerprint-scoped persisted record — so a stale entry here for a
+    /// reused address clobbers the *new* network's own genuinely-correct
+    /// `webURL`/`hostname` with the *old* network's value for that same
+    /// address. `nil` until the first successful rebuild.
+    private var lastFingerprintForCaches: String?
     private let snapshotStore: SnapshotStore
     private weak var networkMonitor: NetworkMonitorViewModel?
     private weak var lanDiscovery: LANDiscoveryViewModel?
@@ -558,6 +572,21 @@ final class SNMPViewModel: ObservableObject {
             // which looks identical to "nothing needed changing".
             UIStateLogger.log("SNMPViewModel.rebuildDeviceList", "skipped — no current interface")
             return
+        }
+
+        // Clear the address-keyed caches the moment the recognized network
+        // actually changes — see `lastFingerprintForCaches`'s doc comment
+        // for the cross-network collision this prevents. Only acts on a
+        // *resolved* fingerprint change (`if let`): while recognition is
+        // still pending after a topology change, `currentNetworkFingerprint`
+        // is momentarily `nil` and `fetchSNMPDevices()` already returns
+        // nothing for it, so there's nothing yet for a stale cache entry to
+        // corrupt — clearing waits for the new network to actually be known
+        // rather than firing on every transient `nil`.
+        if let fingerprint = snapshotStore.currentNetworkFingerprint, fingerprint != lastFingerprintForCaches {
+            webURLByAddress.removeAll()
+            hostnameByAddress.removeAll()
+            lastFingerprintForCaches = fingerprint
         }
 
         let probeable = Set(candidateAddresses())

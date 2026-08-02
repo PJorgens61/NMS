@@ -208,27 +208,39 @@ struct ContentView: View {
             // doc comment for the three earlier, more intricate alignment
             // mechanisms this replaced — a dynamically-synced `Grid` row
             // for one pair, deliberately independent sizing for the
-            // other). Every tile now sizes the same simple way, so a
-            // plain `HStack` of two tiles is enough for *either* row —
-            // no `Grid` needed, since nothing is being dynamically
-            // measured or synced anymore, just declared equal.
+            // other). Every tile now sizes the same simple way.
             //
-            // Both tiles in the second row are window-only as of the
-            // audience split (see `SectionLayout.surfaces`) and always
-            // appear together, so there's no partial-row case to handle —
-            // on the popover, `pathAndSpeedRow`'s `HStack` renders with
-            // both conditions false and contributes nothing.
+            // Window-only: reported from offsite testing that the 2-up
+            // arrangement left too little width for a tile's text to
+            // read comfortably, so the window stacks all four full-width
+            // instead — more width for the same fixed height. Left
+            // untouched on the popover, which stays the tight 2-up
+            // layout it's always been (the popover's fixed height budget
+            // is already the constraint this app has fought hardest —
+            // see `SectionLayout` — so a taller stack isn't a free win
+            // there the way it is in the resizable window).
             VStack(spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
+                if surface == .window {
                     tile(title: "Network Health", fixedHeight: Self.tileHeight) {
                         connectionHealthSection
                     }
                     tile(title: "Info", fixedHeight: Self.tileHeight) {
                         infoSection
                     }
+                } else {
+                    HStack(alignment: .top, spacing: 12) {
+                        tile(title: "Network Health", fixedHeight: Self.tileHeight) {
+                            connectionHealthSection
+                        }
+                        tile(title: "Info", fixedHeight: Self.tileHeight) {
+                            infoSection
+                        }
+                    }
                 }
                 // Path to Internet + Speed Test — see
-                // `ContentView+Window.swift`'s `pathAndSpeedRow`.
+                // `ContentView+Window.swift`'s `pathAndSpeedRow`. Window-only
+                // already (both tiles' `SectionLayout` entries are
+                // `[.window]`), so this contributes nothing on the popover.
                 pathAndSpeedRow
             }
 

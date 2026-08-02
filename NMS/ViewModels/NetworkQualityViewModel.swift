@@ -35,6 +35,17 @@ final class NetworkQualityViewModel: ObservableObject {
         recentRuns = snapshotStore.fetchNetworkQualityHistory()
     }
 
+    /// Re-reads history scoped to whatever `currentNetworkFingerprint` is
+    /// now — this `init` fetch above runs before the first LAN scan
+    /// resolves which network we're on, so it comes back empty (or scoped
+    /// to `nil`) and nothing re-ran it until now. Same shape as
+    /// `DHCPLeaseViewModel.reloadHistory()`; wired to
+    /// `NetworkIdentityViewModel.onNetworkRecognized` alongside it in
+    /// `NMSApp`.
+    func reloadHistory() {
+        recentRuns = snapshotStore.fetchNetworkQualityHistory()
+    }
+
     /// Clears a stale error left over from a run attempted during an
     /// outage, once the network is confirmed back up — called from
     /// `connectivity.onInternetReachable`. Reported directly: Ethernet

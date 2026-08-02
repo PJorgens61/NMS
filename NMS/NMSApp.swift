@@ -286,6 +286,7 @@ struct NMSApp: App {
             connectivity: connectivity,
             networkIdentity: networkIdentity,
             publicIP: publicIP,
+            ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
             traceroute: traceroute
@@ -317,7 +318,8 @@ struct NMSApp: App {
             networkIdentity: networkIdentity,
             snmp: snmp,
             traceroute: traceroute,
-            saasMonitoring: saasMonitoring
+            saasMonitoring: saasMonitoring,
+            networkQuality: networkQuality
         )
     }
 
@@ -329,6 +331,7 @@ struct NMSApp: App {
         connectivity: ConnectivityViewModel,
         networkIdentity: NetworkIdentityViewModel,
         publicIP: PublicIPViewModel,
+        ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
         traceroute: TracerouteViewModel
@@ -353,6 +356,10 @@ struct NMSApp: App {
             // the network it's actually about, not wherever
             // `currentNetworkFingerprint` has moved on to by then.
             let departingFingerprint = networkIdentity.reset()
+            // Cleared here too, not just `SnapshotStore`'s fingerprint —
+            // see `ISPIdentityViewModel.reset()`'s doc comment for the
+            // "old ISP info shows up in new networks" bug this closes.
+            ispIdentity.reset()
             lanDiscovery.scan(for: snapshot)
             // A topology change is the most likely moment the public IP
             // actually changed, so check it right away rather than waiting
@@ -517,7 +524,8 @@ struct NMSApp: App {
         networkIdentity: NetworkIdentityViewModel,
         snmp: SNMPViewModel,
         traceroute: TracerouteViewModel,
-        saasMonitoring: SaaSMonitoringViewModel
+        saasMonitoring: SaaSMonitoringViewModel,
+        networkQuality: NetworkQualityViewModel
     ) {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
@@ -530,13 +538,15 @@ struct NMSApp: App {
         saasMonitoring.onEventLogged = { eventLog.refresh() }
 
         // Everything above fires on *new* data. This one covers stored
-        // data that was already there: both view models fetch once in
-        // `init`, before the first LAN scan has resolved which network
-        // this is, so both come back empty and — until now — nothing
-        // re-ran them. Events only re-read when a new event is logged,
-        // and events are logged on change, so a healthy network could sit
-        // showing "No events yet" over a full history indefinitely; DHCP
-        // history only re-read when a lease changed, typically a day out.
+        // data that was already there: all three view models fetch once
+        // in `init`, before the first LAN scan has resolved which network
+        // this is, so all three come back empty and — until now —
+        // nothing re-ran them. Events only re-read when a new event is
+        // logged, and events are logged on change, so a healthy network
+        // could sit showing "No events yet" over a full history
+        // indefinitely; DHCP history only re-read when a lease changed,
+        // typically a day out; Speed Test history only re-read after a
+        // fresh run, which may never happen this session.
         //
         // SNMP needs no equivalent here: `rebuildDeviceList()` is already
         // called from `lanDiscovery.onScanCompleted`, the same scan whose
@@ -544,6 +554,7 @@ struct NMSApp: App {
         networkIdentity.onNetworkRecognized = {
             eventLog.refresh()
             dhcpLease.reloadHistory()
+            networkQuality.reloadHistory()
         }
     }
 

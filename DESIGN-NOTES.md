@@ -5235,3 +5235,43 @@ trigger for building that for real is a second genuine vendor-specific
 port turning up, not this one; until then the flat three-candidate list
 in `DeviceWebDetectionService.detectWebURL` costs nothing extra for a
 device that doesn't use whichever candidate doesn't apply to it.
+
+## Per-network scoping had a second leak: address-keyed in-memory caches, not just the persisted store
+
+Reported from offsite testing as a previous network's printer/router
+info showing up on a new network — surprising, since `SNMPDeviceRecord`
+already carries a `networkFingerprint` and `SnapshotStore
+.fetchSNMPDevices()` already filters by it (see "Per-network device
+scoping" above). The persisted store was never the leak.
+
+The actual leak: `SNMPViewModel.webURLByAddress` and `.hostnameByAddress`
+are in-memory caches keyed by bare IP address, with no network component
+at all — built for a different reason entirely (avoiding a needless
+re-probe/re-lookup once a device's answer is known, see their own doc
+comments) and never audited against network switching, since neither
+existed yet when per-network scoping was first built. Two different
+networks legitimately reusing a common private address (`192.168.1.1`,
+`10.0.0.1`) is the ordinary case, not an edge case.
+
+`rebuildDeviceList()`'s patch loop reads these caches by address alone
+and overwrites whatever `Self.device(from:)` just read from the
+newly-fetched, *correctly* fingerprint-scoped persisted record for the
+new network. So the new network's own genuinely-correct `webURL`/
+`hostname` for that address got clobbered by the old network's leftover
+in-memory value for the same address — a real cross-network data leak
+that had nothing to do with the persisted store's own filtering being
+wrong.
+
+Fixed by tracking which fingerprint the caches were last built against
+and clearing both the moment a *resolved* fingerprint change is seen in
+`rebuildDeviceList()` (deliberately not on every transient `nil` during
+recognition — see `lastFingerprintForCaches`'s doc comment). The lesson
+generalizes: `networkFingerprint` on a persisted model and a filtered
+fetch aren't sufficient on their own — any address-keyed in-memory cache
+sitting between the store and the UI needs the same network-change
+awareness, or it becomes an unscoped side channel around scoping that
+otherwise looks complete. `ISPIdentityViewModel`'s `organizationName`/
+`statusPageURL` had the same shape of bug (no per-network awareness at
+all, just no address-keying to make it address-collision-specific) —
+fixed the same session by clearing on topology change rather than
+waiting for the next public-IP change to happen to overwrite it.

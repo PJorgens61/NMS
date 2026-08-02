@@ -28,10 +28,10 @@ import SwiftUI
 extension ContentView {
     // MARK: - Path to Internet + Speed Test
 
-    /// The tile-grid's second row. Both tiles are window-only and always
+    /// The tile grid's last two tiles. Both are window-only and always
     /// appear together (`SectionLayout.pathToInternet`/`.speedTest` are
     /// both `[.window]`), so there's no partial-row case — on the popover
-    /// this whole `HStack` is simply never called.
+    /// this whole `VStack` is simply never called.
     ///
     /// Fixed to `ContentView.tileHeight`, same as Network Health/Info —
     /// no longer deliberately independent. That independence used to be
@@ -42,8 +42,12 @@ extension ContentView {
     /// risk at the root — Speed Test's history now scrolls *within* its
     /// own fixed box instead of growing it, so there's no longer anything
     /// for Path to Internet to be forced to match.
+    ///
+    /// Stacked vertically, not side by side — see `ContentView
+    /// .scrollableContent`'s doc comment for why the whole four-tile
+    /// window grid moved to a single full-width column.
     var pathAndSpeedRow: some View {
-        HStack(alignment: .top, spacing: 12) {
+        VStack(spacing: 12) {
             if SectionLayout.pathToInternet.appears(on: surface) {
                 tile(title: "Path to Internet", fixedHeight: ContentView.tileHeight, trailing: {
                     Button("Trace Now") {
@@ -147,6 +151,37 @@ extension ContentView {
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
             }
+
+            // Also independent of the branches above — surfaces whenever
+            // the current trace shows more than one NAT hop before the
+            // internet, whatever else this tile is currently showing.
+            // `TracerouteViewModel` already computed and logged this (see
+            // `logAddressingChangeIfNeeded`), but only as one entry in the
+            // Events history, on the one trace where the state actually
+            // changed — a real gap raised from offsite testing: nothing
+            // showed the *current* state at a glance, so a double-NAT'd
+            // network someone joined mid-session (or one that predates
+            // this app being installed, so it never logged a "change" at
+            // all) had no visible answer to "why is my public IP shared."
+            // Not colored red like `lastError` above — an extra NAT layer
+            // is often just how a network is built (a home router behind
+            // an ISP's own gateway), not a fault.
+            if let count = cgnatRowText {
+                row("NAT", count)
+                    .foregroundStyle(.orange)
+            }
+    }
+
+    /// `nil` when the current trace has at most one NAT hop before the
+    /// internet — the normal case, not worth a row. See `currentPathStatus`'s
+    /// use of this for why it's shown independently of the trace's other
+    /// states.
+    private var cgnatRowText: String? {
+        let count = TracerouteViewModel.leadingNonInternetHopCount(traceroute.hops)
+        guard count > 1 else { return nil }
+        return TracerouteViewModel.includesConfirmedCGNAT(traceroute.hops)
+            ? "CGNAT — shared public IP"
+            : "Multiple layers (\(count) hops)"
     }
 
     private var hopRows: some View {
@@ -337,11 +372,13 @@ extension ContentView {
 
     // MARK: - Wi-Fi
 
-    /// Current signal/link characteristics — window-only, read-at-a-glance
-    /// current state rather than scrollable history, so it has no box of
-    /// its own the way the sections below it do.
+    /// Current signal/link characteristics — window-only. Boxed and
+    /// scrolling like every other window section, via `scrollBox`; see
+    /// `SectionLayout.boxHeight`'s doc comment for why this and
+    /// `saasMonitoringSection` stopped being the two exceptions.
     @ViewBuilder
     var wifiSection: some View {
+        scrollBox(.wifi) {
             // Moved from Info — see that section's call site for the
             // discoverability tradeoff. Shown first, before Signal: it
             // identifies *which* access point, which is the natural thing to
@@ -373,6 +410,7 @@ extension ContentView {
             if let security = wifiSSID.currentSecurity {
                 row("Security", security)
             }
+        }
     }
 
     /// RSSI plus its trend, with an SNR parenthetical when noise is also
@@ -736,42 +774,45 @@ extension ContentView {
 
     // MARK: - SaaS Monitoring
 
-    /// Business SaaS status — window-only, read-at-a-glance current state
-    /// rather than scrollable history, same reasoning `wifiSection` above
-    /// gives: a short, user-configurable list (`PreferencesView`'s
-    /// service picker), no box of its own. See `SaaSMonitoringViewModel`
-    /// and DESIGN-NOTES.md's "Business SaaS monitoring".
+    /// Business SaaS status — window-only. Boxed and scrolling like every
+    /// other window section, via `scrollBox` — a user-configurable list
+    /// (`PreferencesView`'s service picker) isn't reliably short once
+    /// users can add their own sites to monitor (see `PUNCHLIST.md`). See
+    /// `SaaSMonitoringViewModel` and DESIGN-NOTES.md's "Business SaaS
+    /// monitoring".
     // Not `private` — called from `ContentView.swift`'s `scrollableContent`.
     @ViewBuilder
     var saasMonitoringSection: some View {
-        ForEach(saasMonitoring.statuses) { status in
-            HStack {
-                Circle()
-                    .fill(saasIndicatorColor(status.indicator))
-                    .frame(width: 8, height: 8)
-                Text(status.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Text(status.description)
-                    .foregroundStyle(status.indicator == .none ? Color.secondary : saasIndicatorColor(status.indicator))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                // Always present — `status.url` is always a real link
-                // (the specific incident when there is one, the general
-                // status page otherwise, see `SaaSStatusService
-                // .CheckResult.url`), so "go check for yourself" is one
-                // click away regardless of current health. A dedicated
-                // icon button rather than making the description itself
-                // look clickable — this app's first-ever use of `Link`,
-                // now shared via `externalLinkIcon` (`ContentView.swift`).
-                externalLinkIcon(
-                    url: status.url,
-                    accessibilityLabel: "\(status.name) status page",
-                    accessibilityHint: "Opens \(status.name)'s status page in your browser"
-                )
+        scrollBox(.saasMonitoring) {
+            ForEach(saasMonitoring.statuses) { status in
+                HStack {
+                    Circle()
+                        .fill(saasIndicatorColor(status.indicator))
+                        .frame(width: 8, height: 8)
+                    Text(status.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Text(status.description)
+                        .foregroundStyle(status.indicator == .none ? Color.secondary : saasIndicatorColor(status.indicator))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    // Always present — `status.url` is always a real link
+                    // (the specific incident when there is one, the general
+                    // status page otherwise, see `SaaSStatusService
+                    // .CheckResult.url`), so "go check for yourself" is one
+                    // click away regardless of current health. A dedicated
+                    // icon button rather than making the description itself
+                    // look clickable — this app's first-ever use of `Link`,
+                    // now shared via `externalLinkIcon` (`ContentView.swift`).
+                    externalLinkIcon(
+                        url: status.url,
+                        accessibilityLabel: "\(status.name) status page",
+                        accessibilityHint: "Opens \(status.name)'s status page in your browser"
+                    )
+                }
+                .font(.system(size: 12))
             }
-            .font(.system(size: 12))
         }
     }
 

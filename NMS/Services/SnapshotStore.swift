@@ -529,12 +529,16 @@ final class SnapshotStore {
     /// user wants to compare against past ones, not a change to dedupe
     /// against. See `NetworkQualityResult`.
     func recordNetworkQualityResult(_ result: NetworkQualityResult) {
-        context.insert(NetworkQualityRecord(from: result))
+        context.insert(NetworkQualityRecord(from: result, networkFingerprint: currentNetworkFingerprint))
         try? context.save()
     }
 
+    /// Scoped by `currentNetworkFingerprint`: a different network's speed
+    /// tests never show here. See `NetworkQualityRecord.networkFingerprint`.
     func fetchNetworkQualityHistory(limit: Int = 10) -> [NetworkQualityRecord] {
+        let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<NetworkQualityRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
             sortBy: [SortDescriptor(\.testedAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit

@@ -28,4 +28,20 @@ final class ISPIdentityViewModel: ObservableObject {
             statusPageURL = service.statusPageURL(forOrganization: name)
         }
     }
+
+    /// Called from `NMSApp`'s topology-change handling, right alongside
+    /// `NetworkIdentityViewModel.reset()` — without this, switching
+    /// networks left the *previous* network's ISP name and status-page
+    /// link on screen until `identify(ip:)` happened to be called again,
+    /// which only fires from `PublicIPViewModel.onCurrentIPChanged`
+    /// (i.e. only once the new network's public IP is both checked and
+    /// found to differ). Reported directly from offsite testing as old
+    /// ISP info showing up on a new network — the same
+    /// clear-before-recognizing shape every other per-network section
+    /// already uses, just for state that lives here instead of
+    /// `SnapshotStore`.
+    func reset() {
+        organizationName = nil
+        statusPageURL = nil
+    }
 }
