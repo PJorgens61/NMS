@@ -178,11 +178,13 @@ new ones as they come up.
   self-signed-cert complexity stays scoped to the still-open SNMP
   Devices item below, not shared with this simpler case.
 
-- [ ] **ISP identification: worth an event message for the edge cases
-  found while building it?** Raised directly after shipping RDAP-based
-  ISP identification (`ISPIdentityService`/`ISPIdentityViewModel`).
-  Looked at each candidate edge case; most don't actually have anything
-  observable to log:
+- [x] ~~ISP identification: worth an event message for the edge cases
+  found while building it?~~ **Built** the one candidate that was worth
+  it (below); the rest deliberately stayed silent. Raised directly after
+  shipping RDAP-based ISP identification
+  (`ISPIdentityService`/`ISPIdentityViewModel`). Looked at each
+  candidate edge case; most don't actually have anything observable to
+  log:
   - **A corporate network/proxy blocking the `rdap.org` lookup** — the
     failure is silently swallowed today (`identify(ip:)`'s `try?`), same
     "a parsing/fetch gap should be recoverable, not crash" posture
@@ -200,13 +202,17 @@ new ones as they come up.
     hop on a complex multi-hop corporate WAN** — already has its own
     graceful `.unknown`/"Not confirmed" state (`connectionLayersLowToHigh`),
     not something new this feature introduced.
-  The one candidate that might actually be worth it: logging when the
+  The one candidate that actually was worth it: logging when the
   identified organization *changes* (mirroring `PublicIPViewModel`'s own
   `publicIPChanged` event) — a real, observable transition, unlike the
-  cases above. Not built yet; needs its own decision on whether that's
-  interesting enough to warrant a new `AppEventKind` pair for a fact
-  that, per the plan's own scope cut, isn't tied to any health/up-down
-  state.
+  cases above. **Built**: `AppEventKind.ispOrganizationChanged`
+  (neutral polarity, no recovery pair, same shape as `publicIPChanged`)
+  logged from `ISPIdentityViewModel.identify(ip:)` — guarded so neither
+  the first-ever identification each session nor the one right after a
+  network change (`reset()` clears the baseline) counts as a "change."
+  Needed `ISPIdentityViewModel` to gain a `SnapshotStore` dependency it
+  didn't have before (previously "identification for display only, no
+  events to log" — now it logs exactly one).
 
 - [x] ~~SNMP Devices: detect a web server on the device, add a link if
   found.~~ **Built** (`DeviceWebDetectionService`). Both open questions

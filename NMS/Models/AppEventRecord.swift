@@ -36,6 +36,15 @@ enum AppEventKind: String, Codable {
     /// `routerUnreachable`/`Reachable` (the router's LAN-side address).
     case publicIPUnreachable
     case publicIPReachable
+    /// The organization RDAP identifies as owning the current public IP's
+    /// allocation changed — see `ISPIdentityViewModel.identify(ip:)`.
+    /// Informational like `publicIPChanged`, not a failure: a registrant
+    /// change doesn't mean anything broke, it's a fact about whose
+    /// network address space this connection currently sits in. Not
+    /// logged for the first-ever identification each session or right
+    /// after a network change (`ISPIdentityViewModel.reset()`) — neither
+    /// has a previous value to have genuinely "changed" from.
+    case ispOrganizationChanged
     case infrastructureUnreachable
     case infrastructureReachable
     /// An SNMP device's uptime counter went *backwards* — it restarted.
@@ -159,7 +168,8 @@ enum AppEventKind: String, Codable {
              .printerAlert, .saasServiceDown:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
-             .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected, .subnetTooLargeToScan:
+             .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected, .subnetTooLargeToScan,
+             .ispOrganizationChanged:
             return .neutral
         }
     }

@@ -161,9 +161,7 @@ struct NMSApp: App {
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
         let networkIdentity = NetworkIdentityViewModel(snapshotStore: store)
         let publicIP = PublicIPViewModel(snapshotStore: store)
-        // No `snapshotStore` — identification for display only, no
-        // history table, no events to log. See `ISPIdentityViewModel`.
-        let ispIdentity = ISPIdentityViewModel()
+        let ispIdentity = ISPIdentityViewModel(snapshotStore: store)
         let dhcpLease = DHCPLeaseViewModel(snapshotStore: store, networkMonitor: networkMonitor)
         // No wiring into `wireDependencies` below, and no timer of its
         // own — deliberately never triggered automatically. See
@@ -311,6 +309,7 @@ struct NMSApp: App {
             networkMonitor: networkMonitor,
             connectivity: connectivity,
             publicIP: publicIP,
+            ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             screenshot: screenshot,
             wifiSSID: wifiSSID,
@@ -517,6 +516,7 @@ struct NMSApp: App {
         networkMonitor: NetworkMonitorViewModel,
         connectivity: ConnectivityViewModel,
         publicIP: PublicIPViewModel,
+        ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
         screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
@@ -530,6 +530,7 @@ struct NMSApp: App {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
         publicIP.onEventLogged = { eventLog.refresh() }
+        ispIdentity.onEventLogged = { eventLog.refresh() }
         dhcpLease.onEventLogged = { eventLog.refresh() }
         screenshot.onEventLogged = { eventLog.refresh() }
         wifiSSID.onEventLogged = { eventLog.refresh() }
