@@ -153,19 +153,21 @@ new ones as they come up.
   not SNMP restarts or printer blips. Nothing designed or built yet —
   needs its own real pass before starting.
 
-- [ ] **Rename "Expert Mode"'s internal Swift symbols to match its
-  UI name.** Deliberately deferred when the UI-facing rename landed
-  (`3078a33`) — the button label, accessibility text, and every prose
-  doc comment already say "Expert Mode," but the code underneath still
-  says otherwise: `NMSApp.comparisonWindowContent`, `ContentView
-  .isInWindow`, the `Window(..., id: "nms-window")` scene identifier,
-  and the `"nms-window"` string literal at every `openWindow`/
-  `openWindowInFront` call site. Purely cosmetic — nothing user-facing
-  changes — but worth doing once, deliberately, rather than leaving the
-  code and the UI permanently telling two different stories about what
-  this feature is called. Real cost: `"nms-window"` is a scene
-  *identifier*, not just a variable name, so renaming it needs every
-  call site updated together in one pass, not found piecemeal later.
+- [x] ~~Rename "Expert Mode"'s internal Swift symbols to match its
+  UI name.~~ **Done.** `NMSApp.comparisonWindowContent` →
+  `expertModeWindowContent`; `ContentView.isInWindow` →
+  `isExpertModeWindow`; the `Window(..., id: "nms-window")` scene
+  identifier and every `openWindow`/`openWindowInFront` call site →
+  `"expert-mode-window"`. Every affected doc comment across
+  `NMSApp.swift`, `ContentView.swift`, `ContentView+Window.swift`, and
+  `NoBounceScrollView.swift` updated to say "Expert Mode window" instead
+  of "comparison window." Purely cosmetic — confirmed nothing
+  user-facing changed by relaunching the real app and reading
+  `ui-state.log`'s own `MenuBarLabel.autoOpenWindow` line, which
+  resolved the renamed scene identifier correctly:
+  `expert-mode-window → expert-mode-window`. Old occurrences left alone
+  in `BUGS.md`/`DESIGN-NOTES.md` — those are historical narration
+  (one directly quotes a real past log line), not current-state claims.
 
 - [x] ~~Network Health's Router row: add a web link too.~~ **Built**,
   alongside ISP identification below: `ConnectionLayer` gained an

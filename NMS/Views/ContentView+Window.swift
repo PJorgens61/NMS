@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Every section that only ever renders in the comparison window —
+/// Every section that only ever renders in the Expert Mode window —
 /// `SectionLayout.surfaces` returns `[.window]` for all of these as of
 /// the audience split, so on the popover none of this file contributes
 /// anything at all.

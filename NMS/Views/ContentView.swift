@@ -58,7 +58,7 @@ struct ContentView: View {
     }
 
     /// Which surface this copy is rendering into — `.window` for the one
-    /// hosted in the comparison `Window` scene (see `NMSApp`), `.popover`
+    /// hosted in the Expert Mode `Window` scene (see `NMSApp`), `.popover`
     /// otherwise.
     ///
     /// Each fixed-height mini-`ScrollView` (Events, SNMP Devices, DHCP
@@ -82,7 +82,7 @@ struct ContentView: View {
     /// and box heights deliberately do **not** go through this — they read
     /// `SectionLayout` instead, so the popover's contents stay a closed,
     /// testable list.
-    private var isInWindow: Bool { surface == .window }
+    private var isExpertModeWindow: Bool { surface == .window }
 
     /// Lets the footer's "Expert Mode" button bring up the `Window` scene
     /// declared in `NMSApp` — see that scene for why it exists (every
@@ -123,11 +123,11 @@ struct ContentView: View {
     ///
     /// Fixed by keeping both branches inside this one `body`, so
     /// `ContentView` is always embedded as a single, stably-identified
-    /// view no matter which scene hosts it — `NMSApp.comparisonWindowContent`
+    /// view no matter which scene hosts it — `NMSApp.expertModeWindowContent`
     /// now just calls `contentView(surface: .window)` directly again, the
     /// same shape as the popover's own call.
     var body: some View {
-        if isInWindow {
+        if isExpertModeWindow {
             // Footer pinned outside the scrollable region — the window's
             // content (SNMP Devices, DHCP History, Printer Alerts, Bug
             // Report) can run tall enough that without this, reaching
@@ -434,21 +434,21 @@ struct ContentView: View {
                 .accessibilityIdentifier("footer.bugReport")
                 // A permanent part of the footer now, not the experimental
                 // "compare this against a resizable window" toggle it
-                // started as (see `NMSApp`'s "nms-window" scene) —
+                // started as (see `NMSApp`'s "expert-mode-window" scene) —
                 // `FeatureFlags.comparisonWindow` is gone entirely, along
                 // with its `PreferencesView` toggle. Still gated on
-                // `!isInWindow` alone: this button's whole job is opening
-                // Expert Mode *from* the popover, and without that guard
-                // it would also sit in the window's own footer, where
+                // `!isExpertModeWindow` alone: this button's whole job is
+                // opening Expert Mode *from* the popover, and without that
+                // guard it would also sit in the window's own footer, where
                 // clicking it just re-triggers opening the window you're
-                // already looking at. The inverse of the `isInWindow &&`
-                // gate every window-only *section* here uses (Wi-Fi, DHCP
-                // History, SNMP Devices, Printer Alerts) — those only
-                // belong inside the window; this button only belongs
-                // outside it.
-                if !isInWindow {
+                // already looking at. The inverse of the
+                // `isExpertModeWindow &&` gate every window-only *section*
+                // here uses (Wi-Fi, DHCP History, SNMP Devices, Printer
+                // Alerts) — those only belong inside the window; this
+                // button only belongs outside it.
+                if !isExpertModeWindow {
                     Button("Expert Mode…") {
-                        openWindowInFront("nms-window")
+                        openWindowInFront("expert-mode-window")
                     }
                     .accessibilityLabel("Expert Mode")
                     .accessibilityHint("Opens the same content in a resizable window, with every diagnostic section — Events, SNMP Devices, DHCP History, Wi-Fi detail, Path to Internet, Speed Test, Printer Alerts")
@@ -1132,7 +1132,7 @@ struct ContentView: View {
     /// Severity computed the same way `NMSApp.overallStatus` does
     /// (`OverallStatus.compute`), duplicated here rather than threading
     /// a new parameter through `NMSApp.contentView(surface:)` and its
-    /// two call sites (the popover and the comparison window). This
+    /// two call sites (the popover and the Expert Mode window). This
     /// view model wiring has already caused three real bugs from a
     /// dependency not being ready when first read (see `NMSApp
     /// .wireDerivedStateDependencies`'s doc comment) — a one-line formula

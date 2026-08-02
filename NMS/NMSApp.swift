@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// The `MenuBarExtra` label, plus a DEBUG-only side effect: auto-opening
-/// the "nms-window" `Window` scene once at launch.
+/// the "expert-mode-window" `Window` scene once at launch.
 ///
 /// This exists so a script (or an AI assistant driving a session, same
 /// audience `FailureInjector`'s doc comments call out) can verify the app
@@ -60,7 +60,7 @@ private struct MenuBarLabel: View {
         image.task {
             guard !didAutoOpen else { return }
             didAutoOpen = true
-            openWindow(id: "nms-window")
+            openWindow(id: "expert-mode-window")
             // Same activation/ordering `openWindowInFront` needed on the
             // MacBook (see `ContentView.openWindowInFront`'s fix,
             // `NSApp.activate()` with no arguments) — found by testing
@@ -73,11 +73,11 @@ private struct MenuBarLabel: View {
             // exist yet the instant `openWindow` returns.
             DispatchQueue.main.async {
                 NSApp.activate()
-                let match = NSApp.windows.first { $0.identifier?.rawValue.contains("nms-window") == true }
+                let match = NSApp.windows.first { $0.identifier?.rawValue.contains("expert-mode-window") == true }
                 match?.makeKeyAndOrderFront(nil)
                 UIStateLogger.log(
                     "MenuBarLabel.autoOpenWindow",
-                    "nms-window → \(match?.identifier?.rawValue ?? "NO WINDOW MATCHED")"
+                    "expert-mode-window → \(match?.identifier?.rawValue ?? "NO WINDOW MATCHED")"
                 )
             }
         }
@@ -566,8 +566,8 @@ struct NMSApp: App {
     }
 
     /// Built once here rather than duplicated at each of the two call
-    /// sites below — the popover and the comparison window show the exact
-    /// same live view models, just hosted in a different `Scene`.
+    /// sites below — the popover and the Expert Mode window show the
+    /// exact same live view models, just hosted in a different `Scene`.
     /// `surface` is the one thing that differs: see `Surface` and
     /// `SectionLayout` for what it selects.
     private func contentView(surface: Surface) -> ContentView {
@@ -624,8 +624,8 @@ struct NMSApp: App {
         // dependent on chaining working. Wheel-scrolling over the gaps
         // between tiles (and chaining out of a tile) still works too; the
         // scrollbar is just the guaranteed path now, not the only one.
-        Window("NMS", id: "nms-window") {
-            comparisonWindowContent
+        Window("NMS", id: "expert-mode-window") {
+            expertModeWindowContent
         }
         .defaultSize(width: 600, height: 700)
 
@@ -665,7 +665,7 @@ struct NMSApp: App {
     /// still here — moved into `ContentView.body`'s own per-surface
     /// branch, where it can't split state across two parents because
     /// there's only ever one.
-    private var comparisonWindowContent: some View {
+    private var expertModeWindowContent: some View {
         contentView(surface: .window)
     }
 

@@ -4,7 +4,7 @@ import AppKit
 /// A drop-in replacement for SwiftUI's `ScrollView`, used both for every
 /// fixed-height history box in `ContentView` (Events, SNMP Devices, DHCP
 /// History, Speed Test, traceroute hops) and for the outer container of
-/// the comparison window itself (see `NMSApp`) — every scrollable region
+/// the Expert Mode window itself (see `NMSApp`) — every scrollable region
 /// in that window, nested or not.
 ///
 /// Three designs came before this one, each solving one problem while
