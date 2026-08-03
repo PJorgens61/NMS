@@ -2957,7 +2957,15 @@ don't get re-raised as new ideas.
   deliberately, not overlooked.
 - **Classical dual-router VRRP identity** (two related `SNMPDeviceRecord`
   entries rather than collapsing to one). Real, but a bigger modelling
-  change than the current merge; see DESIGN-NOTES.md.
+  change than the current merge; see DESIGN-NOTES.md. Reaffirmed directly
+  (2026-08-03), not just left alone: Aruba/VRRP-pair APs are uncommon in
+  NMS's actual target audience (home/small-office networks), so this is
+  very unlikely to affect anyone else's install. The odd double-entry
+  display (`10.0.0.16`, the virtual IP, and `10.0.0.17`, physical AP1's
+  own address, both reporting `sysName: AP1` while AP1 is the active
+  VRRP master — surfaced via `script/export-diagnostic.sh`'s first real
+  run) is accepted as a cosmetic quirk specific to this one uncommon
+  setup, not worth the bigger modelling change to fix generally.
 - **IPv4 Record Route (or other IP options) for explicit path recording**,
   raised from prior experience with them on Cisco routers. Largely
   non-functional on today's public internet: modern backbone/ISP routers
