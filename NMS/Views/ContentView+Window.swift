@@ -926,6 +926,20 @@ extension ContentView {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                // `aliasAddresses` non-empty means this identity answers
+                // at more than one address on the same MAC -- see
+                // `SNMPDevice.aliasAddresses`'s own doc comment, which
+                // already names VRRP as the case this exists for.
+                // "Suspected," not a certainty: ARP evidence alone can't
+                // distinguish a VRRP virtual address from other
+                // shared-MAC shapes (a router trunking several VLANs,
+                // say), so this is a hint pointing at the addresses just
+                // shown above, not an assertion.
+                if !device.aliasAddresses.isEmpty {
+                    Text("VRRP suspected")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.blue)
+                }
                 // Split into up to two *fixed-height* lines rather than
                 // one auto-wrapping `Text` — deliberately, not the
                 // obvious approach. sysDescr is a raw SNMP-provided
