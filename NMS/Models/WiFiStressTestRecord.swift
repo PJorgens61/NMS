@@ -17,6 +17,11 @@ final class WiFiStressTestRecord {
     var stddevRTTMs: Double?
     var peakCPUPercent: Double?
     var avgCPUPercent: Double?
+    /// See `WiFiStressTestResult`'s own doc comment. Defaulted so rows
+    /// persisted before this field existed migrate in cleanly instead of
+    /// blocking store open.
+    var packetsPerSecond: Double = 0
+    var megabitsPerSecond: Double = 0
     var routerAddress: String
     var isWiFi: Bool
     var testedAt: Date
@@ -36,6 +41,8 @@ final class WiFiStressTestRecord {
         stddevRTTMs = result.stddevRTTMs
         peakCPUPercent = result.peakCPUPercent
         avgCPUPercent = result.avgCPUPercent
+        packetsPerSecond = result.packetsPerSecond
+        megabitsPerSecond = result.megabitsPerSecond
         routerAddress = result.routerAddress
         isWiFi = result.isWiFi
         testedAt = result.testedAt

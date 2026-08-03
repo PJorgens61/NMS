@@ -22,13 +22,16 @@ final class WiFiStressTestViewModel: ObservableObject {
     private let snapshotStore: SnapshotStore
 
     /// Real, empirically-checked concurrency defaults (see
-    /// `PUNCHLIST.md`) — not user-configurable in v1. Wi-Fi's lower
-    /// bandwidth ceiling saturates around ~20-30 concurrent streams;
-    /// Ethernet's much higher (gigabit-class) ceiling needs more
-    /// concurrency to meaningfully load it, which also happens to be a
-    /// way to see whether this Mac's own CPU/fork-exec rate becomes the
-    /// limiting factor before the network does — see `avgCPUPercent`/
-    /// `peakCPUPercent` on each run.
+    /// `PUNCHLIST.md` and `WiFiStressTestService`'s own doc comment for
+    /// the one-process-per-stream mechanism these were measured against).
+    /// On this Mac's Wi-Fi, 24 streams reached ~4800 attempted pings/sec
+    /// (~58 Mbps) at ~40% system-wide CPU, with real (if small, ~0.1%)
+    /// packet loss starting to appear -- a genuine link-side signal, not
+    /// this Mac's own fork/exec rate maxing out the way the old
+    /// one-shot-per-packet design did by 200 streams. `ethernetStreamCount`
+    /// is carried over unchanged from the old mechanism's tuning and
+    /// still needs its own real-hardware Ethernet measurement (this Mac
+    /// was Wi-Fi-connected for all of the above) -- see `PUNCHLIST.md`.
     static let wifiStreamCount = 24
     static let ethernetStreamCount = 100
     static let burstDuration: TimeInterval = 1.0
@@ -81,6 +84,8 @@ final class WiFiStressTestViewModel: ObservableObject {
                 stddevRTTMs: stats.stddevRTTMs,
                 peakCPUPercent: stats.peakCPUPercent,
                 avgCPUPercent: stats.avgCPUPercent,
+                packetsPerSecond: stats.packetsPerSecond,
+                megabitsPerSecond: stats.megabitsPerSecond,
                 routerAddress: routerAddress,
                 isWiFi: isWiFi,
                 testedAt: Date()

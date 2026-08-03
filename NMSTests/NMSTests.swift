@@ -246,7 +246,7 @@ struct IPClassifierTests {
 struct WiFiStressTestAggregatorTests {
     @Test("all packets answered — zero loss, exact min/avg/max, population stddev")
     func allAnswered() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 3, rttsMs: [1.0, 2.0, 3.0], cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 3, rttsMs: [1.0, 2.0, 3.0], cpuSamples: [], duration: 1.0)
         #expect(stats.packetLossPercent == 0)
         #expect(stats.minRTTMs == 1.0)
         #expect(stats.maxRTTMs == 3.0)
@@ -257,14 +257,14 @@ struct WiFiStressTestAggregatorTests {
 
     @Test("partial loss — packetsSent exceeds rtts.count")
     func partialLoss() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 10, rttsMs: Array(repeating: 5.0, count: 7), cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 10, rttsMs: Array(repeating: 5.0, count: 7), cpuSamples: [], duration: 1.0)
         #expect(stats.packetLossPercent == 30)
         #expect(stats.packetsReceived == 7)
     }
 
     @Test("total loss — empty rtts, every RTT field nil")
     func totalLoss() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 5, rttsMs: [], cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 5, rttsMs: [], cpuSamples: [], duration: 1.0)
         #expect(stats.packetLossPercent == 100)
         #expect(stats.minRTTMs == nil)
         #expect(stats.avgRTTMs == nil)
@@ -274,13 +274,13 @@ struct WiFiStressTestAggregatorTests {
 
     @Test("zero packets sent doesn't divide by zero")
     func zeroSent() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 0, rttsMs: [], cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 0, rttsMs: [], cpuSamples: [], duration: 1.0)
         #expect(stats.packetLossPercent == 0)
     }
 
     @Test("single sample has zero stddev")
     func singleSample() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [4.2], cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [4.2], cpuSamples: [], duration: 1.0)
         #expect(stats.stddevRTTMs == 0)
     }
 
@@ -289,23 +289,34 @@ struct WiFiStressTestAggregatorTests {
     /// sample stddev (÷N-1) — the two clearly differ for this input.
     @Test("stddev is population, not sample")
     func populationNotSample() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 4, rttsMs: [1.0, 2.0, 3.0, 4.0], cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 4, rttsMs: [1.0, 2.0, 3.0, 4.0], cpuSamples: [], duration: 1.0)
         #expect(abs(stats.stddevRTTMs! - 1.1180) < 0.001)   // population ≈ 1.118
         #expect(abs(stats.stddevRTTMs! - 1.2910) > 0.001)   // sample ≈ 1.291 — must not match
     }
 
     @Test("empty CPU samples yield nil, not zero")
     func emptyCPUSamples() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [1.0], cpuSamples: [])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [1.0], cpuSamples: [], duration: 1.0)
         #expect(stats.peakCPUPercent == nil)
         #expect(stats.avgCPUPercent == nil)
     }
 
     @Test("CPU peak and average are computed correctly")
     func cpuPeakAndAverage() {
-        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [1.0], cpuSamples: [10, 50, 30])
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [1.0], cpuSamples: [10, 50, 30], duration: 1.0)
         #expect(stats.peakCPUPercent == 50)
         #expect(stats.avgCPUPercent == 30)
+    }
+
+    @Test("packet rate and bandwidth are derived from packetsSent and duration, not received count")
+    func rateAndBandwidth() {
+        // 1000 attempted over 2s = 500 pkt/s; at 1500 on-wire bytes/packet
+        // that's 500 * 1500 * 8 / 1_000_000 = 6 Mbps -- using packetsSent
+        // (2 lost) rather than packetsReceived, since this figure answers
+        // "how hard did we drive the link," not "how much arrived."
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1000, rttsMs: Array(repeating: 2.0, count: 998), cpuSamples: [], duration: 2.0)
+        #expect(stats.packetsPerSecond == 500)
+        #expect(abs(stats.megabitsPerSecond - 6.0) < 0.0001)
     }
 }
 

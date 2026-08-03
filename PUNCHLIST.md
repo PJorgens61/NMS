@@ -283,9 +283,19 @@ new ones as they come up.
   shipped copy states it plainly rather than hedging about the
   Windows/macOS split.
 
-- [ ] **A local Wi-Fi stress test: many concurrent MTU-sized ping
-  streams to the local router for ~1 second, plus TCP/UDP ideas for
-  testing further out.** Raised directly, motivated by validating the
+- [x] ~~A local Wi-Fi stress test: many concurrent MTU-sized ping
+  streams to the local router for ~1 second.~~ **Built** (`90f584f`) as
+  the "Local Stress Test" tile — reports packet loss and RTT min/avg/
+  max/stddev across the burst, plus this Mac's own CPU load during it
+  (`CPULoadSampler`). Matches the design below: N independent concurrent
+  `ping -c 1 -s 1472 -D` streams, no `-f`/flood mode, no elevated
+  privileges. Gated on a known router address (`currentInterface?.routerAddress`)
+  and works over Ethernet too, not just Wi-Fi — the mechanism doesn't
+  care which link carries it, so the tile is titled "Local," not
+  "Wi-Fi." Ships with the "generates real traffic" framing flagged
+  below: an opt-in confirmation alert before the first run per launch.
+  The TCP/UDP idea below is still open — this only covers the local-hop
+  ping stress test. Raised directly, motivated by validating the
   local Wi-Fi specifically *before* trusting any test that crosses the
   internet — several test networks used this session had slow DSL,
   where an internet-facing test can't tell you whether a problem is
@@ -381,12 +391,12 @@ new ones as they come up.
   max, maybe stddev) during the burst — that's the real diagnostic
   payoff, not just confirmation that load was generated.
 
-  **TCP/UDP, for testing further out than the local hop — separate
-  from the local Wi-Fi test above, and less developed.** TCP/UDP echo
-  (RFC 862/863) is confirmed dead on modern equipment — raised
-  directly ("I think that idea is no longer supported"), matches this
-  app's own existing HTTP-based approach elsewhere. What actually works
-  instead:
+- [ ] **TCP/UDP stress-test ideas for testing further out than the
+  local hop** — separate from the local Wi-Fi ping stress test above
+  (now built), and less developed. TCP/UDP echo (RFC 862/863) is
+  confirmed dead on modern equipment — raised directly ("I think that
+  idea is no longer supported"), matches this app's own existing
+  HTTP-based approach elsewhere. What actually works instead:
   - **TCP**: no echo needed — open a real connection to something
     guaranteed to answer and push/pull a bulk transfer, timed. This is
     exactly `NetworkQualityService`'s existing probe/full-transfer
@@ -404,8 +414,7 @@ new ones as they come up.
   **Still not decided**: whether the TCP/UDP half ships standalone or
   waits on the external-checker project (for UDP's receive-side
   requirement specifically) — a scoping question raised and not yet
-  answered. Doesn't block the local Wi-Fi ping-stress test above, which
-  stands on its own with no external dependency.
+  answered.
 
 - [x] ~~Give Apple's `networkQuality` its own tile, separate from
   Speed Test.~~ **Shipped** (`4eb6f81`): a dedicated "Apple

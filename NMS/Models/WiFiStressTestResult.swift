@@ -22,6 +22,14 @@ struct WiFiStressTestResult: Equatable, Codable {
     /// from "this Mac's own fork/exec rate is."
     let peakCPUPercent: Double?
     let avgCPUPercent: Double?
+    /// Attempted send rate/bandwidth achieved during the burst — see
+    /// `WiFiStressTestAggregator.aggregate`'s own comment on why
+    /// attempted rather than received. Persisted (not just recomputed
+    /// from `packetsSent`/a fixed duration constant) so a run's actual
+    /// achieved rate stays accurate in history even if the burst
+    /// duration or interval this app uses changes later.
+    let packetsPerSecond: Double
+    let megabitsPerSecond: Double
     let routerAddress: String
     let isWiFi: Bool
     let testedAt: Date

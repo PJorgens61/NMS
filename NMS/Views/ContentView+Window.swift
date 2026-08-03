@@ -659,6 +659,15 @@ extension ContentView {
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
+                    // Attempted send rate, not received -- "how hard did
+                    // this run actually drive the link," the figure
+                    // worth watching live on a field test to judge
+                    // whether a run pushed enough load to be meaningful
+                    // on the network in front of it. See
+                    // `WiFiStressTestAggregator.aggregate`'s own comment.
+                    Text(String(format: "%.0f pkt/s · %.1f Mbps attempted", run.packetsPerSecond, run.megabitsPerSecond))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
