@@ -6,8 +6,11 @@ xcuserdata/
 .swiftpm/
 *.profraw
 # Local Claude Code settings (Bash allowlist) — machine-specific, not
-# something a clone should inherit.
-.claude/
+# something a clone should inherit. `skills/` is the one exception:
+# skill definitions are project tooling, not per-machine config, and are
+# worth sharing with anyone else working in this repo.
+.claude/*
+!.claude/skills/
 
 # A snapshot of a real, populated SwiftData store, used as a test fixture
 # by script/save-fixture.sh / script/scenarios.sh-style scripts so tests
