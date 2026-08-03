@@ -10,14 +10,25 @@ import Combine
 /// section.
 @MainActor
 final class NetworkQualityViewModel: ObservableObject {
+    /// Which source is currently running, `nil` if neither is — replaces a
+    /// plain `isRunning: Bool` now that Cloudflare throughput and Apple's
+    /// `networkQuality` live in separate tiles (`PUNCHLIST.md`'s "Give
+    /// Apple's networkQuality its own tile"). Still exactly one flag, not
+    /// two independent ones: the two sources still can't usefully run
+    /// concurrently (see `run()`/`runAppleTest(interfaceName:)`'s own
+    /// comments — they'd contend for the same link and understate both),
+    /// so this stays the single source of truth for "is a test running at
+    /// all," while also letting each tile show "Testing…" only when *it*
+    /// is the one running, rather than both tiles claiming that at once.
+    ///
     /// Instrumented for the UI state log — see BUGS.md's "Speed Test times
     /// out... with no telemetry to say why." Before this, a real timeout
     /// left no trace of which stage (probe or full transfer) was in
     /// flight, or how far it got, in `ui-state.log`/state dumps/bug
     /// reports — every other check in this app logs its running/error
     /// state this way already.
-    @Published private(set) var isRunning = false {
-        didSet { UIStateLogger.log("NetworkQualityViewModel.isRunning", isRunning) }
+    @Published private(set) var runningSource: NetworkQualityResult.Source? {
+        didSet { UIStateLogger.log("NetworkQualityViewModel.runningSource", runningSource?.rawValue as Any) }
     }
     @Published private(set) var lastError: String? {
         didSet { UIStateLogger.log("NetworkQualityViewModel.lastError", lastError as Any) }
@@ -25,6 +36,51 @@ final class NetworkQualityViewModel: ObservableObject {
     @Published private(set) var recentRuns: [NetworkQualityRecord] = [] {
         didSet { UIStateLogger.log("NetworkQualityViewModel.recentRuns", recentRuns) }
     }
+
+    /// The most recent Apple `networkQuality` run's full `-v` report, for
+    /// the "View Full Report" button — raised directly, experts want more
+    /// than this app's own summary. In-memory only, not persisted
+    /// alongside `NetworkQualityRecord`: every historical run's full
+    /// verbose text would be a meaningfully larger, unbounded-growth
+    /// column for a detail nobody browses historically, only right after
+    /// running it. Overwritten by each new run, `nil` again after a
+    /// network change (`reloadHistory` doesn't touch this — it's tied to
+    /// "the last thing this session actually ran," not per-network state).
+    @Published private(set) var latestAppleVerboseOutput: String?
+
+    /// Whether *either* source is running — the shared mutual-exclusion
+    /// guard both `run()` and `runAppleTest(interfaceName:)` check, and
+    /// what both tiles' buttons disable on, so starting one test always
+    /// disables the other's button too.
+    var isRunning: Bool { runningSource != nil }
+
+    /// Cloudflare-endpoint runs only, newest first — what the Speed Test
+    /// tile's history shows now that Apple's runs have their own tile and
+    /// their own filtered list (`appleRuns`) instead of one shared,
+    /// source-tagged feed.
+    var cloudflareRuns: [NetworkQualityRecord] {
+        recentRuns.filter { $0.source == NetworkQualityResult.Source.cloudflareEndpoint.rawValue }
+    }
+
+    /// Apple `networkQuality` runs only, newest first — see `cloudflareRuns`.
+    var appleRuns: [NetworkQualityRecord] {
+        recentRuns.filter { $0.source == NetworkQualityResult.Source.appleNetworkQuality.rawValue }
+    }
+
+    /// The popover's ~5s quick check — raised directly, for a business
+    /// user who wants "is this OK for a call right now" without the full
+    /// test's ~30s/GB-scale cost. Independent of `runningSource`: this
+    /// writes no `NetworkQualityResult` at all (nothing to persist —
+    /// see `AppleNetworkQualityService.measureQuick`'s own doc comment on
+    /// why parallel mode's combined RPM is the whole point, not a
+    /// downgrade), so it isn't one of the two history sources that flag
+    /// share. Still mutually exclusive with both, though — see
+    /// `runQuickCheck`'s own doc comment.
+    @Published private(set) var isRunningQuickCheck = false {
+        didSet { UIStateLogger.log("NetworkQualityViewModel.isRunningQuickCheck", isRunningQuickCheck) }
+    }
+    @Published private(set) var quickCheckStatus: QuickCheckStatus?
+    @Published private(set) var quickCheckError: String?
 
     private let service = NetworkQualityService()
     private let appleService = AppleNetworkQualityService()
@@ -83,21 +139,28 @@ final class NetworkQualityViewModel: ObservableObject {
     /// understate both numbers, which defeats the entire point of a
     /// speed test. Slower overall than running them in parallel, but the
     /// only way to get an accurate independent reading of each direction.
+    ///
+    /// Also guarded against the popover's quick check
+    /// (`isRunningQuickCheck`) — three different tests, but all three
+    /// contend for the same link, so any two running at once would
+    /// understate/pollute both readings.
     func run() {
-        guard !isRunning else { return }
-        isRunning = true
+        guard !isRunning, !isRunningQuickCheck else { return }
+        runningSource = .cloudflareEndpoint
         lastError = nil
         Task {
             let start = Date()
             do {
-                let downloadMbps = try await service.measureDownload()
-                let uploadMbps = try await service.measureUpload()
+                let download = try await service.measureDownload()
+                let upload = try await service.measureUpload()
                 let result = NetworkQualityResult(
-                    downloadMbps: downloadMbps,
-                    uploadMbps: uploadMbps,
+                    downloadMbps: download.mbps,
+                    uploadMbps: upload.mbps,
                     downloadResponsivenessRPM: nil,
                     uploadResponsivenessRPM: nil,
                     baseRTTMs: nil,
+                    downloadBytesTransferred: download.bytes,
+                    uploadBytesTransferred: upload.bytes,
                     source: .cloudflareEndpoint,
                     testedAt: Date()
                 )
@@ -106,7 +169,7 @@ final class NetworkQualityViewModel: ObservableObject {
             } catch {
                 await Self.waitOutMinimumDuration(since: start)
                 lastError = error.localizedDescription
-                isRunning = false
+                runningSource = nil
             }
         }
     }
@@ -125,8 +188,8 @@ final class NetworkQualityViewModel: ObservableObject {
     /// interface state, and a single `String?` parameter isn't worth
     /// adding one just to avoid passing it in.
     func runAppleTest(interfaceName: String?) {
-        guard !isRunning else { return }
-        isRunning = true
+        guard !isRunning, !isRunningQuickCheck else { return }
+        runningSource = .appleNetworkQuality
         lastError = nil
         let appleService = self.appleService
         let start = Date()
@@ -143,19 +206,22 @@ final class NetworkQualityViewModel: ObservableObject {
                         downloadResponsivenessRPM: measurement.downloadResponsivenessRPM,
                         uploadResponsivenessRPM: measurement.uploadResponsivenessRPM,
                         baseRTTMs: measurement.baseRTTMs,
+                        downloadBytesTransferred: measurement.downloadBytesTransferred,
+                        uploadBytesTransferred: measurement.uploadBytesTransferred,
                         source: .appleNetworkQuality,
                         testedAt: Date()
                     )
+                    self.latestAppleVerboseOutput = measurement.verboseOutput
                     self.apply(result)
                 case .failure(.unavailable):
                     self.lastError = "networkQuality not found — unavailable on this macOS version."
-                    self.isRunning = false
+                    self.runningSource = nil
                 case let .failure(.processFailed(code)):
                     self.lastError = "networkQuality exited with status \(code)."
-                    self.isRunning = false
+                    self.runningSource = nil
                 case .failure(.unparseable):
                     self.lastError = "networkQuality produced unreadable output."
-                    self.isRunning = false
+                    self.runningSource = nil
                 }
             }
         }
@@ -168,8 +234,75 @@ final class NetworkQualityViewModel: ObservableObject {
     }
 
     private func apply(_ result: NetworkQualityResult) {
-        isRunning = false
+        runningSource = nil
         snapshotStore.recordNetworkQualityResult(result)
         recentRuns = snapshotStore.fetchNetworkQualityHistory()
+    }
+
+    /// The popover's own on-demand check — see `isRunningQuickCheck`'s
+    /// doc comment for why this is guarded against `run()`/
+    /// `runAppleTest(interfaceName:)` too, not just re-entrance against
+    /// itself. No `waitOutMinimumDuration` floor the way the other two
+    /// have: at a real ~5s runtime, there's no risk of finishing too fast
+    /// to register as "it did something" the way a sub-second Cloudflare
+    /// probe could.
+    func runQuickCheck(interfaceName: String?) {
+        guard !isRunning, !isRunningQuickCheck else { return }
+        isRunningQuickCheck = true
+        quickCheckError = nil
+        let appleService = self.appleService
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let outcome = appleService.measureQuick(interfaceName: interfaceName)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isRunningQuickCheck = false
+                switch outcome {
+                case let .success(rpm):
+                    self.quickCheckStatus = QuickCheckStatus(rpm: rpm)
+                case .failure(.unavailable):
+                    self.quickCheckError = "networkQuality unavailable"
+                case let .failure(.processFailed(code)):
+                    self.quickCheckError = "check failed (status \(code))"
+                case .failure(.unparseable):
+                    self.quickCheckError = "check produced unreadable output"
+                }
+            }
+        }
+    }
+}
+
+/// A ~5s popover check's verdict — see
+/// `AppleNetworkQualityService.measureQuick(interfaceName:)`. Thresholds
+/// match the same RPM reference points already sourced for the Apple
+/// networkQuality tile's own tooltip
+/// (`ContentView+Window.rpmThresholdHelp`): above ~2000 is excellent,
+/// under ~800 suggests bufferbloat — kept identical rather than inventing
+/// a second set of cutoffs for what's fundamentally the same signal at a
+/// shorter runtime.
+enum QuickCheckStatus {
+    case good(rpm: Int)
+    case fair(rpm: Int)
+    case poor(rpm: Int)
+
+    init(rpm: Int) {
+        switch rpm {
+        case 2000...: self = .good(rpm: rpm)
+        case 800..<2000: self = .fair(rpm: rpm)
+        default: self = .poor(rpm: rpm)
+        }
+    }
+
+    var rpm: Int {
+        switch self {
+        case let .good(rpm), let .fair(rpm), let .poor(rpm): return rpm
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .good: return "Good"
+        case .fair: return "Fair"
+        case .poor: return "Poor"
+        }
     }
 }

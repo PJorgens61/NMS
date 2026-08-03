@@ -96,6 +96,10 @@ struct ContentView: View {
     // even between extensions of the same type.
     @State var communityDraft: String = ""
     @State var isEditingCommunity = false
+    /// Backs the Apple networkQuality tile's "View Full Report" button —
+    /// see `appleNetworkQualityTileContent` in `ContentView+Window.swift`.
+    /// Not `private`, same cross-file reason as `communityDraft` above.
+    @State var isShowingAppleVerboseOutput = false
     /// Backs the footer's "Bug Report" button — see `bugReportRow` and
     /// `submitBugReport`.
     @State private var bugReportDraft: String = ""
@@ -176,18 +180,26 @@ struct ContentView: View {
                 footerBar
             }
             .padding(12)
-            // Widened from the original 335pt for the DHCP History section,
-            // then brought back down from a first attempt at 670pt (a single
-            // *unbroken* line of full lease detail) once that line wrapped to
-            // two instead — 670pt then just left every section with wide,
-            // pointless gaps between labels and values, confirmed directly:
-            // the widest wrapped DHCP line (bcast/gateway/DNS/domain/lease-
-            // T1-T2/xid) measured to ~440pt of actual text, against a screenshot
-            // of a real lease. 560pt covers that with headroom for a slightly
-            // longer domain or an extra DNS server, without carrying 670pt's
-            // dead space. Every section still has `.lineLimit(1)` truncation
-            // as its fallback regardless.
-            .frame(width: 560)
+            // 560→640, raised directly ("wider is OK") once
+            // `connectionHealthSection`'s `Grid` conversion (see that
+            // property's own doc comment) exposed a real width shortage:
+            // sharing one column width across every row meant a long
+            // label ("ISP Edge Router") and a long value ("Home
+            // Ethernet") could no longer both fit at 560pt the way they
+            // did under the old per-row-independent `HStack`/`Spacer`
+            // layout, so one or the other started truncating on every
+            // row, not just its own. 640pt was picked to comfortably fit
+            // both in the same row alongside a sparkline and icon column,
+            // not measured to an exact pixel minimum — some headroom
+            // rather than a repeat of this exact class of bug the moment
+            // a slightly longer label/value shows up.
+            //
+            // Was 560 (widened from an original 335pt for the DHCP
+            // History section, back when that still rendered here before
+            // the audience split moved it window-only; see `git blame`
+            // for that history if useful). Every section still has
+            // `.lineLimit(1)` truncation as its fallback regardless.
+            .frame(width: 640)
         }
     }
 
@@ -586,7 +598,29 @@ struct ContentView: View {
     /// on one tile, so the exact number here stops being load-bearing — a
     /// row added or removed from any section's content just changes how
     /// much of it needs a scroll, never whether it renders at all.
-    static let tileHeight: CGFloat = 180
+    ///
+    /// **Bumped 180→270 (+50%), then back down to 210 — both changes
+    /// raised directly.** The first bump gave deliberate headroom for the
+    /// popover's new "Video Call Check" row
+    /// (`connectionHealthSection`'s `quickCheckGridRow`), but 270 turned
+    /// out to overshoot: confirmed live, it left visible empty space
+    /// below Network Health/Info's actual content (8 rows fits in
+    /// meaningfully less than 270pt). 210 keeps real headroom over the
+    /// original 180 — which already left this exact tile needing to
+    /// scroll occasionally, by design (see above) — without the
+    /// obviously-wasted space 270 produced. Since this constant is shared
+    /// across surfaces (see this property's own history above), it grows
+    /// every tile that uses it — Network Health/Info on both surfaces,
+    /// Path to Internet/Speed Test/Apple networkQuality in the window — not
+    /// just the
+    /// popover row that motivated it. **Not verified against the M1
+    /// MacBook Air** — the one machine this budget has actually broken on
+    /// before (see `SectionLayout.estimatedPopoverCeiling`'s own
+    /// "Unconfirmed" framing) — worth an actual `liveHeight` reading
+    /// there rather than assuming any bump is automatically safe just
+    /// because today's popover has fewer sections than when 770pt was
+    /// last measured.
+    static let tileHeight: CGFloat = 210
 
     /// A bordered box with a header row (title, plus an optional trailing
     /// accessory like "Trace Now") — the visual unit tiles in the grid
@@ -998,6 +1032,28 @@ struct ContentView: View {
         connectionLayersLowToHigh.first { $0.status == .unhealthy }?.id
     }
 
+    /// **Reverted from a `Grid` conversion, same session — a real bug, not
+    /// a style preference.** `Grid`/`GridRow` correctly aligned the Router
+    /// and Call Check rows' icons, but broke something worse: every row's
+    /// label rendered with its first character clipped, confirmed live
+    /// across two independent screenshots. `NoBounceScrollView` (this
+    /// tile's `NSHostingView`/`NSScrollView` wrapper) has a documented
+    /// history of not perfectly tracking SwiftUI's intrinsic sizing for
+    /// certain content (see that type's own doc comment on a past
+    /// vertical-clipping bug with the same never-fully-pinned-down root
+    /// cause) — `Grid` is exactly the kind of newer, more structured
+    /// layout container likely to trigger a horizontal version of that
+    /// same interop quirk. The proven fix for that bug class has always
+    /// been to stop using the incompatible SwiftUI feature inside this
+    /// container rather than patch around it (see `ContentView
+    /// +Window.swift`'s `sysDescrLines` splitting away from one
+    /// auto-wrapping `Text` for the analogous reason) — so back to plain
+    /// `HStack`/`Spacer` rows here too. Icon alignment is now
+    /// approximate again, not pixel-exact — accepted deliberately, using
+    /// the popover's own extra width (`ContentView.body`'s 560→640
+    /// bump) to make that gap small enough not to matter, rather than
+    /// fighting for exactness with a layout tool that broke content
+    /// legibility to get it.
     @ViewBuilder
     private var connectionHealthSection: some View {
         let layers = connectionLayersLowToHigh
@@ -1019,16 +1075,13 @@ struct ContentView: View {
                             accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
                         )
                     }
-                    // Inline rather than on its own row: sized to one
-                    // line of text, so it costs width but no height —
-                    // the popover fits a 13" MacBook Air exactly.
                     // Network's own sparkline (Wi-Fi only — Ethernet has
                     // no signal strength to chart) uses RSSI history from
                     // `wifiSSID.recentSamples`, not `latencyHistory`: this
                     // row isn't a ping-latency check, so `latencyHistory`
-                    // has no entry for it at all (confirmed absent below).
-                    // Same values/reversal `wifiSection`'s own Signal row
-                    // already uses for the identical chart.
+                    // has no entry for it at all. Same values/reversal
+                    // `wifiSection`'s own Signal row already uses for the
+                    // identical chart.
                     if layer.id == "network", viewModel.currentInterface?.isWiFi == true {
                         if wifiSSID.recentSamples.count > 1 {
                             Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
@@ -1049,6 +1102,24 @@ struct ContentView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
             }
+
+            // Popover-only — raised directly, for a business user who
+            // wants "is this OK for a call right now" from the menu bar
+            // without opening Expert Mode. Not shown in the window: the
+            // full Apple networkQuality tile is already one glance away
+            // there, so a second, redundant quick version would just be
+            // clutter. First on-demand test the popover has ever had —
+            // every other popover row is a passive, near-zero-cost ping
+            // check; this one costs a real ~5s and real (if smaller)
+            // data, the same category of cost that kept the full tests
+            // window-only in the first place. Living inside Network
+            // Health's own already-fixed-height, already-scrolling box
+            // rather than as a new tile: no extra height budget spent,
+            // same "scroll absorbs whatever doesn't fit" mechanism this
+            // box already relies on.
+            if surface != .window {
+                quickCheckRow
+            }
         }
         // Loaded when the section appears rather than kept continuously
         // up to date — the popover is shut almost all the time. Keyed on
@@ -1058,6 +1129,87 @@ struct ContentView: View {
         .task(id: connectivity.lastCheckedAt) {
             latencyHistory = connectivity.latencyHistory()
         }
+    }
+
+    /// Same row shape every layer row above uses — plain `HStack`/
+    /// `Spacer`, not `Grid` (see `connectionHealthSection`'s own doc
+    /// comment for why). An icon button styled identically to
+    /// `externalLinkIcon`, in the same position, so it lands close to the
+    /// Router row's link icon without needing exact alignment guarantees.
+    /// The dot stays gray until a result exists — never claims a verdict
+    /// it hasn't earned.
+    private var quickCheckRow: some View {
+        HStack {
+            Circle()
+                .fill(quickCheckColor)
+                .frame(width: 8, height: 8)
+                // Same tooltip the Expert Mode tile's own RPM figures use
+                // (`ContentView+Window.rpmThresholdHelp`) — raised
+                // directly, so the two surfaces' colored verdicts explain
+                // themselves the same way.
+                .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
+            // "Call Check" not "Video Call Check" — reported directly:
+            // the longer label was squeezing the result text into
+            // truncating (this row's label is otherwise the longest of
+            // any in this list, unlike "Router"/"Network"/"HTTP").
+            Text("Call Check")
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button {
+                networkQuality.runQuickCheck(interfaceName: viewModel.currentInterface?.interfaceName)
+            } label: {
+                Image(systemName: "play.circle")
+                    .imageScale(.small)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(networkQuality.isRunningQuickCheck || networkQuality.isRunning)
+            .accessibilityLabel("Video Call Check")
+            .accessibilityHint("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
+            .accessibilityIdentifier("networkHealth.quickCheck")
+            .appKitToolTip(
+                "Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.",
+                enabled: !isCapturingScreenshot
+            )
+            Text(quickCheckDetailText)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.system(size: 12))
+    }
+
+    private var quickCheckColor: Color {
+        guard let status = networkQuality.quickCheckStatus else { return .gray }
+        return Self.statusColor(forRPM: status.rpm)
+    }
+
+    /// The single green/yellow/red mapping both the popover's quick check
+    /// and the Expert Mode "Apple networkQuality" tile's history rows use
+    /// — raised directly, so a given RPM number reads the same color in
+    /// either place rather than each surface inventing its own cutoffs.
+    /// Not `private`: called from `ContentView+Window.swift`'s
+    /// `appleQualityRows`, and Swift's `private` doesn't cross files even
+    /// between extensions of the same type. Thresholds match
+    /// `QuickCheckStatus`'s own (the shared source of truth for "what
+    /// counts as good") rather than duplicating the numbers here.
+    static func statusColor(forRPM rpm: Int) -> Color {
+        switch QuickCheckStatus(rpm: rpm) {
+        case .good: return .green
+        case .fair: return .yellow
+        case .poor: return .red
+        }
+    }
+
+    private var quickCheckDetailText: String {
+        if networkQuality.isRunningQuickCheck { return "Checking…" }
+        if let error = networkQuality.quickCheckError { return error }
+        // Shorter than "\(status.label) — \(status.rpm) RPM" (tried
+        // first) — that version truncated in the middle of the RPM
+        // number once the label above was long enough to squeeze it.
+        if let status = networkQuality.quickCheckStatus { return "\(status.label) (\(status.rpm))" }
+        return "Tap to check"
     }
 
     private func layerColor(for layer: ConnectionLayer) -> Color {
@@ -1329,6 +1481,12 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(accessibilityHint)
+            // Same string as the VoiceOver hint above, shown as a real
+            // hover tooltip too — raised directly. Plain SwiftUI `.help`
+            // doesn't work in this app's popover (see `appKitToolTip`'s
+            // own doc comment), so every icon-only button here was
+            // mouse-undiscoverable until now.
+            .appKitToolTip(accessibilityHint, enabled: !isCapturingScreenshot)
         }
     }
 

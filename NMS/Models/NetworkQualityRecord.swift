@@ -20,6 +20,16 @@ final class NetworkQualityRecord {
     var downloadResponsivenessRPM: Int? = nil
     var uploadResponsivenessRPM: Int? = nil
     var baseRTTMs: Double? = nil
+    /// Same safe-migration shape as the fields above — added later,
+    /// optional with a default, so existing rows just read back as `nil`
+    /// (correct: they predate this and genuinely have no recorded byte
+    /// count). Real, exact figures for an Apple-sourced run
+    /// (`dl_bytes_transferred`/`ul_bytes_transferred`); for a
+    /// Cloudflare-sourced run, the exact size NMS itself requested
+    /// (`NetworkQualityService.measureDownload`/`measureUpload`'s probe-
+    /// or-full-size decision) — precise either way, never estimated.
+    var downloadBytesTransferred: Int? = nil
+    var uploadBytesTransferred: Int? = nil
     var source: String = NetworkQualityResult.Source.cloudflareEndpoint.rawValue
     /// See `AppEventRecord.networkFingerprint` — same scoping, same `nil`
     /// meaning. Added after offsite testing reported a previous network's
@@ -37,6 +47,8 @@ final class NetworkQualityRecord {
         downloadResponsivenessRPM = result.downloadResponsivenessRPM
         uploadResponsivenessRPM = result.uploadResponsivenessRPM
         baseRTTMs = result.baseRTTMs
+        downloadBytesTransferred = result.downloadBytesTransferred
+        uploadBytesTransferred = result.uploadBytesTransferred
         source = result.source.rawValue
         self.networkFingerprint = networkFingerprint
     }

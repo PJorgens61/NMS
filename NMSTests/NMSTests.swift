@@ -1074,16 +1074,18 @@ struct SectionLayoutTests {
         }
     }
 
-    @Test("Path to Internet and Speed Test both opt out of SectionLayout's own box height")
+    @Test("Path to Internet, Speed Test, and Apple networkQuality all opt out of SectionLayout's own box height")
     func tileGridPartnersSkipDeclaredHeight() {
         // Superseded by `ContentView.tileHeight`: Path to Internet, Speed
-        // Test, Network Health, and Info now all share one literal
-        // constant passed directly to `tile(fixedHeight:)`, so matching
-        // height is guaranteed by construction rather than by declaring
-        // two equal values here. These two return `nil` from this table
-        // entirely — see `SectionLayout.boxHeight(on:)`'s doc comment.
+        // Test, Apple networkQuality, Network Health, and Info now all
+        // share one literal constant passed directly to
+        // `tile(fixedHeight:)`, so matching height is guaranteed by
+        // construction rather than by declaring equal values here. These
+        // three return `nil` from this table entirely — see
+        // `SectionLayout.boxHeight(on:)`'s doc comment.
         #expect(SectionLayout.pathToInternet.boxHeight(on: .window) == nil)
         #expect(SectionLayout.speedTest.boxHeight(on: .window) == nil)
+        #expect(SectionLayout.appleNetworkQuality.boxHeight(on: .window) == nil)
     }
 
     @Test("the three independently-boxed window sections are generously sized, not row-exact")

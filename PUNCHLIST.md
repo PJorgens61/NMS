@@ -8,6 +8,56 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **A local-only HTTP server, serving pages to the Mac's own default
+  browser — raised directly, connecting two separate needs.** First:
+  Apple networkQuality's verbose report currently shows as raw
+  monospace text in a native sheet
+  (`AppleNetworkQualityVerboseView`) — a real HTML page could format it
+  properly (the tool's own section structure — Capacity/Latency/
+  Protocols/Transport-layer info — maps naturally onto real headings
+  and tables). Second, and the more important connection: the network-
+  diagram idea elsewhere in this file already flagged a real, unresolved
+  privacy problem — rendering via `mermaid.ink` means this network's
+  actual topology (MACs, hostnames, IPs) leaves the device to a third
+  party. **A local HTTP server resolves that outright, not just
+  mitigates it**: serve a self-contained HTML page with Mermaid's own
+  JS bundled locally (not loaded from a CDN — that would just relocate
+  the external-dependency problem from image-rendering to script-
+  loading) and render the diagram client-side, in the browser, from
+  data that never left this Mac. Same resolution shape already used
+  once this session, for a different third-party-in-the-loop concern
+  (the external firewall-checker idea's self-hosting answer).
+
+  **Real constraints worth being explicit about before building**:
+  - **Loopback-only, always** — `127.0.0.1`, never `0.0.0.0`. Binding
+    to every interface would make locally-generated pages (containing
+    real topology/diagnostic data) reachable from other devices on the
+    LAN, the exact opposite of the privacy win this exists for.
+  - **No third-party dependency for the server itself** — this app's
+    own stated position (the website's swift-programmers section: "No
+    dependencies. None. Not one third-party package") rules out
+    reaching for a package like Vapor/Swifter. `Network.framework`'s
+    `NWListener` plus hand-written minimal HTTP/1.1 responses is
+    realistic for serving a handful of static/generated pages — this
+    isn't a general-purpose web framework's job.
+  - **On-demand lifecycle, not always-running** — start the listener
+    only when a page is about to be shown, stop it once the browser has
+    loaded it (or after a short idle window), rather than keeping a
+    server socket open for the app's entire lifetime for a feature used
+    occasionally. Smaller attack surface, matches how every other real-
+    cost feature in this app is on-demand-only (Speed Test, Apple
+    networkQuality, now the popover quick check) rather than a
+    persistent background service.
+  - **Ephemeral port, not a fixed one** — avoids ever conflicting with
+    something else already listening locally, and a random per-launch
+    path/token (defense in depth on top of the loopback binding) means
+    another local process can't casually guess the URL either.
+
+  Not yet decided: whether this becomes a small shared internal
+  service both features route through, or two independent one-off
+  implementations — worth deciding once the diagram feature is
+  actually being built, not speculatively now.
+
 - [x] ~~Website: mention bufferbloat detection (via macOS's built-in
   `networkQuality`) in the homelab section.~~ **Shipped** (`gh-pages`
   `83fcaa4`): a new homelab feat-list bullet — "Runs Apple's own

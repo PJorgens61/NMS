@@ -31,6 +31,19 @@ struct NetworkQualityResult: Equatable, Codable {
     /// load. `nil` for a Cloudflare-endpoint result, same reasoning as
     /// the RPM fields above.
     let baseRTTMs: Double?
+    /// Real, exact byte counts from `networkQuality`'s own JSON output
+    /// (`dl_bytes_transferred`/`ul_bytes_transferred` — undocumented in
+    /// the man page, confirmed present in every real run regardless),
+    /// not derived from throughput × elapsed time. `nil` for a
+    /// Cloudflare-endpoint result, same reasoning as the RPM fields
+    /// above — though notably, unlike RPM, that's a real gap rather than
+    /// "no equivalent": NMS already knows exactly how many bytes it
+    /// requested for a Cloudflare run (it chose the size itself), that
+    /// figure just isn't threaded into this type yet. Raised directly:
+    /// showing this lets a user judge whether to run the test again on a
+    /// metered or limited connection, rather than guessing from "~30s."
+    let downloadBytesTransferred: Int?
+    let uploadBytesTransferred: Int?
     let source: Source
     let testedAt: Date
 }

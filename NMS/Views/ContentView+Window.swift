@@ -64,15 +64,48 @@ extension ContentView {
             }
             if SectionLayout.speedTest.appears(on: surface) {
                 tile(title: "Speed Test", fixedHeight: ContentView.tileHeight, trailing: {
-                    Button(networkQuality.isRunning ? "Testing…" : "Run Speed Test") {
+                    // `runningSource == .cloudflareEndpoint`, not the
+                    // shared `isRunning` — so this button only claims
+                    // "Testing…" when *this* tile's own test is the one
+                    // running, not whenever Apple networkQuality's tile
+                    // is. `.disabled(isRunning)` still uses the shared
+                    // flag: the two tests can't run concurrently either
+                    // way (see `NetworkQualityViewModel.runningSource`'s
+                    // doc comment), so this button is inert while the
+                    // other tile's test is in flight too, just without
+                    // claiming to be the one doing the work.
+                    Button(networkQuality.runningSource == .cloudflareEndpoint ? "Testing…" : "Run Speed Test") {
                         networkQuality.run()
                     }
                     .disabled(networkQuality.isRunning)
-                    .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Speed Test")
+                    .accessibilityLabel(networkQuality.runningSource == .cloudflareEndpoint ? "Testing" : "Run Speed Test")
                     .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
                     .accessibilityIdentifier("speedTest.runCloudflare")
                 }) {
                     speedTestTileContent
+                }
+            }
+            if SectionLayout.appleNetworkQuality.appears(on: surface), networkQuality.isAppleTestAvailable {
+                // A separate tile from Speed Test — see `PUNCHLIST.md`'s
+                // "Give Apple's networkQuality its own tile," raised
+                // directly out of concern that a genuinely distinct,
+                // interesting result (bufferbloat/responsiveness under
+                // load, not just raw Mbps) was easy to miss as a small,
+                // secondary button buried inside Speed Test's tile.
+                // Titled with the literal binary name, capitalized the
+                // way Apple ships it — the "this is a macOS built-in
+                // feature, not something NMS invented" connection the
+                // punchlist item asked to make explicit.
+                tile(title: "Apple networkQuality", fixedHeight: ContentView.tileHeight, trailing: {
+                    Button(networkQuality.runningSource == .appleNetworkQuality ? "Testing…" : "Run Test") {
+                        networkQuality.runAppleTest(interfaceName: viewModel.currentInterface?.interfaceName)
+                    }
+                    .disabled(networkQuality.isRunning)
+                    .accessibilityLabel(networkQuality.runningSource == .appleNetworkQuality ? "Testing" : "Run Apple networkQuality")
+                    .accessibilityHint("Runs Apple's own network quality test: throughput plus responsiveness under load. Uses your data plan and takes about 30 seconds.")
+                    .accessibilityIdentifier("appleNetworkQuality.run")
+                }) {
+                    appleNetworkQualityTileContent
                 }
             }
         }
@@ -272,37 +305,20 @@ extension ContentView {
     /// here from the header once the button moved into the tile's
     /// trailing slot, matching Path to Internet's "Trace Now"), any
     /// error, then the recent-runs list.
+    ///
+    /// Cloudflare-only now — Apple's `networkQuality` moved to its own
+    /// tile (`appleNetworkQualityTileContent`) once it stopped sharing
+    /// `isRunning`/`lastError` display state that could belong to either
+    /// test (see `NetworkQualityViewModel.runningSource`). `lastError` is
+    /// still one shared property underneath — the two tests still can't
+    /// run concurrently — but since only one can ever be in flight at a
+    /// time, showing it under whichever tile's test actually produced it
+    /// is unambiguous in practice, not a display bug waiting to happen.
     @ViewBuilder
     var speedTestTileContent: some View {
-        HStack {
-            Text("up to ~50MB per run")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            Spacer()
-            // Secondary, plain-styled — this tile already has one
-            // first-class action (the header's "Run Speed Test"); a
-            // second prominent button competing for the same slot would
-            // suggest a choice that doesn't need to be made every time.
-            // Shares `isRunning`/`recentRuns` with the Cloudflare path
-            // rather than getting its own tile: both are answers to
-            // "how's my connection right now," just at different costs
-            // (~1s vs ~30s) and depths (throughput vs. throughput +
-            // responsiveness under load) — one history, one place to
-            // compare them, matching how this was originally scoped in
-            // DESIGN-NOTES.md before the RPM half was deferred.
-            if networkQuality.isAppleTestAvailable {
-                Button(networkQuality.isRunning ? "Testing…" : "Run Network Quality") {
-                    networkQuality.runAppleTest(interfaceName: viewModel.currentInterface?.interfaceName)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .disabled(networkQuality.isRunning)
-                .accessibilityLabel(networkQuality.isRunning ? "Testing" : "Run Network Quality")
-                .accessibilityHint("Runs Apple's own network quality test: throughput plus responsiveness under load. Uses your data plan and takes about 30 seconds.")
-                .accessibilityIdentifier("speedTest.runAppleNetworkQuality")
-            }
-        }
+        Text("up to ~50MB per run")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
         speedTestList
         if let error = networkQuality.lastError {
             Text(error)
@@ -311,18 +327,18 @@ extension ContentView {
         }
     }
 
-    /// Every real speed-test run, newest first — a genuine time series
-    /// (see `NetworkQualityResult`), not a change-log, so unlike DHCP
-    /// History every run gets a row regardless of whether the numbers
-    /// differ from the last one. Flat content, not its own scroll box —
-    /// the outer `tile(fixedHeight:)` call this feeds already wraps all
-    /// of `speedTestTileContent` in one `NoBounceScrollView` (see
+    /// Every real Cloudflare-endpoint run, newest first — a genuine time
+    /// series (see `NetworkQualityResult`), not a change-log, so unlike
+    /// DHCP History every run gets a row regardless of whether the
+    /// numbers differ from the last one. Flat content, not its own scroll
+    /// box — the outer `tile(fixedHeight:)` call this feeds already wraps
+    /// all of `speedTestTileContent` in one `NoBounceScrollView` (see
     /// `ContentView.tileHeight`), so a second, inner box here would just
     /// nest redundantly.
     @ViewBuilder
     private var speedTestList: some View {
-        if networkQuality.recentRuns.isEmpty {
-            Text(networkQuality.isRunning ? "Testing…" : "No speed test run yet")
+        if networkQuality.cloudflareRuns.isEmpty {
+            Text(networkQuality.runningSource == .cloudflareEndpoint ? "Testing…" : "No speed test run yet")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
         } else {
@@ -330,26 +346,28 @@ extension ContentView {
         }
     }
 
-    /// One line per run for the throughput/timestamp row: unlike DHCP
-    /// History's secondary line, "↓ 765 Mbps  ↑ 173 Mbps" plus a
-    /// time-only (no date) timestamp is short enough to fit this tile's
-    /// half-width comfortably — confirmed directly against a real
-    /// screenshot rather than assumed from the two-line version tried
-    /// first. An Apple-sourced run adds a second line for RPM/base
-    /// latency, the data a Cloudflare-endpoint run simply doesn't have —
-    /// every Cloudflare row keeps looking exactly as it always has.
+    /// One line per run: "750 Mbps down, 550 Mbps up" plus a time-only
+    /// (no date) timestamp. Spelled-out "down"/"up" rather than ↓/↑
+    /// arrows — raised directly, for the same non-technical-user
+    /// audience `appleQualityDetail` is written for: an arrow glyph asks
+    /// a reader to decide what it means (direction of data flow? a
+    /// trend, like a stock ticker?) where a plain word doesn't. Every row
+    /// here is Cloudflare-sourced by construction (`cloudflareRuns`), so
+    /// unlike before the tile split there's no per-row source check
+    /// needed — this list never has an Apple-sourced RPM/latency line to
+    /// decide whether to show.
     private var speedTestRows: some View {
-        ForEach(networkQuality.recentRuns) { run in
+        ForEach(networkQuality.cloudflareRuns) { run in
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("↓ \(Self.mbpsText(run.downloadMbps))  ↑ \(Self.mbpsText(run.uploadMbps))")
+                    Text(Self.throughputText(run))
                     Spacer()
                     Text(run.testedAt, format: .dateTime.hour().minute())
                         .foregroundStyle(.secondary)
                 }
                 .font(.system(size: 12))
-                if run.source == NetworkQualityResult.Source.appleNetworkQuality.rawValue {
-                    Text(Self.appleQualityDetail(run))
+                if let dataUsed = Self.dataUsedText(run) {
+                    Text(dataUsed)
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
@@ -357,24 +375,217 @@ extension ContentView {
         }
     }
 
-    /// RPM under load, split by direction — the signal this whole second
-    /// source exists for — plus idle base latency, the one other figure
-    /// `networkQuality` measures that Cloudflare's plain file transfer
-    /// has no equivalent of.
-    private static func appleQualityDetail(_ run: NetworkQualityRecord) -> String {
-        var parts = ["Apple"]
-        if let dl = run.downloadResponsivenessRPM, let ul = run.uploadResponsivenessRPM {
-            parts.append("RPM \(dl)↓/\(ul)↑")
-        }
-        if let rtt = run.baseRTTMs {
-            parts.append(String(format: "base %.0fms", rtt))
-        }
-        return parts.joined(separator: " · ")
+    private static func throughputText(_ run: NetworkQualityRecord) -> String {
+        String(format: "%.0f Mbps down, %.0f Mbps up", run.downloadMbps, run.uploadMbps)
     }
 
-    private static func mbpsText(_ value: Double) -> String {
-        String(format: "%.0f Mbps", value)
+    /// Real data used, not an estimate — `NetworkQualityRecord
+    /// .downloadBytesTransferred`/`uploadBytesTransferred`'s own doc
+    /// comment for why this is exact for both sources, not just Apple's.
+    /// Raised directly: showing this per run lets someone judge whether
+    /// to run the test again on a metered or limited connection, rather
+    /// than guessing from a fixed "~50MB per run"/"~30s" estimate that
+    /// doesn't reflect what any specific run actually cost. `nil` only
+    /// for a row persisted before this existed — matches
+    /// `NetworkQualityRecord`'s own safe-migration shape, not expected
+    /// for any run going forward.
+    private static func dataUsedText(_ run: NetworkQualityRecord) -> String? {
+        guard let down = run.downloadBytesTransferred, let up = run.uploadBytesTransferred else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        let downText = formatter.string(fromByteCount: Int64(down))
+        let upText = formatter.string(fromByteCount: Int64(up))
+        return "\(downText) down, \(upText) up"
     }
+
+    // MARK: - Apple networkQuality
+
+    /// The "Apple networkQuality" tile's full content — same shape as
+    /// `speedTestTileContent`, split out alongside it. See
+    /// `PUNCHLIST.md`'s "Give Apple's networkQuality its own tile."
+    @ViewBuilder
+    var appleNetworkQualityTileContent: some View {
+        // "~30s" alone understated this badly — confirmed live via
+        // `networkQuality`'s own real byte counts (`dl_bytes_transferred`/
+        // `ul_bytes_transferred`, undocumented in the man page but present
+        // in every real run): 1-2GB *per direction* on a fast connection,
+        // not a rounding error against the Cloudflare test's ~50MB. The
+        // test moves as much data as the link can carry in its measurement
+        // window (see DESIGN-NOTES.md's "Network Quality" section on why
+        // it's time-limited, not data-limited) — the faster the
+        // connection, the more it actually costs, which is the opposite
+        // of what "~30s" implies. Each completed run shows its own exact
+        // figure below (`dataUsedText`); this is the honest heads-up
+        // before that first run exists.
+        Text("uses your data plan — often 1+ GB on a fast connection, ~30s")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+        // Explains RPM's own convention up front, rather than avoiding
+        // the term — raised directly, in two parts. First: real
+        // confusion reported ("RPMs confused me at first"). Second, the
+        // more important correction on top of that: RPM's "higher is
+        // better" convention isn't an accident to work around, it's the
+        // whole reason RPM exists as its own metric rather than just
+        // reporting a latency number — "non-technical users didn't
+        // understand latency," and a bigger-is-better number (the same
+        // intuition Mbps already trains) reads more clearly to a casual
+        // user than "lower is better" ever did. So this doesn't convert
+        // RPM into a derived ms figure (tried once, reverted) — it
+        // states the convention in words instead, right where a reader
+        // will meet the number itself.
+        Text("Higher RPM means a more responsive connection under load.")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+        appleQualityList
+        if let error = networkQuality.lastError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
+        }
+        // Only once a run exists to show — raised directly, for an expert
+        // who wants Apple's own full `-v` report rather than this tile's
+        // summary. Plain-styled, secondary: same "one first-class action
+        // per tile" reasoning `speedTestTileContent`'s now-removed inline
+        // Apple button used to follow, just applied to this button
+        // instead of a second test trigger.
+        if let verboseOutput = networkQuality.latestAppleVerboseOutput, !verboseOutput.isEmpty {
+            Button("View Full Report…") {
+                isShowingAppleVerboseOutput = true
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10))
+            .foregroundStyle(Color.accentColor)
+            .accessibilityHint("Shows Apple's own full networkQuality verbose report for the most recent run")
+            .accessibilityIdentifier("appleNetworkQuality.viewFullReport")
+            .sheet(isPresented: $isShowingAppleVerboseOutput) {
+                AppleNetworkQualityVerboseView(text: verboseOutput)
+            }
+        }
+    }
+
+    /// Every real Apple `networkQuality` run, newest first — see
+    /// `speedTestList`'s doc comment for why this doesn't need its own
+    /// scroll box either.
+    @ViewBuilder
+    private var appleQualityList: some View {
+        if networkQuality.appleRuns.isEmpty {
+            Text(networkQuality.runningSource == .appleNetworkQuality ? "Testing…" : "No test run yet")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else {
+            appleQualityRows
+        }
+    }
+
+    /// Same throughput/timestamp line `speedTestRows` shows, plus a
+    /// second line every row here always has: RPM under load, split by
+    /// direction — the signal this whole second source exists for — and
+    /// idle base latency, the one other figure `networkQuality` measures
+    /// that Cloudflare's plain file transfer has no equivalent of.
+    /// Unconditional now (no per-row source check) since every row here
+    /// is Apple-sourced by construction (`appleRuns`).
+    ///
+    /// Built as separate `Text`s in an `HStack`, not one interpolated
+    /// string — `appKitToolTip` overlays a whole view, and `Text`
+    /// concatenation (`+`) merges into a single `Text` with no per-segment
+    /// view identity to overlay, so reaching `rpmThresholdHelp` onto just
+    /// the RPM figures (not the idle-latency figure beside them) needs
+    /// each to stay its own view.
+    private var appleQualityRows: some View {
+        ForEach(networkQuality.appleRuns) { run in
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(Self.throughputText(run))
+                    Spacer()
+                    Text(run.testedAt, format: .dateTime.hour().minute())
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+                HStack(spacing: 4) {
+                    if let dl = run.downloadResponsivenessRPM, let ul = run.uploadResponsivenessRPM {
+                        // RPM leads, spelled out with "down"/"up" rather
+                        // than ↓/↑ arrows (see `speedTestRows`'s doc
+                        // comment for the arrows-vs-words reasoning) —
+                        // kept as the actual published metric rather than
+                        // converted to a derived latency figure, per
+                        // `appleNetworkQualityTileContent`'s own doc
+                        // comment on why RPM's convention is explained in
+                        // words instead of avoided. No "Apple" prefix on
+                        // the string itself (unlike before the tile
+                        // split): the tile title already says "Apple
+                        // networkQuality," so repeating it on every row
+                        // would be redundant.
+                        //
+                        // Two dots, not one merged verdict — raised
+                        // directly: this tile is specifically for a
+                        // reader who wants the per-direction detail a
+                        // single "worst of the two" dot would erase (a
+                        // real bufferbloat problem in only one direction
+                        // is a genuinely different diagnosis than one in
+                        // both). The popover's quick check collapses to
+                        // one dot on purpose, for the opposite audience.
+                        Circle()
+                            .fill(Self.statusColor(forRPM: dl))
+                            .frame(width: 6, height: 6)
+                            .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
+                        Text("\(dl) RPM down")
+                        Circle()
+                            .fill(Self.statusColor(forRPM: ul))
+                            .frame(width: 6, height: 6)
+                            .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
+                        Text("\(ul) RPM up")
+                        if run.baseRTTMs != nil {
+                            Text("·")
+                        }
+                    }
+                    // Idle base latency — a real reported figure, not
+                    // derived — stays alongside RPM as a separate
+                    // reference point, not folded into the same number.
+                    if let rtt = run.baseRTTMs {
+                        Text(String(format: "%.0fms idle latency", rtt))
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                // Its own line, not folded into the RPM/latency line
+                // above — a distinct concern (data cost, not connection
+                // quality). See `dataUsedText`'s own doc comment for why
+                // this is exact, not a guess — genuinely important here
+                // specifically: confirmed live, a single run can use
+                // 1-2GB per direction, far more than "uses your data
+                // plan, ~30s" alone conveys.
+                if let dataUsed = Self.dataUsedText(run) {
+                    Text(dataUsed)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Rough reference points for "is this RPM number good or bad,"
+    /// raised directly after explaining RPM's own higher-is-better
+    /// convention still left "is 620 good?" unanswered. Sourced from how
+    /// Apple's own tool is characterized in independent write-ups (not
+    /// invented here) — see `DESIGN-NOTES.md`'s "Network Quality" section
+    /// for the man-page-level description this supplements. Deliberately
+    /// a tooltip, not a permanent caption: this is reference detail for
+    /// someone who already sees a number and wants to know if it's good,
+    /// not the first-contact explanation (`appleNetworkQualityTileContent`
+    /// covers that with a permanent line instead) — see `appKitToolTip`'s
+    /// own doc comment for why a hover tooltip is the right tool for
+    /// "more depth, not everyone needs it" versus "everyone should see
+    /// this once."
+    // Not `private` — reused by `ContentView.swift`'s popover quick-check
+    // dot (`quickCheckRow`) once both surfaces got a colored-dot verdict,
+    // raised directly to keep the two consistent. Swift's `private`
+    // doesn't cross files even between extensions of the same type.
+    static let rpmThresholdHelp = """
+        RPM (round trips per minute) measures responsiveness under load — \
+        higher is better. Roughly: above 2000 is excellent, under 800 \
+        suggests bufferbloat.
+        """
 
     // MARK: - Wi-Fi
 

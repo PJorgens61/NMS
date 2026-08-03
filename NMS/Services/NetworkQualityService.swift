@@ -99,16 +99,22 @@ struct NetworkQualityService {
     /// multi-homed Mac this measures whatever interface the OS's default
     /// route currently picks, not necessarily the one NMS is tracking.
     /// Accepted limitation — see DESIGN-NOTES.md's open questions.
-    func measureDownload() async throws -> Double {
+    /// Returns the actual byte count moved alongside the Mbps figure —
+    /// `Self.probeBytes` if the probe alone was believable, `Self.fullBytes`
+    /// if it escalated — raised directly so NMS can tell a user exactly
+    /// how much data a run just used, not just "up to ~50MB per run."
+    func measureDownload() async throws -> (mbps: Double, bytes: Int) {
         let probe = try await downloadOnce(bytes: Self.probeBytes, timeout: Self.probeTimeout)
-        guard probe.elapsed < Self.slowLinkThreshold else { return probe.mbps }
-        return try await downloadOnce(bytes: Self.fullBytes, timeout: Self.fullTransferTimeout).mbps
+        guard probe.elapsed < Self.slowLinkThreshold else { return (probe.mbps, Self.probeBytes) }
+        let full = try await downloadOnce(bytes: Self.fullBytes, timeout: Self.fullTransferTimeout)
+        return (full.mbps, Self.fullBytes)
     }
 
-    func measureUpload() async throws -> Double {
+    func measureUpload() async throws -> (mbps: Double, bytes: Int) {
         let probe = try await uploadOnce(bytes: Self.probeBytes, timeout: Self.probeTimeout)
-        guard probe.elapsed < Self.slowLinkThreshold else { return probe.mbps }
-        return try await uploadOnce(bytes: Self.fullBytes, timeout: Self.fullTransferTimeout).mbps
+        guard probe.elapsed < Self.slowLinkThreshold else { return (probe.mbps, Self.probeBytes) }
+        let full = try await uploadOnce(bytes: Self.fullBytes, timeout: Self.fullTransferTimeout)
+        return (full.mbps, Self.fullBytes)
     }
 
     private func downloadOnce(bytes: Int, timeout: TimeInterval) async throws -> (mbps: Double, elapsed: TimeInterval) {

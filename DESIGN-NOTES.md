@@ -760,6 +760,64 @@ fraction of a second. The `~50MB per run` labels in the UI and docs were
 updated to `up to ~50MB per run` to reflect that it's now a ceiling, not
 a fixed cost.
 
+### "One unified history, not a second tile" — reversed
+
+The design two sections up (`### networkQuality added after all`)
+explicitly chose one tile: `networkQuality`'s trigger lived as a small,
+plain-styled secondary button inside Speed Test's tile, sharing its
+`isRunning`/history rather than getting its own. Raised directly,
+worried that placement made a genuinely distinct result (RPM/
+responsiveness, not just throughput) easy to miss — split into its own
+"Apple networkQuality" tile (`PUNCHLIST.md`'s "Give Apple's
+networkQuality its own tile"), titled with the literal binary name to
+keep the "this is a macOS built-in, not something NMS invented"
+connection explicit.
+
+`isRunning: Bool` became `runningSource: NetworkQualityResult.Source?`
+— still one mutual-exclusion flag (the two sources still can't run
+concurrently, same reasoning as ever), but now able to tell each tile's
+button whether *it* is the one running rather than both claiming
+"Testing…" at once. `recentRuns` stays one shared array and one shared
+persisted schema — only the *display* split, into `cloudflareRuns`/
+`appleRuns` computed filters — so the "one history" half of the original
+design held; only "one tile" didn't.
+
+**RPM's wording went through several rounds of real confusion, each one
+correcting the last, worth recording in full since the final answer is
+the opposite of the most plausible-sounding fix:**
+
+1. First reported: RPM itself was confusing on first encounter.
+2. First fix tried: lead with a derived latency figure instead
+   (`60,000 / RPM` as an equivalent "ms under load," reasoning that
+   latency was the more familiar unit). Reverted before shipping.
+3. **The correction that actually mattered**: RPM's "higher is better"
+   convention isn't an accident to route around — checked directly
+   against `networkQuality`'s own man page and how the tool is
+   independently characterized, and confirmed: Apple designed RPM as a
+   bigger-is-better number specifically *because* non-technical users
+   don't parse a latency figure (where lower is better) as readily as
+   they parse "more/bigger is good," the same intuition Mbps already
+   trains. Converting it back to ms would have quietly undone that
+   design choice rather than fixed the actual problem — the problem was
+   never the unit, it was that nothing on screen stated RPM's convention
+   in words.
+4. **Landed on**: a permanent one-line caption stating the convention
+   directly ("Higher RPM means a more responsive connection under
+   load"), RPM kept as the primary per-row figure (not converted), and a hover
+   tooltip (`appKitToolTip` — plain SwiftUI `.help()` doesn't render in
+   this app's popover/window, see `ToolTip.swift`) on the RPM figure
+   itself carrying rough reference thresholds sourced from how Apple's
+   tool is characterized independently: above ~2000 is excellent, under
+   ~800 suggests bufferbloat. Tooltip rather than a second permanent
+   line deliberately — reference depth for someone who already sees a
+   number and wants to know if it's good, not the first-contact
+   explanation the caption line already covers.
+5. **Separately, arrows (↓/↑) were dropped everywhere in both tiles'
+   result rows** in favor of spelled-out "down"/"up" — raised directly:
+   an arrow glyph asks a reader to decide what it means (data direction?
+   a trend?) where a word doesn't, the same non-technical-audience
+   reasoning as the RPM wording above.
+
 ## Latency history sparklines
 
 Unlike DHCP and Network Quality, this one starts from good news: **the

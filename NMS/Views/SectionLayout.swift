@@ -59,6 +59,7 @@ enum Surface: String, CaseIterable, Sendable {
 enum SectionLayout: String, CaseIterable, Sendable {
     case pathToInternet
     case speedTest
+    case appleNetworkQuality
     case events
     case wifi
     case ethernetLink
@@ -100,7 +101,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     /// window-only (see this type's own history, `git blame`).
     var surfaces: Set<Surface> {
         switch self {
-        case .pathToInternet, .speedTest, .events,
+        case .pathToInternet, .speedTest, .appleNetworkQuality, .events,
              .wifi, .ethernetLink, .snmpDevices, .dhcpHistory, .saasMonitoring:
             return [.window]
         }
@@ -130,7 +131,11 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // the three earlier, more intricate attempts this consolidated),
         // so returning `nil` here is the same "no box declared here"
         // answer `wifi` below already gives, not a new exception.
-        case (.pathToInternet, _), (.speedTest, _): return nil
+        // `appleNetworkQuality` joined this trio when it split out of
+        // Speed Test into its own tile (`PUNCHLIST.md`'s "Give Apple's
+        // networkQuality its own tile") — same fixed-height mechanism,
+        // same reasoning.
+        case (.pathToInternet, _), (.speedTest, _), (.appleNetworkQuality, _): return nil
 
         // These three don't need to match each other — unlike
         // `ContentView.tileHeight`'s pair, none of these sit side by side
