@@ -8,6 +8,60 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Expose NMS's checks to Siri/Apple Intelligence via App Intents.**
+  Raised directly, sketched out, not yet built. Checked the real
+  constraint first: NMS already targets macOS 15.7
+  (`MACOSX_DEPLOYMENT_TARGET`), which covers Apple Intelligence's Siri
+  App Intents requirement (macOS 15.1+) — no deployment-target blocker.
+  "Teaching" Apple Intelligence itself isn't a thing a third-party app
+  can do (its model is closed, not fine-tunable) — this is App Intents
+  integration instead: define a handful of narrow, structured actions
+  Siri can route natural-language phrases to, each backed by code that
+  already exists.
+
+  Proposed intents, each a thin wrapper: `CheckNetworkHealthIntent`
+  (`ConnectivityViewModel.checks`), `RunNetworkQualityIntent`
+  (`NetworkQualityViewModel.runQuickCheck`), `GetPublicIPIntent`
+  (`PublicIPViewModel.currentIP`/`ISPIdentityViewModel`),
+  `CheckDDNSIntent` (`DDNSViewModel.statuses`), `GetDHCPLeaseIntent`
+  (`DHCPLeaseViewModel.history.first`).
+
+  **The real architectural question**: `AppIntent.perform()` is a
+  struct method the system calls, with no natural handle on the
+  already-running `@MainActor` view models `NMSApp.wireDependencies`
+  wires up. Needs a small `@MainActor` singleton (e.g.
+  `NMSIntentBridge.shared`) that `NMSApp` populates with weak
+  references to those view models, so intents read *live* state
+  instead of spinning up a second, parallel set of pings/subprocess
+  calls per Siri request.
+
+  **A real gap to close first**: `NetworkQualityViewModel.runQuickCheck`
+  is fire-and-forget today, publishing its result via `@Published`
+  rather than returning it — an intent needs an awaitable
+  `async throws -> Int` variant to give Siri a real answer instead of
+  "started, check back later." Also needs an `AppShortcutsProvider`
+  with 2-3 concrete invocation phrases per intent ("check my network,"
+  "how's my Wi-Fi") drafted deliberately, not guessed, for Siri to
+  route reliably.
+
+- [ ] **Network Health: expand the sparklines to use the extra space
+  freed by the single-window rebuild, and align them with the icon
+  column.** `Sparkline.swift` draws at a fixed `44×11pt` — its own doc
+  comment explains why: sized to add no vertical height in a popover
+  row, "the one sparkline use where a taller drawing would still cost
+  real popover budget." That constraint is gone now that NMS is a
+  resizable window, not a fixed-height popover (see the rebuild in
+  `PUNCHLIST.md`'s own history) — the doc comment is stale and the
+  sizing is now an arbitrary leftover, not a real constraint. Widening
+  (and possibly heightening) it is free real estate now. Separately,
+  `connectionHealthSection`'s `Grid` (`ContentView.swift`) puts the
+  external-link icon and the sparkline in two different columns, each
+  independently `Color.clear`-padded on rows that don't use them —
+  worth checking whether that's actually producing consistent
+  horizontal alignment between the icon and sparkline across rows once
+  the sparkline's width changes, since the two columns aren't sized
+  from a shared reference today.
+
 - [ ] **Fold the Ethernet Speed/Duplex tile into the Info tile's Network
   row, instead of its own separate section.** Currently
   `ContentView+Window.swift`'s `ethernetLinkSection` is its own small
