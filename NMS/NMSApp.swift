@@ -611,12 +611,16 @@ struct NMSApp: App {
         Window("Preferences", id: "preferences") {
             PreferencesView()
         }
-        // Sizes to whatever the content actually measures rather than a
-        // guessed `defaultSize` — that guess (380x260) was too short and
-        // truncated both feature descriptions mid-sentence. Content
-        // sizing means a longer description, a larger system font, or a
-        // future third toggle can't reintroduce that.
-        .windowResizability(.contentSize)
+        // A real, freely resizable window, not `.contentSize` --
+        // reported directly: content-locked sizing meant this window
+        // couldn't be dragged smaller at all, and once the view grew
+        // (13 SaaS services, DDNS hostnames, several toggles) past a
+        // MacBook Air's screen height there was no way to shrink it or
+        // reach the rest, the exact failure `ContentView`'s own outer
+        // `ScrollView` already exists to prevent for the main window.
+        // `PreferencesView.body` now wraps its content in a `ScrollView`
+        // of its own, so a shorter window just scrolls instead.
+        .defaultSize(width: 380, height: 500)
     }
 
     /// Falls back to an in-memory store if the on-disk store can't be

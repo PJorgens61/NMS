@@ -60,6 +60,22 @@ struct PreferencesView: View {
     @AppStorage(FeatureFlags.autoBaselineNetworkQualityKey) private var autoBaselineNetworkQualityEnabled = false
 
     var body: some View {
+        // Content-driven height with no scroll container used to mean the
+        // window locked to its full content height and couldn't be
+        // resized by dragging at all (`NMSApp`'s
+        // `.windowResizability(.contentSize)`) -- fine when this view was
+        // short, but it grew (13 SaaS services, DDNS hostnames, several
+        // feature toggles) past what fits on a MacBook Air's screen, the
+        // same failure `ContentView.body`'s own outer `ScrollView`
+        // already exists to prevent for the main window. Same fix here:
+        // a scroll container plus a genuinely resizable window, rather
+        // than one locked to content size.
+        ScrollView {
+            preferencesContent
+        }
+    }
+
+    private var preferencesContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Experimental Features")
@@ -119,11 +135,13 @@ struct PreferencesView: View {
             caption("Changes here apply immediately, no restart needed.")
         }
         .padding(16)
-        // Width fixed, height deliberately not: the window sizes to
-        // whatever the text actually needs (see `NMSApp`'s
-        // `.windowResizability(.contentSize)` on this scene). The previous
-        // `height: 260` was a guess, and both descriptions outgrew it —
-        // reported as text being "cut off".
+        // Width fixed, height not -- content determines the scroll
+        // view's natural extent, and the window itself is now genuinely
+        // resizable (see `NMSApp`'s `Window("Preferences", ...)`), so a
+        // shorter window just scrolls rather than either truncating
+        // (the original `height: 260` guess did that) or locking the
+        // window to an unresizable full-content height (what
+        // `.windowResizability(.contentSize)` did before this).
         .frame(width: 380, alignment: .topLeading)
     }
 
