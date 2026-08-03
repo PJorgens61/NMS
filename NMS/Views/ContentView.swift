@@ -234,18 +234,18 @@ struct ContentView: View {
             // there the way it is in the resizable window).
             VStack(spacing: 12) {
                 if surface == .window {
-                    tile(title: "Network Health", fixedHeight: Self.tileHeight) {
+                    tile(title: "Network Health", fixedHeight: Self.tileHeight, scrolls: false) {
                         connectionHealthSection
                     }
-                    tile(title: "Info", fixedHeight: Self.tileHeight) {
+                    tile(title: "Info", fixedHeight: Self.tileHeight, scrolls: false) {
                         infoSection
                     }
                 } else {
                     HStack(alignment: .top, spacing: 12) {
-                        tile(title: "Network Health", fixedHeight: Self.tileHeight) {
+                        tile(title: "Network Health", fixedHeight: Self.tileHeight, scrolls: false) {
                             connectionHealthSection
                         }
-                        tile(title: "Info", fixedHeight: Self.tileHeight) {
+                        tile(title: "Info", fixedHeight: Self.tileHeight, scrolls: false) {
                             infoSection
                         }
                     }
@@ -631,8 +631,8 @@ struct ContentView: View {
     // `pathAndSpeedRow`, and Swift's `private` doesn't cross files even
     // between extensions of the same type.
     @ViewBuilder
-    func tile(title: String, fixedHeight: CGFloat? = nil, @ViewBuilder content: () -> some View) -> some View {
-        tile(title: title, fixedHeight: fixedHeight, trailing: { EmptyView() }, content: content)
+    func tile(title: String, fixedHeight: CGFloat? = nil, scrolls: Bool = true, @ViewBuilder content: () -> some View) -> some View {
+        tile(title: title, fixedHeight: fixedHeight, scrolls: scrolls, trailing: { EmptyView() }, content: content)
     }
 
     /// `fixedHeight` fixes the *whole tile* to that height and makes
@@ -695,6 +695,7 @@ struct ContentView: View {
     func tile(
         title: String,
         fixedHeight: CGFloat? = nil,
+        scrolls: Bool = true,
         @ViewBuilder trailing: () -> some View,
         @ViewBuilder content: () -> some View
     ) -> some View {
@@ -708,7 +709,22 @@ struct ContentView: View {
                 Spacer()
                 trailing()
             }
-            if let effectiveHeight {
+            // `scrolls: false` — raised directly, for tiles whose content
+            // is genuinely bounded (a small, fixed row count defined in
+            // code, not user data that can grow without limit) rather
+            // than needing `NoBounceScrollView`'s safety net the way
+            // Speed Test's growing run history or Events' unbounded log
+            // do. Motivated by a real find: `Grid` (see
+            // `connectionHealthSection`) clips content when nested inside
+            // `NoBounceScrollView` — a `NoBounceScrollView`/AppKit-interop
+            // quirk, not a `Grid` bug — so a tile that doesn't need to
+            // scroll in the first place can skip the container that
+            // breaks it, rather than avoiding `Grid` everywhere. Traded
+            // deliberately: if this tile's content ever does grow past
+            // `effectiveHeight`, there's no scroll fallback to catch it
+            // — accepted, since the row count here is capped by a fixed,
+            // known list, not something a user can expand.
+            if let effectiveHeight, scrolls {
                 NoBounceScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         content()
@@ -726,7 +742,10 @@ struct ContentView: View {
                 // doesn't currently have to be.
                 .frame(height: max(0, effectiveHeight - Self.tileHeaderOverhead))
             } else {
-                content()
+                VStack(alignment: .leading, spacing: 2) {
+                    content()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(10)
@@ -1032,93 +1051,129 @@ struct ContentView: View {
         connectionLayersLowToHigh.first { $0.status == .unhealthy }?.id
     }
 
-    /// **Reverted from a `Grid` conversion, same session — a real bug, not
-    /// a style preference.** `Grid`/`GridRow` correctly aligned the Router
-    /// and Call Check rows' icons, but broke something worse: every row's
-    /// label rendered with its first character clipped, confirmed live
-    /// across two independent screenshots. `NoBounceScrollView` (this
-    /// tile's `NSHostingView`/`NSScrollView` wrapper) has a documented
-    /// history of not perfectly tracking SwiftUI's intrinsic sizing for
-    /// certain content (see that type's own doc comment on a past
-    /// vertical-clipping bug with the same never-fully-pinned-down root
-    /// cause) — `Grid` is exactly the kind of newer, more structured
-    /// layout container likely to trigger a horizontal version of that
-    /// same interop quirk. The proven fix for that bug class has always
-    /// been to stop using the incompatible SwiftUI feature inside this
-    /// container rather than patch around it (see `ContentView
-    /// +Window.swift`'s `sysDescrLines` splitting away from one
-    /// auto-wrapping `Text` for the analogous reason) — so back to plain
-    /// `HStack`/`Spacer` rows here too. Icon alignment is now
-    /// approximate again, not pixel-exact — accepted deliberately, using
-    /// the popover's own extra width (`ContentView.body`'s 560→640
-    /// bump) to make that gap small enough not to matter, rather than
-    /// fighting for exactness with a layout tool that broke content
-    /// legibility to get it.
+    /// **`Grid`, take two — the first attempt broke content legibility,
+    /// root-caused before retrying, not just retried hopefully.** `Grid`
+    /// correctly aligned the Router and Call Check rows' icons, but every
+    /// row's label rendered with its first character clipped when this
+    /// tile's content lived inside `NoBounceScrollView` (an
+    /// `NSHostingView`/`NSScrollView` wrapper with a documented history
+    /// of not perfectly tracking SwiftUI's intrinsic sizing for certain
+    /// content — see that type's own doc comment on an earlier, vertical
+    /// version of the same interop quirk). Root cause narrowed to that
+    /// container specifically, not `Grid` itself: this tile's content is
+    /// a small, fixed row count (defined in code, not user data that
+    /// grows), so it doesn't actually need `NoBounceScrollView`'s
+    /// scroll-safety-net the way Speed Test's growing history or Events'
+    /// unbounded log do. Dropped it here (`scrolls: false` on this
+    /// tile's `tile(...)` call, alongside Info's for the same reason —
+    /// see `tile(...)`'s own doc comment), and `Grid` renders correctly
+    /// once it's no longer nested inside the container that broke it.
+    /// Traded deliberately: no scroll fallback if this content ever
+    /// grows past `ContentView.tileHeight` — accepted, since the row
+    /// count is capped by a fixed, known list.
     @ViewBuilder
     private var connectionHealthSection: some View {
         let layers = connectionLayersLowToHigh
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(layers.reversed()) { layer in
-                HStack {
-                    Circle()
-                        .fill(layerColor(for: layer))
-                        .frame(width: 8, height: 8)
-                    Text(layer.label)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 4)
-                    if let url = layer.url {
-                        externalLinkIcon(
-                            url: url,
-                            accessibilityLabel: "\(layer.label) admin page",
-                            accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
-                        )
-                    }
-                    // Network's own sparkline (Wi-Fi only — Ethernet has
-                    // no signal strength to chart) uses RSSI history from
-                    // `wifiSSID.recentSamples`, not `latencyHistory`: this
-                    // row isn't a ping-latency check, so `latencyHistory`
-                    // has no entry for it at all. Same values/reversal
-                    // `wifiSection`'s own Signal row already uses for the
-                    // identical chart.
-                    if layer.id == "network", viewModel.currentInterface?.isWiFi == true {
-                        if wifiSSID.recentSamples.count > 1 {
-                            Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
+            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
+                ForEach(layers.reversed()) { layer in
+                    GridRow {
+                        Circle()
+                            .fill(layerColor(for: layer))
+                            .frame(width: 8, height: 8)
+                        Text(layer.label)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .gridColumnAlignment(.leading)
+                        // Network's own sparkline (Wi-Fi only — Ethernet
+                        // has no signal strength to chart) uses RSSI
+                        // history from `wifiSSID.recentSamples`, not
+                        // `latencyHistory`: this row isn't a ping-latency
+                        // check, so `latencyHistory` has no entry for it
+                        // at all. Same values/reversal `wifiSection`'s
+                        // own Signal row already uses for the identical
+                        // chart.
+                        if let url = layer.url {
+                            externalLinkIcon(
+                                url: url,
+                                accessibilityLabel: "\(layer.label) admin page",
+                                accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
+                            )
+                        } else {
+                            // Not `EmptyView()` — confirmed by direct
+                            // testing that a literal `EmptyView()` cell
+                            // doesn't reliably reserve its `Grid` column,
+                            // so rows with an empty icon/sparkline
+                            // silently collapsed a column relative to
+                            // rows with real content there (Router's icon
+                            // pushed its sparkline right of every ping
+                            // row's). `Color.clear` measures as a real
+                            // zero-color view and keeps every row's cell
+                            // count *and* column position honest.
+                            Color.clear.frame(width: 0, height: 0)
                         }
-                    } else if let samples = latencyHistory[layer.id] {
-                        Sparkline(values: samples.map(\.latencyMs))
+                        if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
+                           wifiSSID.recentSamples.count > 1 {
+                            Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
+                        } else if let samples = latencyHistory[layer.id] {
+                            Sparkline(values: samples.map(\.latencyMs))
+                        } else {
+                            Color.clear.frame(width: 0, height: 0)
+                        }
+                        // `minWidth` protects this column specifically —
+                        // confirmed necessary again on the second `Grid`
+                        // attempt: sharing one column width across every
+                        // row means a long label ("ISP Edge Router")
+                        // squeezes this column on every row, not just its
+                        // own. A value truncated in the middle
+                        // ("Hom...hernet") is unreadable garble; a label
+                        // truncated at the tail ("ISP Edge…") still
+                        // starts with its most identifying word — so this
+                        // column gets the guaranteed room, and the label
+                        // column absorbs whatever compression is left.
+                        // 85pt comfortably fits the longest real value
+                        // seen here ("Home Ethernet"). `maxWidth: .infinity`
+                        // marks this column flexible so `Grid` gives it the
+                        // tile's leftover width instead of shrink-wrapping
+                        // the whole grid to its narrowest fit — without it,
+                        // a wide Expert Mode window left the grid (and this
+                        // "trailing"-aligned column) bunched at the tile's
+                        // left edge instead of flush against its real right
+                        // edge. Confirmed via user screenshot: looked fine
+                        // in the narrower popover, misaligned only in the
+                        // window.
+                        Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
+                            .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
+                            .gridColumnAlignment(.trailing)
                     }
-                    Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
-                        .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
-                .font(.system(size: 12))
+
+                // Popover-only — raised directly, for a business user who
+                // wants "is this OK for a call right now" from the menu
+                // bar without opening Expert Mode. Not shown in the
+                // window: the full Apple networkQuality tile is already
+                // one glance away there, so a second, redundant quick
+                // version would just be clutter. First on-demand test
+                // the popover has ever had — every other popover row is
+                // a passive, near-zero-cost ping check; this one costs a
+                // real ~5s and real (if smaller) data, the same category
+                // of cost that kept the full tests window-only in the
+                // first place. Living inside Network Health's own tile
+                // rather than as a new one: no extra height budget spent.
+                if surface != .window {
+                    quickCheckGridRow
+                }
             }
+            .font(.system(size: 12))
 
             if layers.contains(where: { $0.status == .unhealthy && $0.correlatedWithChange }) {
                 Text("* possibly related to a recent network change")
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
-            }
-
-            // Popover-only — raised directly, for a business user who
-            // wants "is this OK for a call right now" from the menu bar
-            // without opening Expert Mode. Not shown in the window: the
-            // full Apple networkQuality tile is already one glance away
-            // there, so a second, redundant quick version would just be
-            // clutter. First on-demand test the popover has ever had —
-            // every other popover row is a passive, near-zero-cost ping
-            // check; this one costs a real ~5s and real (if smaller)
-            // data, the same category of cost that kept the full tests
-            // window-only in the first place. Living inside Network
-            // Health's own already-fixed-height, already-scrolling box
-            // rather than as a new tile: no extra height budget spent,
-            // same "scroll absorbs whatever doesn't fit" mechanism this
-            // box already relies on.
-            if surface != .window {
-                quickCheckRow
             }
         }
         // Loaded when the section appears rather than kept continuously
@@ -1131,15 +1186,15 @@ struct ContentView: View {
         }
     }
 
-    /// Same row shape every layer row above uses — plain `HStack`/
-    /// `Spacer`, not `Grid` (see `connectionHealthSection`'s own doc
-    /// comment for why). An icon button styled identically to
-    /// `externalLinkIcon`, in the same position, so it lands close to the
-    /// Router row's link icon without needing exact alignment guarantees.
-    /// The dot stays gray until a result exists — never claims a verdict
-    /// it hasn't earned.
-    private var quickCheckRow: some View {
-        HStack {
+    /// Same five-cell shape every `GridRow` in `connectionHealthSection`
+    /// uses (dot, label, icon, sparkline, value) — an icon button styled
+    /// identically to `externalLinkIcon`, in the same column position, so
+    /// it aligns with the Router row's link icon by construction. No
+    /// sparkline for this row (`EmptyView`), same "always emit every
+    /// cell" rule `Grid` needs. The dot stays gray until a result exists
+    /// — never claims a verdict it hasn't earned.
+    private var quickCheckGridRow: some View {
+        GridRow {
             Circle()
                 .fill(quickCheckColor)
                 .frame(width: 8, height: 8)
@@ -1155,7 +1210,7 @@ struct ContentView: View {
             Text("Call Check")
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Spacer(minLength: 4)
+                .gridColumnAlignment(.leading)
             Button {
                 networkQuality.runQuickCheck(interfaceName: viewModel.currentInterface?.interfaceName)
             } label: {
@@ -1172,12 +1227,13 @@ struct ContentView: View {
                 "Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.",
                 enabled: !isCapturingScreenshot
             )
+            Color.clear.frame(width: 0, height: 0)
             Text(quickCheckDetailText)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .gridColumnAlignment(.trailing)
         }
-        .font(.system(size: 12))
     }
 
     private var quickCheckColor: Color {
