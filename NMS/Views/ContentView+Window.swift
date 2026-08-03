@@ -1207,6 +1207,18 @@ extension ContentView {
             )
         }
         .font(.system(size: 12))
+        // Same `.contain`-not-`.combine` reasoning as `layerGridRow`'s own
+        // rows — keeps this row's status-page link individually reachable
+        // while still exposing one frame for `reportFrameForFieldTest`.
+        // Caveat: `status.name` isn't guaranteed unique across the curated
+        // and user-added SaaS lists (`ContentView.swift`'s
+        // `saasMonitoring.statuses`/`.userAddedStatuses`) — a collision
+        // would give two on-screen rows the same identifier. Not a problem
+        // for anything reading this today; worth knowing before relying on
+        // uniqueness elsewhere.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("saasStatus.row.\(status.name)")
+        .reportFrameForFieldTest("saasStatus.row.\(status.name)")
     }
 
     private func saasIndicatorColor(_ indicator: SaaSStatusService.Indicator) -> Color {

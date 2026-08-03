@@ -19,3 +19,9 @@ xcuserdata/
 # Never committed: it contains real personal network data (MACs, device
 # hostnames, router info) and this repo is public.
 script/fixtures/
+
+# Field-test documentation screenshots from script/capture-doc-scenarios.sh.
+# Never committed, same reason as script/fixtures/ above — these crops
+# contain real values (e.g. the DNS row's actual server IP) until a
+# sanitization pass exists.
+script/doc-captures/

@@ -29,6 +29,23 @@ final class KnownNetwork {
     /// the same "Cannot migrate store in-place" failure documented above.
     var confirmedEdgeHopNumber: Int?
 
+    /// Gates `script/capture-doc-scenarios.sh` (and any future export/
+    /// posting tooling): defaults `false` for every network, known or
+    /// brand new, so field-test capture only ever runs somewhere it's been
+    /// explicitly allowed. Deliberately a real, `Bool` (not `Bool? = nil`)
+    /// with an explicit default value rather than optional-for-migration —
+    /// unlike `confirmedEdgeHopNumber`/`ProviderEdgeRecord
+    /// .networkFingerprint`, "unset" and "private" mean the same thing
+    /// here, so there's no missing-value case worth preserving; a default
+    /// value is what SwiftData's lightweight migration needs to backfill
+    /// existing rows safely — see this file's own `routerMAC`/`subnet`
+    /// doc comment for what happens when a new attribute *doesn't* have
+    /// one. No UI to set this yet, deliberately, matching
+    /// `FailureInjector`'s own "command-line first" precedent — flip it
+    /// with `sqlite3 <store> "UPDATE ZKNOWNNETWORK SET
+    /// ZISPUBLICFORCAPTURE = 1 WHERE ZFINGERPRINT = '<fingerprint>';"`.
+    var isPublicForCapture: Bool = false
+
     init(routerMAC: String, subnet: String, firstSeenAt: Date) {
         self.fingerprint = Self.makeFingerprint(routerMAC: routerMAC, subnet: subnet)
         self.label = nil
@@ -36,6 +53,7 @@ final class KnownNetwork {
         self.lastSeenAt = firstSeenAt
         self.timesSeen = 1
         self.confirmedEdgeHopNumber = nil
+        self.isPublicForCapture = false
     }
 
     static let fingerprintSeparator: Character = "|"

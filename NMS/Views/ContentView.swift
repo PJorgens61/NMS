@@ -80,6 +80,11 @@ struct ContentView: View {
                 .padding(12)
         }
         .frame(width: 600)
+        // Named rather than relying on `.global`'s less precisely
+        // documented semantics — anchors every `reportFrameForFieldTest`
+        // reading to this one known root, unambiguously. See
+        // `FieldTestFrameReporter`'s own doc comment for why this exists.
+        .coordinateSpace(name: "nmsWindow")
     }
 
     @ViewBuilder
@@ -944,6 +949,15 @@ struct ContentView: View {
                 Color.clear.frame(width: 0, height: 0)
             }
         }
+        // `.contain`, not `.combine` — turns this row into one element
+        // whose frame spans its children (what both VoiceOver grouping and
+        // `reportFrameForFieldTest` below need), while keeping the
+        // Router/ISP Edge Router rows' real `externalLinkIcon` link
+        // individually reachable. `.combine` would merge everything into
+        // one opaque element and silently swallow that link.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("networkHealth.row.\(layer.id)")
+        .reportFrameForFieldTest("networkHealth.row.\(layer.id)")
     }
 
     /// Same five-cell shape every `GridRow` in `connectionHealthSection`
