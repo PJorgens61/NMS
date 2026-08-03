@@ -837,54 +837,39 @@ struct ContentView: View {
         }
     }
 
-    /// Extracted from `connectionHealthSection`'s own `Grid` content so
-    /// `dhcpGridRow` can be inserted between two calls to this rather
-    /// than only ever before/after one single `ForEach` over every
-    /// layer. Same row every layer in `connectionLayersLowToHigh` has
-    /// always used — no behavior change, just made callable twice from
-    /// two different slices of `layers.reversed()`.
+    /// The dot/label/icon/chart/detail shape every status row in
+    /// `connectionHealthSection`'s `Grid` uses — extracted after the
+    /// third near-identical hand-rolled `GridRow` (`layerGridRow`,
+    /// `quickCheckGridRow`, `dhcpGridRow` all built this same five-cell
+    /// shape by hand) so the next tile's rows are a few lines instead of
+    /// copying the whole shape and its column-alignment reasoning again.
+    /// `icon`/`chart` are `@ViewBuilder` slots, not optionals — a caller
+    /// with nothing real for either passes `Color.clear.frame(width: 0,
+    /// height: 0)` explicitly (see that pattern's own reasoning below),
+    /// rather than this helper silently defaulting to `EmptyView()`,
+    /// which doesn't reliably reserve its `Grid` column.
     @ViewBuilder
-    private func layerGridRow(_ layer: ConnectionLayer) -> some View {
+    private func statusGridRow<Icon: View, Chart: View>(
+        color: Color,
+        dotHelp: String? = nil,
+        label: String,
+        detail: String,
+        detailColor: Color = .primary,
+        @ViewBuilder icon: () -> Icon,
+        @ViewBuilder chart: () -> Chart
+    ) -> some View {
         GridRow {
             Circle()
-                .fill(layerColor(for: layer))
+                .fill(color)
                 .frame(width: 8, height: 8)
-            Text(layer.label)
+                .help(optional: dotHelp)
+            Text(label)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .gridColumnAlignment(.leading)
-            // Network's own sparkline (Wi-Fi only — Ethernet has no
-            // signal strength to chart) uses RSSI history from
-            // `wifiSSID.recentSamples`, not `latencyHistory`: this row
-            // isn't a ping-latency check, so `latencyHistory` has no
-            // entry for it at all. Same values/reversal `wifiSection`'s
-            // own Signal row already uses for the identical chart.
-            if let url = layer.url {
-                externalLinkIcon(
-                    url: url,
-                    accessibilityLabel: "\(layer.label) admin page",
-                    accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
-                )
-            } else {
-                // Not `EmptyView()` — confirmed by direct testing that a
-                // literal `EmptyView()` cell doesn't reliably reserve
-                // its `Grid` column, so rows with an empty icon/
-                // sparkline silently collapsed a column relative to
-                // rows with real content there (Router's icon pushed
-                // its sparkline right of every ping row's). `Color
-                // .clear` measures as a real zero-color view and keeps
-                // every row's cell count *and* column position honest.
-                Color.clear.frame(width: 0, height: 0)
-            }
-            if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
-               wifiSSID.recentSamples.count > 1 {
-                Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
-            } else if let samples = latencyHistory[layer.id] {
-                Sparkline(values: samples.map(\.latencyMs))
-            } else {
-                Color.clear.frame(width: 0, height: 0)
-            }
+            icon()
+            chart()
             // `minWidth` protects this column specifically — confirmed
             // necessary again on the second `Grid` attempt: sharing one
             // column width across every row means a long label ("ISP
@@ -898,13 +883,13 @@ struct ContentView: View {
             // Ethernet"). `maxWidth: .infinity` marks this column
             // flexible so `Grid` gives it the tile's leftover width
             // instead of shrink-wrapping the whole grid to its narrowest
-            // fit — without it, a wide Expert Mode window left the grid
-            // (and this "trailing"-aligned column) bunched at the
-            // tile's left edge instead of flush against its real right
-            // edge. Confirmed via user screenshot: looked fine in the
-            // narrower popover, misaligned only in the window.
-            Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
-                .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
+            // fit — without it, a wide window left the grid (and this
+            // "trailing"-aligned column) bunched at the tile's left edge
+            // instead of flush against its real right edge. Confirmed
+            // via user screenshot: looked fine in the narrower popover,
+            // misaligned only in the window.
+            Text(detail)
+                .foregroundStyle(detailColor)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
@@ -912,33 +897,78 @@ struct ContentView: View {
         }
     }
 
+    /// Extracted from `connectionHealthSection`'s own `Grid` content so
+    /// `dhcpGridRow` can be inserted between two calls to this rather
+    /// than only ever before/after one single `ForEach` over every
+    /// layer. Same row every layer in `connectionLayersLowToHigh` has
+    /// always used — no behavior change, just made callable twice from
+    /// two different slices of `layers.reversed()`.
+    @ViewBuilder
+    private func layerGridRow(_ layer: ConnectionLayer) -> some View {
+        statusGridRow(
+            color: layerColor(for: layer),
+            label: layer.label,
+            detail: layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""),
+            detailColor: layer.status == .unhealthy ? layerColor(for: layer) : .primary
+        ) {
+            // Not `EmptyView()` — confirmed by direct testing that a
+            // literal `EmptyView()` cell doesn't reliably reserve its
+            // `Grid` column, so rows with an empty icon/sparkline
+            // silently collapsed a column relative to rows with real
+            // content there (Router's icon pushed its sparkline right
+            // of every ping row's). `Color.clear` measures as a real
+            // zero-color view and keeps every row's cell count *and*
+            // column position honest.
+            if let url = layer.url {
+                externalLinkIcon(
+                    url: url,
+                    accessibilityLabel: "\(layer.label) admin page",
+                    accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
+                )
+            } else {
+                Color.clear.frame(width: 0, height: 0)
+            }
+        } chart: {
+            // Network's own sparkline (Wi-Fi only — Ethernet has no
+            // signal strength to chart) uses RSSI history from
+            // `wifiSSID.recentSamples`, not `latencyHistory`: this row
+            // isn't a ping-latency check, so `latencyHistory` has no
+            // entry for it at all. Same values/reversal `wifiSection`'s
+            // own Signal row already uses for the identical chart.
+            if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
+               wifiSSID.recentSamples.count > 1 {
+                Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
+            } else if let samples = latencyHistory[layer.id] {
+                Sparkline(values: samples.map(\.latencyMs))
+            } else {
+                Color.clear.frame(width: 0, height: 0)
+            }
+        }
+    }
+
     /// Same five-cell shape every `GridRow` in `connectionHealthSection`
     /// uses (dot, label, icon, sparkline, value) — an icon button styled
     /// identically to `externalLinkIcon`, in the same column position, so
-    /// it aligns with the Router row's link icon by construction. No
-    /// sparkline for this row (`EmptyView`), same "always emit every
-    /// cell" rule `Grid` needs. The dot stays gray until a result exists
-    /// — never claims a verdict it hasn't earned.
+    /// it aligns with the Router row's link icon by construction. The dot
+    /// stays gray until a result exists — never claims a verdict it
+    /// hasn't earned.
     private var quickCheckGridRow: some View {
-        GridRow {
-            Circle()
-                .fill(quickCheckColor)
-                .frame(width: 8, height: 8)
-                // Same tooltip the Expert Mode tile's own RPM figures use
-                // (`ContentView+Window.rpmThresholdHelp`) — raised
-                // directly, so the two surfaces' colored verdicts explain
-                // themselves the same way.
-                .help(Self.rpmThresholdHelp)
+        statusGridRow(
+            color: quickCheckColor,
+            // Same tooltip the Expert Mode tile's own RPM figures use
+            // (`ContentView+Window.rpmThresholdHelp`) — raised directly,
+            // so the two surfaces' colored verdicts explain themselves
+            // the same way.
+            dotHelp: Self.rpmThresholdHelp,
             // "networkQuality" — matches the Expert Mode tile's own name
             // for the full test this is a quick preview of, reported
             // directly as clearer than "Call Check". Length is close to
             // the original "Video Call Check" that was shortened for
             // truncation reasons (see `quickCheckDetailText`'s trailing
             // column) — re-verify visually after this rename.
-            Text("networkQuality")
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .gridColumnAlignment(.leading)
+            label: "networkQuality",
+            detail: quickCheckDetailText
+        ) {
             Button {
                 networkQuality.runQuickCheck(interfaceName: viewModel.currentInterface?.interfaceName)
             } label: {
@@ -952,12 +982,8 @@ struct ContentView: View {
             .accessibilityHint("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
             .accessibilityIdentifier("networkHealth.quickCheck")
             .help("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
+        } chart: {
             quickCheckHistoryDots
-            Text(quickCheckDetailText)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .gridColumnAlignment(.trailing)
         }
     }
 
@@ -1035,22 +1061,14 @@ struct ContentView: View {
     /// uses, no sparkline/link icon (`Color.clear` in both slots, same
     /// "always emit every cell" rule the rest of this Grid follows).
     private var dhcpGridRow: some View {
-        GridRow {
-            Circle()
-                .fill(dhcpStatusColor)
-                .frame(width: 8, height: 8)
-            Text("DHCP")
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .gridColumnAlignment(.leading)
+        statusGridRow(
+            color: dhcpStatusColor,
+            label: "DHCP",
+            detail: dhcpDetailText
+        ) {
             Color.clear.frame(width: 0, height: 0)
+        } chart: {
             Color.clear.frame(width: 0, height: 0)
-            Text(dhcpDetailText)
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
-                .gridColumnAlignment(.trailing)
         }
     }
 
@@ -1281,4 +1299,21 @@ struct ContentView: View {
         }
     }
 
+}
+
+/// `.help(_:)` has no built-in optional overload — `nil` has to mean "no
+/// tooltip," not "a tooltip with empty text" (an empty string was tried
+/// first and risked showing an empty hover bubble; conditionally
+/// skipping the modifier entirely is the safe version). Added for
+/// `ContentView.statusGridRow`'s `dotHelp` parameter, most rows of which
+/// pass `nil`.
+private extension View {
+    @ViewBuilder
+    func help(optional text: String?) -> some View {
+        if let text {
+            self.help(text)
+        } else {
+            self
+        }
+    }
 }

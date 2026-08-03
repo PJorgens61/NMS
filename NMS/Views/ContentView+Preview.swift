@@ -16,12 +16,22 @@ import SwiftData
 /// standard preview pattern), so every side effect still runs, just
 /// against throwaway state that vanishes with the canvas.
 ///
-/// No seeded fixture data beyond what each view model's own `init`
-/// produces — this is for checking layout/spacing, not exercising every
-/// possible data state. A future pass could seed the in-memory store with
-/// representative `KnownNetwork`/`AppEventRecord`/etc. rows first, the
-/// same way `script/scenarios.sh` seeds a scratch copy of the real store
-/// for its own live-scenario tests.
+/// Seeded with a first slice of fixture data — DHCP lease history and
+/// `networkQuality` quick-check history, the two gaps this session's own
+/// tile work actually ran into (both needed a real build+launch to see
+/// rendered at all: DHCP's row reads "Not checked" with nothing seeded,
+/// and the quick-check dot-history is empty with zero history). Not a
+/// full seed of every table — `KnownNetwork`/SNMP/DDNS/etc. still render
+/// their own empty states here, since seeding `KnownNetwork` specifically
+/// wouldn't do anything on its own: `NetworkIdentityViewModel
+/// .currentNetwork` is only ever set by live `recognize()` matching a
+/// real detected router MAC/subnet, not read back from a persisted
+/// "current" row, so a seeded `KnownNetwork` row would sit in the store
+/// unused rather than making the Network row show "seen N×." A future
+/// pass can extend this the same way, one gap at a time, as it's
+/// actually run into — same spirit `script/scenarios.sh` seeds a scratch
+/// copy of the real store for its own live-scenario tests, just for
+/// canvas iteration instead of test assertions.
 private enum ContentViewPreviewSupport {
     @MainActor
     static func makeContentView() -> ContentView {
@@ -45,6 +55,7 @@ private enum ContentViewPreviewSupport {
         // fallback path for.
         let container = try! ModelContainer(for: schema, configurations: [configuration])
         let store = SnapshotStore(context: container.mainContext)
+        seedFixtureData(into: container.mainContext)
 
         let networkMonitor = NetworkMonitorViewModel(snapshotStore: store)
         let lanDiscovery = LANDiscoveryViewModel(snapshotStore: store)
@@ -93,6 +104,59 @@ private enum ContentViewPreviewSupport {
             buildInfo: nil,
             storeURL: URL(fileURLWithPath: "/dev/null")
         )
+    }
+
+    /// Inserted directly into the context, not through `SnapshotStore`'s
+    /// own `record*`/`log*` methods — those exist to mirror a live event
+    /// (a real check just completed, a real run just finished), which
+    /// isn't what's happening here. `networkFingerprint` left `nil` on
+    /// every row: `SnapshotStore.currentNetworkFingerprint` is `nil` at
+    /// this point too (nothing has recognized a network yet in a fresh
+    /// in-memory container), and every fetch this feeds
+    /// (`fetchDHCPLeaseHistory`/`fetchQuickCheckHistory`) scopes by
+    /// exactly that value — `nil` seeded rows are what a `nil`-scoped
+    /// fetch actually matches, not a shortcut.
+    @MainActor
+    private static func seedFixtureData(into context: ModelContext) {
+        let dhcpInfo = DHCPLeaseInfo(
+            interfaceName: "en0",
+            serverIdentifier: "10.0.0.1",
+            assignedAddress: "10.0.0.142",
+            subnetMask: "255.255.255.0",
+            broadcastAddress: "10.0.0.255",
+            router: "10.0.0.1",
+            dnsServers: ["10.0.0.1"],
+            domainName: nil,
+            leaseSeconds: 86400,
+            t1Seconds: 43200,
+            t2Seconds: 75600,
+            transactionID: "0x1a2b3c4d",
+            checkedAt: Date()
+        )
+        context.insert(DHCPLeaseRecord(from: dhcpInfo, firstObservedAt: Date().addingTimeInterval(-3600)))
+
+        // A mixed trail — good/fair/poor — so `quickCheckHistoryDots`
+        // actually shows varied colors in the canvas rather than one flat
+        // run of green. Oldest first, matching `quickCheckHistory`'s own
+        // `.reversed()` at the call site.
+        let sampleRPMs = [2100, 1900, 850, 700, 2400, 1600]
+        for (index, rpm) in sampleRPMs.enumerated() {
+            let result = NetworkQualityResult(
+                downloadMbps: nil,
+                uploadMbps: nil,
+                downloadResponsivenessRPM: nil,
+                uploadResponsivenessRPM: nil,
+                combinedResponsivenessRPM: rpm,
+                baseRTTMs: nil,
+                downloadBytesTransferred: nil,
+                uploadBytesTransferred: nil,
+                source: .quickCheck,
+                testedAt: Date().addingTimeInterval(TimeInterval(index - sampleRPMs.count) * 300)
+            )
+            context.insert(NetworkQualityRecord(from: result))
+        }
+
+        try? context.save()
     }
 }
 
