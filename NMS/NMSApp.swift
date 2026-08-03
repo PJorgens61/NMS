@@ -532,6 +532,14 @@ struct NMSApp: App {
             dhcpLease.check()
             networkQuality.reloadHistory()
             traceroute.reloadMonitoredHop()
+            // Opt-in only (`FeatureFlags.autoBaselineNetworkQuality`'s own
+            // doc comment has the why) — never on the very first time
+            // this Mac has ever seen a network (`isNewNetwork`), so a
+            // network passed through once, never revisited, never gets
+            // an uninvited real bandwidth-under-load test run against it.
+            if FeatureFlags.autoBaselineNetworkQuality, !networkIdentity.isNewNetwork {
+                networkQuality.runQuickCheck(interfaceName: networkMonitor.currentInterface?.interfaceName)
+            }
         }
     }
 

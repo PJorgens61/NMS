@@ -57,6 +57,7 @@ struct PreferencesView: View {
     /// same way `snmpDevicesEnabled`/`saasMonitoringEnabled` are, no
     /// manual `UserDefaults` write needed.
     @AppStorage(FeatureFlags.ddnsCheckIntervalKey) private var ddnsCheckIntervalSeconds: Double = 300
+    @AppStorage(FeatureFlags.autoBaselineNetworkQualityKey) private var autoBaselineNetworkQualityEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -88,6 +89,13 @@ struct PreferencesView: View {
                 saasServicePicker
                 userAddedSitesSection
             }
+
+            feature(
+                "Auto-Baseline Network Quality",
+                isOn: $autoBaselineNetworkQualityEnabled,
+                description: "Runs Network Health's ~5 second networkQuality check automatically when you reconnect to a network you've already seen before, so the status dot has a real color instead of staying gray until you press it yourself. This is a genuine responsiveness test under load, not a ping — it uses your data plan, same as pressing the button manually. Never runs on the very first time this Mac sees a network.",
+                identifier: "preferences.autoBaselineNetworkQuality"
+            )
 
             // Its own top-level section, not nested under a toggle like
             // `userAddedSitesSection` is — there's no parent on/off flag

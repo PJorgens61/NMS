@@ -37,6 +37,7 @@ enum FeatureFlags {
     static let userAddedSaaSSitesKey = "FeatureUserAddedSaaSSites"
     static let ddnsHostnamesKey = "FeatureDDNSHostnames"
     static let ddnsCheckIntervalKey = "FeatureDDNSCheckInterval"
+    static let autoBaselineNetworkQualityKey = "FeatureAutoBaselineNetworkQuality"
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by
@@ -176,5 +177,22 @@ enum FeatureFlags {
     static var ddnsCheckInterval: TimeInterval {
         let stored = defaults.double(forKey: ddnsCheckIntervalKey)
         return stored > 0 ? stored : 300
+    }
+
+    /// Auto-runs Network Health's ~5s "networkQuality" quick check once,
+    /// the moment a network you've already seen before is recognized
+    /// again — so the dot has a real color instead of sitting gray until
+    /// someone presses the button. Off by default, deliberately, same
+    /// reasoning as `snmpDevices`: the check is a genuine, real
+    /// `networkQuality` run (~5s, parallel-mode load, the same "Uses your
+    /// data plan" cost the button's own tooltip already warns about), not
+    /// a cheap ping — auto-firing it on every network a Mac joins,
+    /// including someone else's guest Wi-Fi or a metered hotspot, would
+    /// be real bandwidth use without explicit consent. Gated further, in
+    /// `NMSApp`'s wiring, to only a network that's already `KnownNetwork`
+    /// (`!isNewNetwork`) — never the very first time this Mac has ever
+    /// seen a given network.
+    static var autoBaselineNetworkQuality: Bool {
+        defaults.bool(forKey: autoBaselineNetworkQualityKey)
     }
 }
