@@ -2875,6 +2875,42 @@ from this list. This one remains, since it's an idea, not a defect):
   project (its own repo, its own API contract, its own README) as a
   deliberate first step before NMS's own client side is written.
 
+- [ ] **Wi-Fi site survey mode.** User names a set of locations (rooms
+  in a home, floors in an office), then walks between them tapping
+  "record here" in NMS at each stop. Each tap grabs a WiFi snapshot —
+  RSSI, noise, channel/band, PHY/link rate, same CoreWLAN data the app
+  likely already samples — and stamps it against that named location
+  and timestamp. Display as a location list with the existing
+  dot-history sparkline pattern (the same one built for networkQuality)
+  per room, so repeat walkthroughs show whether a spot's signal is
+  trending better or worse over time.
+
+  Deliberately scoping to **manual** location tagging for v1 — user
+  taps "next room," no indoor positioning. Automatic location detection
+  via BSSID/RSSI fingerprinting is a real technique but a lot of extra
+  surface area for a first cut; treat it as a stretch goal only if
+  manual tagging proves too tedious in practice. Similarly skip a
+  floor-plan heatmap view for now — a sorted list of rooms already
+  answers "which room has the worst Wi-Fi," and a heatmap needs a floor
+  plan image/coordinate input that's its own separate feature.
+
+- [ ] **Write `PORTING.md`: map every Apple-specific dependency to its
+  purpose and a plausible Windows equivalent**, so a future contributor
+  (human or AI-assisted) porting NMS to Windows isn't reverse-engineering
+  platform intent out of Swift syntax line-by-line. At minimum needs an
+  entry for each of: `CoreWLAN`/`CWWiFiClient` (Wi-Fi RSSI/noise/channel
+  data), `SwiftData` (local persistence), `MenuBarExtra`/the single-window
+  app shape (Windows system-tray equivalent), Apple's `networkQuality` CLI
+  for the bufferbloat/responsiveness test (no direct Windows equivalent —
+  needs its own solution), and `ASWebAuthenticationSession`/Keychain
+  (Windows OAuth flow + Credential Manager). The actual SwiftUI view code
+  isn't portable regardless of who wrote it and would be a rewrite either
+  way — this doc is about the *behavior* to preserve, not the Swift itself.
+
+  Requires actually grepping the NMS codebase for every platform-specific
+  API in use — not yet started, this entry just captures the idea and the
+  known dependency list from a conversation about Windows-port readiness.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
