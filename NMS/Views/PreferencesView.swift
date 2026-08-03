@@ -47,6 +47,16 @@ struct PreferencesView: View {
     @State private var userAddedSites: [FeatureFlags.UserAddedSaaSSite] = FeatureFlags.userAddedSaaSSites
     @State private var newSiteNickname = ""
     @State private var newSiteURLText = ""
+    /// Same plain-`@State`-plus-manual-`UserDefaults`-write reasoning as
+    /// `userAddedSites` — `[Codable]` isn't an `@AppStorage`-supported
+    /// type either.
+    @State private var ddnsHostnames: [FeatureFlags.DDNSHostname] = FeatureFlags.ddnsHostnames
+    @State private var newDDNSHostnameText = ""
+    /// `@AppStorage`, not plain `@State` — a `TimeInterval` (`Double`) is
+    /// one of `@AppStorage`'s supported types, so this can be live the
+    /// same way `snmpDevicesEnabled`/`saasMonitoringEnabled` are, no
+    /// manual `UserDefaults` write needed.
+    @AppStorage(FeatureFlags.ddnsCheckIntervalKey) private var ddnsCheckIntervalSeconds: Double = 300
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -78,6 +88,18 @@ struct PreferencesView: View {
                 saasServicePicker
                 userAddedSitesSection
             }
+
+            // Its own top-level section, not nested under a toggle like
+            // `userAddedSitesSection` is — there's no parent on/off flag
+            // here (see `FeatureFlags.ddnsHostnames`'s doc comment): an
+            // empty list is already fully inert, so entering a hostname
+            // below is itself the opt-in.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("DDNS Hostnames")
+                    .font(.headline)
+                caption("Watches a hostname you rely on for inbound access (a VPN endpoint, a port-forwarded service) and logs it if it stops matching this Mac's public IP — a sign your DDNS client has stopped updating.")
+            }
+            ddnsHostnamesSection
 
             // Both toggles apply live as of `FeatureFlags.snmpDevices`/
             // `.saasMonitoring`/`.saasEnabledServices` observing
@@ -267,6 +289,78 @@ struct PreferencesView: View {
 
     private func persistUserAddedSites() {
         FeatureFlags.setUserAddedSaaSSites(userAddedSites)
+    }
+
+    /// Mirrors `userAddedSitesSection` almost exactly — same add/remove
+    /// list shape, just one `TextField` (a bare hostname, not a
+    /// nickname+URL pair) instead of two. The check-interval picker only
+    /// appears once a hostname is actually configured — same "only shown
+    /// once relevant" pattern `saasServicePicker` uses for its own
+    /// sub-preference.
+    @ViewBuilder
+    private var ddnsHostnamesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(ddnsHostnames) { entry in
+                HStack {
+                    Text(entry.hostname)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button {
+                        removeDDNSHostname(entry)
+                    } label: {
+                        Image(systemName: "minus.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(entry.hostname)")
+                    .accessibilityIdentifier("preferences.ddns.hostname.remove.\(entry.id)")
+                }
+                .font(.system(size: 11))
+            }
+
+            HStack {
+                TextField("myhome.example.com", text: $newDDNSHostnameText)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("preferences.ddns.hostname.text")
+                Button("Add") { addDDNSHostname() }
+                    .disabled(!isNewDDNSHostnameValid)
+                    .accessibilityIdentifier("preferences.ddns.hostname.add")
+            }
+            .font(.system(size: 11))
+
+            if !ddnsHostnames.isEmpty {
+                Picker("Check every", selection: $ddnsCheckIntervalSeconds) {
+                    Text("1 minute").tag(60.0)
+                    Text("5 minutes").tag(300.0)
+                }
+                .pickerStyle(.segmented)
+                .font(.system(size: 11))
+                .accessibilityIdentifier("preferences.ddns.checkInterval")
+            }
+        }
+    }
+
+    /// A bare hostname, not a URL — no scheme, no path. Just non-empty
+    /// after trimming, same minimal bar `isNewSiteValid` sets for its own
+    /// nickname field.
+    private var isNewDDNSHostnameValid: Bool {
+        !newDDNSHostnameText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func addDDNSHostname() {
+        guard isNewDDNSHostnameValid else { return }
+        ddnsHostnames.append(FeatureFlags.DDNSHostname(hostname: newDDNSHostnameText.trimmingCharacters(in: .whitespaces)))
+        newDDNSHostnameText = ""
+        persistDDNSHostnames()
+    }
+
+    private func removeDDNSHostname(_ entry: FeatureFlags.DDNSHostname) {
+        ddnsHostnames.removeAll { $0.id == entry.id }
+        persistDDNSHostnames()
+    }
+
+    private func persistDDNSHostnames() {
+        FeatureFlags.setDDNSHostnames(ddnsHostnames)
     }
 
     /// `.fixedSize(horizontal: false, vertical: true)` is the load-bearing

@@ -85,6 +85,10 @@ enum FailureInjector {
     /// unrelated to this debug-only failure injection.)
     static let saasOutageDefaultsKey = "NMSInjectSaaSOutage"
 
+    /// Matched against `FeatureFlags.DDNSHostname.hostname` — see
+    /// `applyDDNSChanges`. Same reasoning/shape as `saasOutageDefaultsKey`.
+    static let ddnsStaleDefaultsKey = "NMSInjectDDNSStale"
+
     /// `#if DEBUG` throughout, without exception. Injected failures write
     /// genuine `AppEventRecord` and `ConnectivityCheckRecord` rows — a
     /// release build that could be made to fabricate outages would
@@ -306,6 +310,55 @@ enum FailureInjector {
         #endif
     }
 
+    /// Forces one or more configured DDNS hostnames (by
+    /// `FeatureFlags.DDNSHostname.hostname`) to report as stale, so
+    /// `DDNSViewModel`'s real stale/current transition logic and event
+    /// logging can be exercised without waiting for or faking a genuine
+    /// DDNS client failure.
+    ///
+    /// ```
+    /// defaults write ~/Library/Preferences/Thistle.NMS.plist NMSInjectDDNSStale -array myhost.example.com
+    /// defaults delete ~/Library/Preferences/Thistle.NMS.plist NMSInjectDDNSStale
+    /// ```
+    ///
+    /// Same "rewrite the result, not an input" reasoning `applySaaSChanges`
+    /// gives: the real `dig` lookup still runs underneath, only the
+    /// computed `syncState` is overridden afterward — this never masks a
+    /// genuine resolution failure, and a hostname already confirmed
+    /// `.blockedByCGNAT` stays that way rather than being forced to
+    /// `.stale`, since CGNAT is a real structural fact this shouldn't
+    /// paper over.
+    static func applyDDNSChanges(to statuses: [DDNSViewModel.Status]) -> [DDNSViewModel.Status] {
+        #if DEBUG
+        let forced = Set(UserDefaults.standard.stringArray(forKey: ddnsStaleDefaultsKey) ?? [])
+        guard !forced.isEmpty else { return statuses }
+        return statuses.map { status in
+            guard forced.contains(status.hostname), status.syncState != .blockedByCGNAT else { return status }
+            return DDNSViewModel.Status(
+                hostname: status.hostname,
+                resolvedIP: status.resolvedIP,
+                syncState: .stale,
+                lastCheckedAt: status.lastCheckedAt,
+                lastError: status.lastError
+            )
+        }
+        #else
+        return statuses
+        #endif
+    }
+
+    /// True if `hostname` is currently forced stale via `applyDDNSChanges`,
+    /// for prefixing its event-log message the same way SaaS/connectivity/
+    /// SNMP failures are — see `isSaaSForced`.
+    static func isDDNSForced(_ hostname: String) -> Bool {
+        #if DEBUG
+        let forced = UserDefaults.standard.stringArray(forKey: ddnsStaleDefaultsKey) ?? []
+        return forced.contains(hostname)
+        #else
+        return false
+        #endif
+    }
+
     /// Divides a poll interval, so a scripted scenario doesn't spend
     /// most of its runtime asleep.
     ///
@@ -430,6 +483,10 @@ enum FailureInjector {
         let saasOutages = Set(UserDefaults.standard.stringArray(forKey: saasOutageDefaultsKey) ?? [])
         if !saasOutages.isEmpty {
             parts.append("SaaS outage forced: \(saasOutages.sorted().joined(separator: ", "))")
+        }
+        let ddnsStale = Set(UserDefaults.standard.stringArray(forKey: ddnsStaleDefaultsKey) ?? [])
+        if !ddnsStale.isEmpty {
+            parts.append("DDNS stale forced: \(ddnsStale.sorted().joined(separator: ", "))")
         }
         let speedup = UserDefaults.standard.double(forKey: "NMSPollSpeedup")
         if speedup > 1 {

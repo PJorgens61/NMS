@@ -8,6 +8,78 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Review the internal tooling for observing this app's own UI — can
+  Claude get a better view of what actually gets *rendered*, not just
+  what data changed?** Raised directly, after two real bugs this
+  session that `UIStateLogger` (the existing debug-only log of every
+  `@Published` write, see that type's own doc comment) couldn't have
+  caught even in principle: the `Grid`/`NoBounceScrollView` column-
+  misalignment bug and the `appKitToolTip` overlay silently swallowing
+  every `Link` click. In both cases the underlying view-model data was
+  completely correct the whole time — only the actual on-screen
+  rendering (or hit-testing) was wrong, so a log of what was *written*
+  showed nothing unusual. Confirming either one needed a real
+  screenshot, and confirming the click-swallowing bug specifically
+  needed the user to click a real button, since no automation caught it.
+
+  **Second, related friction, also worth fixing regardless of the first:
+  driving/inspecting the live UI via `osascript`/System Events was
+  unreliable for a large stretch of this session** — `entire contents of
+  window` tree-walks repeatedly returned zero elements even after
+  quitting/relaunching/repositioning, `menu bar 2`'s items reported no
+  `name` (workable, but only once found by trial), and
+  `CLAUDE.md` already documents two separate sharp edges here (button
+  lookup by name not working reliably, sheets not appearing in their
+  presenting window's `entire contents`). Whether this is a genuine
+  `System Events`/SwiftUI-AX-bridging gap, an entitlements/permission
+  issue specific to this environment, or something else isn't
+  understood yet — worth actually diagnosing before building more
+  tooling on a foundation that might itself be the flaky part.
+
+  **One concrete idea, not yet decided**: since the app itself already
+  has native AppKit access to its own `NSApp.windows`/view hierarchy —
+  no `System Events`/Accessibility permission dance required, unlike an
+  *external* process automating it — a debug-only feature could have
+  NMS dump its own window/view tree (frames, `AXIdentifier`s, and each
+  `Text`'s actual rendered string) to a plain file on demand, the same
+  "append to a file Claude can just read" shape `UIStateLogger` and
+  `SubprocessTracer` already use. That would directly answer "what does
+  the screen actually say right now" without a screenshot, without
+  `osascript`, and without the reliability problems above — genuinely
+  the rendered content, not a proxy for it. Untested whether SwiftUI
+  exposes enough of its own layout tree for this to work through pure
+  AppKit APIs, or whether it would need something more invasive
+  (`ImageRenderer` plus OCR, say) — a real feasibility question, not a
+  decided design.
+
+- [ ] **Review all of this app's polling mechanisms — can they be
+  improved or unified?** Raised directly, noticed while building
+  `DDNSViewModel` as the *n*th view model to hand-roll the same
+  `Timer`/`activate()`/`deactivate()`/`observeFeatureFlagChanges()`
+  shape (`SNMPViewModel`, `SaaSMonitoringViewModel`, `PublicIPViewModel`,
+  `TracerouteViewModel`, `DDNSViewModel` itself, `ConnectivityViewModel`'s
+  own check loop) — each copy is a near-identical `NSObjectProtocol`
+  `UserDefaults.didChangeNotification` observer plus a
+  `Timer.scheduledTimer` wrapped in `FailureInjector.acceleratedInterval`,
+  with small, real per-view-model differences (some gated by a boolean
+  flag, some by a non-empty list, some always-on with no gate at all;
+  intervals range from `ConnectivityViewModel`'s fast poll up through
+  `TracerouteViewModel`'s 10-minute retrace).
+  
+  **Not yet decided whether unifying is actually worth it** — a shared
+  "polling controller" type could cut real duplication, but every
+  existing view model's activate/deactivate logic carries its own
+  specific reasoning in its doc comments (documented directly, not
+  incidental), and a generic abstraction risks flattening those into
+  something less legible than five separate, well-commented copies.
+  Also raised alongside this: whether check intervals should be more
+  consistently user-configurable — `DDNSViewModel` just became the
+  first view model with a user-facing interval preference
+  (`FeatureFlags.ddnsCheckInterval`, "users with critical inbound
+  services might want to poll aggressively"), where every other
+  interval here is still a fixed constant. Worth a real audit pass
+  before deciding either way, not a snap judgment.
+
 - [ ] **A local-only HTTP server, serving pages to the Mac's own default
   browser — raised directly, connecting two separate needs.** First:
   Apple networkQuality's verbose report currently shows as raw
@@ -204,54 +276,15 @@ new ones as they come up.
   answered. Doesn't block the local Wi-Fi ping-stress test above, which
   stands on its own with no external dependency.
 
-- [ ] **Give Apple's `networkQuality` its own tile, separate from
-  Speed Test — raised directly, worried it's currently easy to
-  overlook.** Today both throughput sources share one "Speed Test"
-  tile (`ContentView+Window.swift`'s `pathAndSpeedRow`/
-  `speedTestTileContent`): a primary "Run Speed Test" button in the
-  tile header runs the Cloudflare-endpoint throughput test, and a
-  small, plain-styled, secondary "Run Network Quality" button inside
-  the tile body runs Apple's own `networkQuality` — same binary behind
-  Settings → Network Quality Test, the source of the RPM/responsiveness-
-  under-load numbers nothing else in this app measures (see
-  DESIGN-NOTES.md's "Network Quality" section). That deliberately
-  secondary placement was the original design decision — "one history,
-  one place to compare them" — but it means a genuinely distinct,
-  interesting result (bufferbloat/responsiveness under load, not just
-  raw Mbps) is easy to miss entirely unless someone happens to notice
-  the smaller button.
-
-  **Also raised: rename it "Apple networkQuality" wherever it's shown**
-  — the literal binary name, capitalized the way Apple ships it — to
-  make the "this is a macOS built-in feature, not something NMS
-  invented" connection explicit rather than implicit. Today's button
-  text ("Run Network Quality") and history-row label ("Apple") both
-  undersell that connection.
-
-  **Real tension to resolve before building, not yet decided**: the
-  two sources currently share a single `NetworkQualityViewModel
-  .recentRuns` array (rows distinguished only by `run.source`) and a
-  single `isRunning`/`lastError` pair — deliberately, since running
-  both at once would have them contend for the same link and
-  understate both (see that view model's own doc comments). Splitting
-  into two visually separate tiles probably wants two filtered views
-  over history (or two arrays) so each tile shows only its own runs,
-  while still respecting that the two tests can't usefully run
-  concurrently — likely both tiles reflect one shared "a test is
-  running" state, with only the tile whose button was pressed showing
-  "Testing…" text. Also needs a height-budget check: Path to Internet
-  and Speed Test are currently the last two (window-only) tiles in a
-  single-column stack (`SectionLayout.pathToInternet`/`.speedTest`,
-  both `[.window]`) — a third tile means the window grows again, not
-  just this row's internal layout.
-
-  **Also add it to the website** — the "for developers"/homelab-style
-  sections already talk about throughput monitoring; worth a line
-  specifically calling out that NMS surfaces Apple's own built-in
-  `networkQuality`/bufferbloat test (not just a reimplementation of
-  Speed Test culture) as one of its diagnostics, same "we integrate
-  with what the platform already gives you" framing the RDAP/SNMP
-  features already carry there.
+- [x] ~~Give Apple's `networkQuality` its own tile, separate from
+  Speed Test.~~ **Shipped** (`4eb6f81`): a dedicated "Apple
+  networkQuality" tile with its own run history, real byte-transfer
+  reporting, a "View Full Report" verbose-output sheet, and a
+  popover-only 5-second quick check with a green/yellow/red verdict.
+  Also added to the website's homelab section (`gh-pages` `e1dfcb9`,
+  copy refined further in `4361a25`) — "Runs Apple's own networkQuality
+  test on demand to catch bufferbloat... Know if it's the network, not
+  your aim."
 
 - [ ] **Learn how major ISPs actually architect customer deployments —
   broader and more proactive than just tracking hop patterns we've
@@ -2284,116 +2317,26 @@ from this list. This one remains, since it's an idea, not a defect):
   transition logs anything" convention `logAddressingChangeIfNeeded`
   already follows for `multipleNATLayersDetected`.
 
-- [ ] **Monitor a user-configured DDNS hostname for staleness — does it
-  actually still point at the current public IP?** Raised directly,
-  as a natural extension of the just-shipped public-IP-change tracking
-  (`publicIPChanged`, already surfaced on the project website's
-  homelab section as "the thing that silently breaks a self-hosted VPN
-  endpoint or a port-forwarded service"). Watching NMS's own Public IP
-  row only helps if someone's actually looking at it; the real-world
-  failure this would catch is different and more common: a DDNS client
-  (on the router, a NAS, a cron job) that's supposed to keep a hostname
-  like `myhome.duckdns.org` pointed at the current address, silently
-  stopping — the DNS record goes stale, and anything relying on that
-  hostname (a VPN peer config, a port-forwarded service, a friend's
-  bookmark) becomes unreachable from outside with nothing on this Mac
-  visibly broken.
-
-  **User config of the DDNS name is required, not optional** — NMS has
-  no way to know which hostname, if any, someone's pointed at their own
-  connection. Same shape as `FeatureUserAddedSaaSSites` already
-  established for user-added SaaS reachability checks
-  (`FeatureFlags.UserAddedSaaSSite`, JSON-encoded `UserDefaults`, a
-  Preferences list the user adds to directly) — one or more hostnames,
-  entered once, checked from then on. Not a single hardcoded field:
-  someone could reasonably run more than one DDNS name (a router's own
-  update client and a separate NAS's, say).
-
-  **Mechanism**: resolve the configured hostname (a plain `getaddrinfo`
-  lookup, same primitive `DNSResolutionService` already uses) on some
-  periodic cadence, and compare the result against
-  `PublicIPViewModel.currentIP` — already fetched independently, no new
-  external dependency needed. A mismatch means the DDNS record is
-  stale; a match means it's current. This is genuinely different from
-  `publicIPChanged`, which only says "your own address changed," not
-  "the hostname you rely on for inbound access still points at it."
-
-  **CGNAT breaks both DDNS and port forwarding structurally, not just
-  the freshness of a DNS record — raised directly, and arguably the
-  more important warning than staleness alone.** Under CGNAT, the
-  customer's own router never holds a real, internet-routable public
-  IP at all — only a private, ISP-internal CGNAT address
-  (`100.64.0.0/10`), with the ISP's own NAT layer sharing one real
-  public IP across many customers further out. Two consequences, both
-  severe, neither fixable by "waiting for the DDNS client to catch up":
-  - **DDNS becomes pointless, not just occasionally stale.** A DDNS
-    client on the customer's own router can only ever report its own
-    WAN-facing address — the CGNAT one — never the real shared public
-    IP a DNS record would actually need to point at. A DDNS client
-    "working perfectly" (always current, matching what the router
-    reports) is still fundamentally wrong under CGNAT.
-  - **Port forwarding/DNAT can't work at all, for the same root
-    reason.** Forwarding rules configured on the customer's own router
-    only take effect for traffic that reaches that router's own WAN
-    interface — under CGNAT, inbound traffic never gets there. The
-    ISP's own shared-IP NAT layer (not under the customer's control,
-    usually not configurable by them at all) is what actually decides
-    where an inbound packet goes, and it has no rule sending any of it
-    to this specific customer.
-
-  This app already detects exactly this condition, for an unrelated
-  reason — `IPClassifier.isCGNAT`,
-  `TracerouteViewModel.includesConfirmedCGNAT`/
-  `multipleNATLayersDetected` — so the real work here isn't "add CGNAT
-  detection," it's reusing what's already built. **Proposed**: check
-  for confirmed CGNAT before (or alongside) the staleness comparison,
-  and if a DDNS hostname is configured on a CGNAT'd network, that's the
-  headline warning — "this can't work here, regardless of how current
-  your DDNS record is" — not a detail buried under a plain stale/fresh
-  result that would otherwise report "matches" or "stale" without ever
-  explaining why neither answer actually helps. Worth its own distinct
-  event/message, since the implied next step is different too — contact
-  the ISP about a static IP or CGNAT exemption, or use a relay-based
-  remote-access tool (Tailscale, a WireGuard relay) instead of DDNS or
-  raw port forwarding — not "check whether your DDNS client is
-  running."
-
-  **A real scope boundary worth stating directly, not glossed over**:
-  this only detects the *structural* condition (CGNAT present, so this
-  approach is expected to fail), not actual end-to-end inbound
-  reachability. Confirming a real inbound connection actually lands
-  would need a remote vantage point this app doesn't have and isn't
-  proposing to add — this is a local-only app, no server, no account,
-  by design (see the README). "CGNAT is present, so this likely won't
-  work" is the honest, buildable claim; "we tested your port forward
-  from the outside and it doesn't work" is a materially bigger, and
-  currently out-of-scope, feature.
-
-  **A real technical wrinkle to solve before trusting this, not yet
-  worked out**: `DNSResolutionService`'s own anti-caching trick
-  (a randomized subdomain, to defeat the resolver's negative caching)
-  can't apply here — the hostname being checked is fixed, not
-  randomizable, so a straightforward `getaddrinfo` lookup risks reading
-  a *cached* answer from the local resolver rather than the DDNS
-  provider's actual current record, which could report a false "stale"
-  moments after a real, successful update (the cache hasn't caught up
-  yet) — worse than not checking, since it's a false alarm about
-  something that's actually fine. Worth checking whether querying an
-  external resolver directly (the same `dig @1.1.1.1 host` approach
-  `DESIGN-NOTES.md`'s DNS-testing section already evaluated and set
-  aside for the main DNS check, for different reasons — availability,
-  not correctness) sidesteps this for a low-frequency check like this
-  one, where an extra subprocess per check is a much smaller cost than
-  it would be at connectivity-check cadence.
-
-  **Shape of the result, not yet decided**: a real up/down-style event
-  pair (e.g. `ddnsRecordStale`/`ddnsRecordCurrent`) rather than a
-  neutral informational one like `publicIPChanged` — a stale DDNS
-  record is an actual "something you depend on is currently broken"
-  fact, not just information, the same reasoning that makes
-  `infrastructureUnreachable` negative-polarity rather than neutral.
-  Logged only on a genuine transition, same convention every other
-  event here already follows.
+- [x] ~~Monitor a user-configured DDNS hostname for staleness — does it
+  actually still point at the current public IP?~~ **Shipped**:
+  `DDNSResolutionService` (`dig @1.1.1.1`, not `getaddrinfo` — see that
+  type's own doc comment for why the anti-caching trick below couldn't
+  apply here), `DDNSViewModel` (per-hostname `syncState`: `.current`/
+  `.stale`/`.blockedByCGNAT`, the last one reusing
+  `TracerouteViewModel.includesConfirmedCGNAT` rather than adding new
+  detection, and preempting the plain comparison rather than
+  supplementing it — see `syncState`'s own doc comment), one or more
+  hostnames configured via a new Preferences section
+  (`FeatureFlags.DDNSHostname`, same shape `UserAddedSaaSSite` already
+  established) with a 1-minute/5-minute check-interval picker, three
+  new `AppEventKind` cases (`ddnsRecordStale`/`ddnsRecordCurrent`/
+  `ddnsBlockedByCGNAT`), a window-only summary row in the Info tile
+  (colored dot + hostname/count + interval, a manual "check now" button,
+  full per-hostname detail in the tooltip), and `FailureInjector
+  .applyDDNSChanges`/`isDDNSForced` for scripted testing of the
+  transition logic. Verified against a real, live stale DDNS record —
+  a genuine full round trip (real stale → fault-injected stale → real
+  recovery), not just unit tests.
 
 - [ ] **An external vantage point for real firewall/ACL reachability
   testing, triggered by a firewall change or router firmware update —

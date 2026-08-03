@@ -139,6 +139,31 @@ enum AppEventKind: String, Codable {
     /// recognition (see `SNMPViewModel.rebuildDeviceList`'s
     /// `lastFingerprintForCaches` guard), not on every scan.
     case subnetTooLargeToScan
+    /// A user-configured DDNS hostname (see `FeatureFlags.ddnsHostnames`,
+    /// `DDNSViewModel`) no longer resolves to this Mac's current public
+    /// IP — the DDNS client responsible for keeping it updated (on the
+    /// router, a NAS, a cron job) has likely stopped working. A real
+    /// "something you depend on is currently broken" fact, not just
+    /// information, the same reasoning that makes
+    /// `infrastructureUnreachable` negative-polarity rather than neutral.
+    /// Logged only on a genuine transition, and never while the network
+    /// is confirmed CGNAT'd — see `ddnsBlockedByCGNAT`.
+    case ddnsRecordStale
+    case ddnsRecordCurrent
+    /// A configured DDNS hostname on a network confirmed as carrier-grade
+    /// NAT'd (`TracerouteViewModel.includesConfirmedCGNAT`) — structurally
+    /// different from ordinary staleness, and arguably the more important
+    /// warning: under CGNAT, this Mac's router can only ever report its
+    /// own CGNAT-internal address, never the real address shared across
+    /// an ISP's customers, so a DDNS record "matching" would still be
+    /// fundamentally wrong. Logged in place of `ddnsRecordStale`/
+    /// `ddnsRecordCurrent`, not alongside them — a plain stale/current
+    /// verdict here would be actively misleading, reporting "matches" or
+    /// "stale" without ever explaining why neither answer actually helps.
+    /// Informational like `multipleNATLayersDetected`, not a failure that
+    /// resolves on its own — no paired "recovered" kind, same reasoning
+    /// `subnetTooLargeToScan` gives for having none.
+    case ddnsBlockedByCGNAT
 
     enum Polarity {
         case positive, negative, neutral
@@ -152,15 +177,15 @@ enum AppEventKind: String, Codable {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
              .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered,
-             .saasServiceRecovered:
+             .saasServiceRecovered, .ddnsRecordCurrent:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
              .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue,
-             .saasServiceDown:
+             .saasServiceDown, .ddnsRecordStale:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
              .screenshotCaptured, .bugReportCaptured, .multipleNATLayersDetected, .subnetTooLargeToScan,
-             .ispOrganizationChanged:
+             .ispOrganizationChanged, .ddnsBlockedByCGNAT:
             return .neutral
         }
     }

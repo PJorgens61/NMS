@@ -1585,3 +1585,35 @@ struct CaptureModeGuardAuditTests {
         #expect(inContentViewWindow == 0, "expected 0 in ContentView+Window.swift — a new one here would need its own capture-mode audit")
     }
 }
+
+@Suite("DDNSViewModel.syncState")
+struct DDNSSyncStateTests {
+    @Test("matching resolved and public IPs, no CGNAT: current")
+    func matchingIsCurrent() {
+        let state = DDNSViewModel.syncState(resolvedIP: "203.0.113.4", publicIP: "203.0.113.4", isCGNAT: false)
+        #expect(state == .current)
+    }
+
+    @Test("mismatched IPs, no CGNAT: stale")
+    func mismatchIsStale() {
+        let state = DDNSViewModel.syncState(resolvedIP: "203.0.113.4", publicIP: "203.0.113.9", isCGNAT: false)
+        #expect(state == .stale)
+    }
+
+    /// CGNAT preempts the plain comparison rather than supplementing it —
+    /// even a "matching" pair is still reported as blocked, since
+    /// `publicIP` here would only ever be this Mac's own CGNAT-internal
+    /// address, never the real address a DDNS record would need to point
+    /// at. See `DDNSViewModel.syncState`'s own doc comment.
+    @Test("CGNAT confirmed, IPs match: blockedByCGNAT, not current")
+    func cgnatOverridesMatch() {
+        let state = DDNSViewModel.syncState(resolvedIP: "100.64.1.2", publicIP: "100.64.1.2", isCGNAT: true)
+        #expect(state == .blockedByCGNAT)
+    }
+
+    @Test("CGNAT confirmed, IPs mismatch: still blockedByCGNAT, not stale")
+    func cgnatOverridesMismatch() {
+        let state = DDNSViewModel.syncState(resolvedIP: "203.0.113.4", publicIP: "203.0.113.9", isCGNAT: true)
+        #expect(state == .blockedByCGNAT)
+    }
+}

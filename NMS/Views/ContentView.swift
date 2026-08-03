@@ -16,6 +16,7 @@ struct ContentView: View {
     @ObservedObject var traceroute: TracerouteViewModel
     @ObservedObject var snmp: SNMPViewModel
     @ObservedObject var saasMonitoring: SaaSMonitoringViewModel
+    @ObservedObject var ddns: DDNSViewModel
     /// Not `@ObservedObject` — a plain value computed once at launch (see
     /// `NMSApp`), not something that changes while the popover is open.
     let buildInfo: BuildInfoService.Info?
@@ -873,6 +874,85 @@ struct ContentView: View {
         }
 
         networkIdentityStatus
+
+        // Window-only, per direct request — confirms the polling is
+        // actually active and shows its current state, without adding
+        // popover clutter for the vast majority of installs that never
+        // configure a hostname (row is absent entirely until one is).
+        if surface == .window {
+            ddnsRow
+        }
+    }
+
+    /// One summary row for however many hostnames are configured — not
+    /// one row per hostname, to keep this from growing the tile
+    /// unboundedly the way `FeatureFlags.UserAddedSaaSSite` deliberately
+    /// stays out of the curated SaaS table for the same reason. Per-
+    /// hostname detail lives in the tooltip and, for a genuine
+    /// transition, the Events list.
+    @ViewBuilder
+    private var ddnsRow: some View {
+        if !ddns.statuses.isEmpty {
+            HStack {
+                Text("DDNS")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    ddns.checkAll()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .imageScale(.small)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(ddns.isChecking)
+                .accessibilityLabel("Check DDNS hostnames now")
+                .accessibilityIdentifier("info.ddns.checkNow")
+                .appKitToolTip("Resolves every configured DDNS hostname now, rather than waiting for the next scheduled check.", enabled: !isCapturingScreenshot)
+                Circle()
+                    .fill(ddnsSummaryColor)
+                    .frame(width: 8, height: 8)
+                Text(ddnsSummaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.system(size: 12))
+            .appKitToolTip(ddnsTooltipText, enabled: !isCapturingScreenshot)
+        }
+    }
+
+    /// Worst state wins — a single red dot for one stale hostname among
+    /// several shouldn't be averaged away by the others being fine.
+    /// `.blockedByCGNAT` renders distinctly from both: not a failure
+    /// (green would be dishonest) and not "something broke" (red would
+    /// overstate it) — a structural fact about this connection, same
+    /// `.orange` tier the "possibly related to a recent network change"
+    /// annotation already uses for "worth noting, not a failure."
+    private var ddnsSummaryColor: Color {
+        let states = ddns.statuses.compactMap(\.syncState)
+        if states.contains(.stale) { return .red }
+        if states.contains(.blockedByCGNAT) { return .orange }
+        if states.count == ddns.statuses.count, states.allSatisfy({ $0 == .current }) { return .green }
+        return .secondary
+    }
+
+    private var ddnsSummaryText: String {
+        let name = ddns.statuses.count == 1 ? ddns.statuses[0].hostname : "\(ddns.statuses.count) hostnames"
+        let minutes = Int(FeatureFlags.ddnsCheckInterval / 60)
+        return "\(name) · every \(minutes)m"
+    }
+
+    private var ddnsTooltipText: String {
+        ddns.statuses.map { status in
+            let state: String
+            switch status.syncState {
+            case .current: state = "in sync"
+            case .stale: state = "stale — check your DDNS client"
+            case .blockedByCGNAT: state = "blocked by CGNAT"
+            case nil: state = status.lastError ?? "checking…"
+            }
+            return "\(status.hostname): \(state)"
+        }.joined(separator: "\n")
     }
 
     /// The label-entry input is hidden entirely now — this is read-only

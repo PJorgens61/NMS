@@ -35,6 +35,8 @@ enum FeatureFlags {
     static let saasMonitoringKey = "FeatureSaaSMonitoring"
     static let saasEnabledServicesKey = "FeatureSaaSEnabledServices"
     static let userAddedSaaSSitesKey = "FeatureUserAddedSaaSSites"
+    static let ddnsHostnamesKey = "FeatureDDNSHostnames"
+    static let ddnsCheckIntervalKey = "FeatureDDNSCheckInterval"
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by
@@ -130,5 +132,49 @@ enum FeatureFlags {
     static func setUserAddedSaaSSites(_ sites: [UserAddedSaaSSite]) {
         guard let data = try? JSONEncoder().encode(sites) else { return }
         defaults.set(data, forKey: userAddedSaaSSitesKey)
+    }
+
+    /// A user-configured DDNS hostname to watch for staleness against
+    /// this Mac's own public IP — see `DDNSViewModel`. `Identifiable` by
+    /// `hostname` since that's the one field that can't be blank or
+    /// duplicated meaningfully, same reasoning `UserAddedSaaSSite` gives
+    /// for keying on `url`.
+    struct DDNSHostname: Codable, Identifiable, Equatable {
+        var id: String { hostname }
+        let hostname: String
+    }
+
+    /// Same JSON-in-`Data` shape as `userAddedSaaSSites`, for the same
+    /// reason: `[Codable]` isn't an `@AppStorage`-supported type.
+    /// **Deliberately no separate on/off feature flag for this one** —
+    /// an empty list is already fully inert (no timer, no checks), so
+    /// there's no passive third-party reach to gate before the user has
+    /// typed in a hostname, unlike `snmpDevices`/`saasMonitoring`.
+    static var ddnsHostnames: [DDNSHostname] {
+        guard
+            let data = defaults.data(forKey: ddnsHostnamesKey),
+            let hostnames = try? JSONDecoder().decode([DDNSHostname].self, from: data)
+        else {
+            return []
+        }
+        return hostnames
+    }
+
+    static func setDDNSHostnames(_ hostnames: [DDNSHostname]) {
+        guard let data = try? JSONEncoder().encode(hostnames) else { return }
+        defaults.set(data, forKey: ddnsHostnamesKey)
+    }
+
+    /// How often `DDNSViewModel` re-checks every configured hostname.
+    /// Two choices only (see `PreferencesView`'s picker) — raised
+    /// directly: someone depending on an inbound service (a self-hosted
+    /// VPN endpoint, say) may want the aggressive 1-minute option, but a
+    /// single `dig` call per hostname is cheap enough that even that
+    /// isn't a real cost concern, so this doesn't need a wider range.
+    /// `0` (an untouched key) means "never customized," same convention
+    /// `saasEnabledServices`'s `nil` uses — defaults to 5 minutes.
+    static var ddnsCheckInterval: TimeInterval {
+        let stored = defaults.double(forKey: ddnsCheckIntervalKey)
+        return stored > 0 ? stored : 300
     }
 }
