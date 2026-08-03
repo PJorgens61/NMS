@@ -221,6 +221,19 @@
     display: flex; justify-content: space-between;
   }
 
+  /* ---------- The gap (Windows vs. Mac) ---------- */
+  .gap {
+    padding: clamp(2.2rem, 5vw, 3.2rem) 0;
+    border-top: 1px solid var(--line);
+  }
+  .gap h2 {
+    font-size: clamp(1.4rem, 2.6vw, 1.8rem);
+    font-weight: 750;
+    max-width: 34ch;
+  }
+  .gap .lede { margin-top: 0.9rem; max-width: 58ch; color: var(--muted); font-size: 1.02rem; }
+  .gap .feat-list { max-width: 58ch; }
+
   /* ---------- Hops ---------- */
   .hop-nav {
     font-family: var(--font-mono);
@@ -414,6 +427,16 @@
       </div>
       <div class="mock-buildline"><span>a1b2c3d</span><span>3.6 MB store</span></div>
     </div>
+  </section>
+
+  <section class="gap">
+    <p class="eyebrow">The gap</p>
+    <h2>Windows has a hundred network apps. Mac doesn't have one — until now.</h2>
+    <p class="lede">Many of the Windows tools that do exist predate Wi-Fi being the default and internet reachability being the everyday problem — built in an era when software like this took years and an enterprise budget. This started as a Mac app because that's what the author uses, not because Windows doesn't deserve a modern one too. It's MIT-licensed and open source — if you want to bring this approach to Windows, the code's right there.</p>
+    <ul class="feat-list">
+      <li><span class="mark">→</span> <a href="https://github.com/PJorgens61/NMS" target="_blank" rel="noopener">We'd genuinely welcome a Windows port</a> — same idea, same honesty about what's actually broken, on the platform that's had a hundred network apps and never quite gotten this one.</li>
+      <li><span class="mark">→</span> Built for Mac first — native SwiftUI and SwiftData throughout, no cross-platform compromise holding it back today.</li>
+    </ul>
   </section>
 
   <nav class="hop-nav" id="trace">
