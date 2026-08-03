@@ -2911,6 +2911,21 @@ from this list. This one remains, since it's an idea, not a defect):
   API in use — not yet started, this entry just captures the idea and the
   known dependency list from a conversation about Windows-port readiness.
 
+- [ ] **Automate the privacy/security review as a per-release step.**
+  `docs/reviews/2026-08-03-privacy-security-review.md` is a first,
+  manually-run pass checking the app's "no account, no cloud, no
+  telemetry" claims against the actual source (dependencies, network
+  endpoints, shell-out safety, sandbox status, stress-test scoping).
+  If this becomes a standing part of the release process, it should be
+  a script that re-runs the same greps against each tagged release's
+  commit and flags drift from the previous review, rather than a fresh
+  manual pass every time — and the resulting file should note plainly
+  that it's a reproducible methodology check, not a "certification"
+  (no one, including an AI, can cryptographically prove a review
+  document wasn't edited after being generated — the trust comes from
+  a reader being able to rerun the exact commands themselves, not from
+  who's credited as having written it).
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
