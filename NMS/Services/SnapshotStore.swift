@@ -829,15 +829,6 @@ final class SnapshotStore {
         return records.reversed().map { LatencySample(latencyMs: $0.latencyMs, checkedAt: $0.checkedAt) }
     }
 
-    /// Debug-only plain-text dump of every table — see `StoreInspector`.
-    /// Lives here rather than taking a `ModelContext` at the call site so
-    /// `context` can stay private; this type is the only thing that owns
-    /// it. `header` passes through to `StoreInspector.dump` untouched —
-    /// see that parameter's doc comment.
-    func dumpState(header: String? = nil) -> String? {
-        StoreInspector.dump(context: context, header: header)
-    }
-
     /// `networkFingerprint`, when given, overrides `currentNetworkFingerprint`
     /// for this one event — see `WiFiSSIDViewModel.logNetworkChangeIfNeeded`,
     /// the one caller that needs it: a network-transition event describes

@@ -4,89 +4,14 @@ import SwiftData
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // .accessory = menu bar only, no Dock icon, no app switcher entry.
-        // This is the standard pattern for background utility apps.
-        NSApp.setActivationPolicy(.accessory)
+        // .regular = a traditional app: Dock icon, app switcher entry,
+        // standard app menu bar. NMS used to be .accessory (menu bar only,
+        // no Dock icon) when its whole UI was a MenuBarExtra popover; see
+        // DESIGN-NOTES.md for why that was dropped in favor of one
+        // resizable window.
+        NSApp.setActivationPolicy(.regular)
     }
 }
-
-/// The `MenuBarExtra` label, plus a DEBUG-only side effect: auto-opening
-/// the "expert-mode-window" `Window` scene once at launch.
-///
-/// This exists so a script (or an AI assistant driving a session, same
-/// audience `FailureInjector`'s doc comments call out) can verify the app
-/// visually with just `screencapture` against a real `NSWindow` — no
-/// Accessibility permission, no clicking through the menu bar popover
-/// first. See the punch-list item this closes ("a debug key to auto-open
-/// the real window at launch").
-///
-/// **Why this lives here, not in `NMSApp.init()` or `AppDelegate`:**
-/// `openWindow(id:)` is a SwiftUI `@Environment` action, only available
-/// inside a real `View` — `NMSApp` is a `struct: App`, not a `View`, and
-/// `AppDelegate` is plain `AppKit`, neither has access to it. The
-/// `MenuBarExtra`'s popover content (`ContentView`) *is* a `View` with
-/// that access already (see its own `openWindow`/`openWindowInFront`),
-/// but its `.task`/`.onAppear` only fire once actually shown — clicked
-/// open by a user or a script, not at launch. The one place in this
-/// scene graph guaranteed to render immediately, regardless of whether
-/// anything is ever clicked, is the `MenuBarExtra`'s `label` — it's
-/// what makes the menu bar icon itself show up, confirmed empirically:
-/// the icon and its live color are visible the instant the app launches.
-/// Wrapping the label in its own tiny `View` gets a real `openWindow`
-/// binding attached to something with that guarantee.
-///
-/// **`for now`, unconditional in DEBUG rather than gated behind its own
-/// defaults key** — this is a temporary dev/verification convenience,
-/// not a real behavior change for the shipped app, so it follows the
-/// same `#if DEBUG` discipline as `FailureInjector`/`StoreInspector`
-/// rather than adding a new toggle. A release build can't produce this
-/// side effect at all.
-///
-/// `didAutoOpen` guards against re-triggering on every re-render — the
-/// label closure re-evaluates whenever `overallStatus.color` changes,
-/// and while `.task` on a stable view identity shouldn't restart on its
-/// own, the guard costs nothing and removes any doubt.
-private struct MenuBarLabel: View {
-    let symbolName: String
-    let color: Color
-    #if DEBUG
-    @Environment(\.openWindow) private var openWindow
-    @State private var didAutoOpen = false
-    #endif
-
-    var body: some View {
-        let image = Image(nsImage: NMSApp.statusIcon(symbolName: symbolName, color: color))
-        #if DEBUG
-        image.task {
-            guard !didAutoOpen else { return }
-            didAutoOpen = true
-            openWindow(id: "expert-mode-window")
-            // Same activation/ordering `openWindowInFront` needed on the
-            // MacBook (see `ContentView.openWindowInFront`'s fix,
-            // `NSApp.activate()` with no arguments) — found by testing
-            // this exact path right after that fix landed: a script or
-            // screenshot right after launch would otherwise see the
-            // window exist but sit behind other apps, the same failure
-            // mode, just reached through `openWindow(id:)` directly
-            // instead of a footer button. Deferred one run loop turn for
-            // the same reason `openWindowInFront` is: the window may not
-            // exist yet the instant `openWindow` returns.
-            DispatchQueue.main.async {
-                NSApp.activate()
-                let match = NSApp.windows.first { $0.identifier?.rawValue.contains("expert-mode-window") == true }
-                match?.makeKeyAndOrderFront(nil)
-                UIStateLogger.log(
-                    "MenuBarLabel.autoOpenWindow",
-                    "expert-mode-window → \(match?.identifier?.rawValue ?? "NO WINDOW MATCHED")"
-                )
-            }
-        }
-        #else
-        image
-        #endif
-    }
-}
-
 @main
 struct NMSApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -98,7 +23,6 @@ struct NMSApp: App {
     @StateObject private var ispIdentity: ISPIdentityViewModel
     @StateObject private var dhcpLease: DHCPLeaseViewModel
     @StateObject private var networkQuality: NetworkQualityViewModel
-    @StateObject private var screenshot: ScreenshotViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
     @StateObject private var ethernetLink: EthernetLinkViewModel
     @StateObject private var eventLog: EventLogViewModel
@@ -169,7 +93,6 @@ struct NMSApp: App {
         // own — deliberately never triggered automatically. See
         // `NetworkQualityViewModel`'s own doc comment.
         let networkQuality = NetworkQualityViewModel(snapshotStore: store)
-        let screenshot = ScreenshotViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let ethernetLink = EthernetLinkViewModel()
         let eventLog = EventLogViewModel(snapshotStore: store)
@@ -199,7 +122,6 @@ struct NMSApp: App {
             publicIP: publicIP,
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
-            screenshot: screenshot,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
             eventLog: eventLog,
@@ -217,7 +139,6 @@ struct NMSApp: App {
         _ispIdentity = StateObject(wrappedValue: ispIdentity)
         _dhcpLease = StateObject(wrappedValue: dhcpLease)
         _networkQuality = StateObject(wrappedValue: networkQuality)
-        _screenshot = StateObject(wrappedValue: screenshot)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
         _ethernetLink = StateObject(wrappedValue: ethernetLink)
         _eventLog = StateObject(wrappedValue: eventLog)
@@ -282,7 +203,6 @@ struct NMSApp: App {
         publicIP: PublicIPViewModel,
         ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
-        screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
         ethernetLink: EthernetLinkViewModel,
         eventLog: EventLogViewModel,
@@ -326,7 +246,6 @@ struct NMSApp: App {
             publicIP: publicIP,
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
-            screenshot: screenshot,
             wifiSSID: wifiSSID,
             eventLog: eventLog,
             networkIdentity: networkIdentity,
@@ -567,7 +486,6 @@ struct NMSApp: App {
         publicIP: PublicIPViewModel,
         ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
-        screenshot: ScreenshotViewModel,
         wifiSSID: WiFiSSIDViewModel,
         eventLog: EventLogViewModel,
         networkIdentity: NetworkIdentityViewModel,
@@ -582,7 +500,6 @@ struct NMSApp: App {
         publicIP.onEventLogged = { eventLog.refresh() }
         ispIdentity.onEventLogged = { eventLog.refresh() }
         dhcpLease.onEventLogged = { eventLog.refresh() }
-        screenshot.onEventLogged = { eventLog.refresh() }
         wifiSSID.onEventLogged = { eventLog.refresh() }
         snmp.onEventLogged = { eventLog.refresh() }
         traceroute.onEventLogged = { eventLog.refresh() }
@@ -611,19 +528,12 @@ struct NMSApp: App {
         }
     }
 
-    /// The at-a-glance severity: interface down and router/internet/DNS/HTTP
-    /// failures are critical (red); a monitored LAN device being down is
-    /// marginal (yellow); anything else is normal (green).
-    private var overallStatus: OverallStatus {
-        OverallStatus.compute(interfaceIsDown: networkMonitor.currentInterface == nil, checks: connectivity.checks)
-    }
-
-    /// Built once here rather than duplicated at each of the two call
-    /// sites below — the popover and the Expert Mode window show the
-    /// exact same live view models, just hosted in a different `Scene`.
-    /// `surface` is the one thing that differs: see `Surface` and
-    /// `SectionLayout` for what it selects.
-    private func contentView(surface: Surface) -> ContentView {
+    /// Built once here rather than at `body`'s own single call site —
+    /// matches the shape this had when there were two call sites (the
+    /// popover and the Expert Mode window), kept even now that there's
+    /// only one, since view-model wiring this dense is easier to read as
+    /// its own named step.
+    private func contentView() -> ContentView {
         ContentView(
             viewModel: networkMonitor,
             lanDiscovery: lanDiscovery,
@@ -633,7 +543,6 @@ struct NMSApp: App {
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             networkQuality: networkQuality,
-            screenshot: screenshot,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
             eventLog: eventLog,
@@ -642,49 +551,29 @@ struct NMSApp: App {
             saasMonitoring: saasMonitoring,
             ddns: ddns,
             buildInfo: buildInfo,
-            storeURL: storeURL,
-            surface: surface
+            storeURL: storeURL
         )
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            contentView(surface: .popover)
-        } label: {
-            MenuBarLabel(symbolName: networkMonitor.statusSymbolName, color: overallStatus.color)
-        }
-        .menuBarExtraStyle(.window)
-
-        // "Expert Mode," opened via the popover's own footer button (see
-        // `ContentView`) — every diagnostic section in one resizable
-        // window, versus the popover's deliberately narrower "can I work,
-        // what's restricted" scope (see `SectionLayout`'s audience-split
-        // doc comment). Formerly gated behind `FeatureFlags.comparisonWindow`
-        // as an experimental "side-by-side alternative to evaluate";
-        // that flag is gone entirely now — a permanent, always-available
-        // part of the app, not an opt-in.
+        // The app's one main window — used to be "Expert Mode," opened on
+        // demand from a MenuBarExtra popover's footer button; now the
+        // whole app, open automatically at launch since it's the first
+        // scene declared. See DESIGN-NOTES.md for why the popover was
+        // dropped.
         //
         // An outer scroll container turned out not to be optional: without
         // one, the window is floor-clamped to its full content height, and
         // on the M1 MacBook Air's screen that's taller than the screen
         // itself — no way to reach the lower half at all, confirmed
-        // directly. But the earlier outer `NoBounceScrollView` attempt
-        // relied on scroll-wheel *chaining* out of an exhausted tile to
-        // reach it, and that chaining is inconsistent across input
-        // devices (fine on a trackpad, unreliable with a Magic Mouse).
-        // `persistentScrollbar: true` is the fix: a `.legacy`, always-
-        // visible scroller whose thumb can be grabbed and dragged
-        // directly, a `mouseDown`-based interaction with nothing to do
-        // with `scrollWheel(with:)` — reliable on any device, and not
-        // dependent on chaining working. Wheel-scrolling over the gaps
-        // between tiles (and chaining out of a tile) still works too; the
-        // scrollbar is just the guaranteed path now, not the only one.
-        Window("NMS", id: "expert-mode-window") {
-            expertModeWindowContent
+        // directly. See `ContentView.body`, where that scroll container
+        // actually lives.
+        Window("NMS", id: "main-window") {
+            contentView()
         }
         .defaultSize(width: 600, height: 700)
 
-        // A separate window rather than a popover section — see
+        // A separate window rather than a sheet — see
         // `KnownNetworksView`'s doc comment.
         Window("Known Networks", id: "known-networks") {
             KnownNetworksView(networkIdentity: networkIdentity, snapshotStore: snapshotStore)
@@ -692,8 +581,7 @@ struct NMSApp: App {
         .defaultSize(width: 460, height: 320)
 
         // A plain `Window`, not a `Settings` scene — see
-        // `PreferencesView`'s doc comment for why that doesn't reliably
-        // work for a `.accessory` app.
+        // `PreferencesView`'s doc comment.
         Window("Preferences", id: "preferences") {
             PreferencesView()
         }
@@ -703,52 +591,6 @@ struct NMSApp: App {
         // sizing means a longer description, a larger system font, or a
         // future third toggle can't reintroduce that.
         .windowResizability(.contentSize)
-    }
-
-    /// "Expert Mode"'s content — deliberately just `contentView(surface:
-    /// .window)`, a single, direct call, same shape as the popover's own.
-    /// An earlier version of this reached in and composed
-    /// `ContentView.scrollableContent`/`.footerBar` as two separate
-    /// children of a `VStack` declared here instead, to pin the footer
-    /// outside the scroll container. That broke `@State` silently:
-    /// `ContentView` was never actually placed in the tree as one
-    /// identified node, only fragments of its computed output were, so
-    /// nothing tied one render's mutated state to the next — confirmed
-    /// via a live bug report filed through the exact path this broke
-    /// (Bug Report producing no visible UI in the window, while identical
-    /// code worked in the popover). The pinned-footer behavior itself is
-    /// still here — moved into `ContentView.body`'s own per-surface
-    /// branch, where it can't split state across two parents because
-    /// there's only ever one.
-    private var expertModeWindowContent: some View {
-        contentView(surface: .window)
-    }
-
-    /// macOS forces menu bar icons to render as monochrome "template"
-    /// images by default — a plain SwiftUI `Image` with `.foregroundStyle`
-    /// gets that treatment too, silently ignoring the color (confirmed:
-    /// the color didn't show up at all with that approach). Rasterizing
-    /// the symbol into an `NSImage` and explicitly setting `isTemplate =
-    /// false` is the standard way to bypass that.
-    ///
-    /// `fileprivate`, not `private` — `MenuBarLabel` above is a sibling
-    /// type in this same file, not an extension of `NMSApp`, so `private`
-    /// (scoped to the enclosing declaration) wouldn't reach it; this stays
-    /// exactly as invisible outside `NMSApp.swift` either way.
-    fileprivate static func statusIcon(symbolName: String, color: Color) -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let base = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration) ?? NSImage()
-
-        let tinted = NSImage(size: base.size)
-        tinted.lockFocus()
-        NSColor(color).set()
-        let rect = NSRect(origin: .zero, size: base.size)
-        base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
-        rect.fill(using: .sourceAtop)
-        tinted.unlockFocus()
-        tinted.isTemplate = false
-        return tinted
     }
 
     /// Falls back to an in-memory store if the on-disk store can't be

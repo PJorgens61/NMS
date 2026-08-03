@@ -9,7 +9,6 @@ struct ContentView: View {
     @ObservedObject var ispIdentity: ISPIdentityViewModel
     @ObservedObject var dhcpLease: DHCPLeaseViewModel
     @ObservedObject var networkQuality: NetworkQualityViewModel
-    @ObservedObject var screenshot: ScreenshotViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
     @ObservedObject var ethernetLink: EthernetLinkViewModel
     @ObservedObject var eventLog: EventLogViewModel
@@ -25,71 +24,8 @@ struct ContentView: View {
     /// `storeSizeText` on every render rather than cached here.
     let storeURL: URL
 
-    /// True only on the throwaway copy handed to `ImageRenderer` (see the
-    /// camera button's action), never on the live popover. Makes the
-    /// scrollable sections render as plain, unclipped lists of every row.
-    ///
-    /// Deliberately a plain stored property, not `@Environment` or
-    /// `@State`. An `@Environment` version of exactly this was built
-    /// first and confirmed not to work — the value never reached the
-    /// view during `ImageRenderer`'s pass (logged from inside `eventList`
-    /// during a real capture: `false` every time). A plain `var` on a
-    /// struct has no propagation machinery to fail; `var copy = self;
-    /// copy.isCapturingScreenshot = true` is just a value copy, read
-    /// directly during `body`.
-    ///
-    /// Two independent reasons this matters, not one: `ImageRenderer`
-    /// doesn't render `ScrollView` content *at all* off-screen (not
-    /// clipped — absent, confirmed by a side-by-side against a real
-    /// screen capture where every plain-`VStack` section rendered and
-    /// every `ScrollView` section came out blank, 5 for 5); and a
-    /// screenshot meant to be read later is more useful showing full
-    /// history than whatever happened to fit an 8-row scroll window.
-    var isCapturingScreenshot = false
-
-    /// A copy with `isCapturingScreenshot` set — used by both the
-    /// Screenshot and Bug Report footer buttons, which otherwise had this
-    /// same three-line copy-and-flip duplicated at each call site. `self`
-    /// is a struct, so this is a plain value copy that leaves the live
-    /// popover untouched — not `self` directly, per `isCapturingScreenshot`'s
-    /// own doc comment above.
-    private var capturingScreenshotCopy: ContentView {
-        var capturing = self
-        capturing.isCapturingScreenshot = true
-        return capturing
-    }
-
-    /// Which surface this copy is rendering into — `.window` for the one
-    /// hosted in the Expert Mode `Window` scene (see `NMSApp`), `.popover`
-    /// otherwise.
-    ///
-    /// Each fixed-height mini-`ScrollView` (Events, SNMP Devices, DHCP
-    /// History, Speed Test history, traceroute hops) still scrolls *within
-    /// its own box* in the window rather than unclipping — a fully
-    /// unclipped Events list ran to hundreds of rows and made the whole
-    /// window scroll past everything else just to see later sections. What
-    /// changes per surface is which sections appear at all and how tall
-    /// their boxes are, both declared in `SectionLayout` rather than
-    /// branched on inline here.
-    ///
-    /// This was an `isInWindow: Bool` until it became clear the two
-    /// surfaces are diverging into different products rather than two
-    /// sizes of one — see `Surface`'s doc comment.
-    var surface: Surface = .popover
-
-    /// Convenience for the handful of places that genuinely branch on the
-    /// *container* rather than on a section's declared layout: `body`'s
-    /// two top-level arrangements, and the footer's "Expert Mode" button
-    /// hiding itself once you're already there. Section visibility
-    /// and box heights deliberately do **not** go through this — they read
-    /// `SectionLayout` instead, so the popover's contents stay a closed,
-    /// testable list.
-    private var isExpertModeWindow: Bool { surface == .window }
-
-    /// Lets the footer's "Expert Mode" button bring up the `Window` scene
-    /// declared in `NMSApp` — see that scene for why it exists (every
-    /// diagnostic section in one resizable window, versus the popover's
-    /// deliberately narrower scope).
+    /// Lets "Networks…"/"Preferences…" bring up their own `Window` scenes
+    /// (see `NMSApp`).
     @Environment(\.openWindow) private var openWindow
 
     // Not `private` — `communityRow`/`commitCommunity` live in
@@ -101,120 +37,46 @@ struct ContentView: View {
     /// see `appleNetworkQualityTileContent` in `ContentView+Window.swift`.
     /// Not `private`, same cross-file reason as `communityDraft` above.
     @State var isShowingAppleVerboseOutput = false
-    /// Backs the footer's "Bug Report" button — see `bugReportRow` and
-    /// `submitBugReport`.
-    @State private var bugReportDraft: String = ""
-    @State private var isReportingBug = false
     /// Keyed by `ConnectionLayer.id`. Populated by the Network Health
     /// section's `.task`; empty until then, which simply renders no
     /// sparklines rather than empty boxes.
     @State private var latencyHistory: [String: [LatencySample]] = [:]
 
-    /// The window branch used to be handled by `NMSApp` splitting
-    /// `scrollableContent`/`footerBar` into two children of *its own*
-    /// `VStack`, rather than embedding `ContentView` itself. That broke
-    /// `@State` silently: `ContentView` was never actually placed in the
-    /// tree as one identified node, only fragments of its computed
-    /// output were, so SwiftUI had no stable identity to persist state
-    /// against — `contentView(surface:)` constructs a fresh
-    /// `ContentView` (fresh default `@State`) on every re-render, and
-    /// nothing tied one render's mutated state to the next's. A tap on
-    /// Bug Report *did* set `isReportingBug = true`, and *did* schedule a
-    /// re-render — which then rebuilt `content` from scratch and reset it
-    /// straight back to `false`, indistinguishable from the button doing
-    /// nothing at all. Confirmed as the real cause via a live bug report
-    /// filed through this exact path in the window ("no orange box"),
-    /// while the popover — never split this way — worked correctly the
-    /// whole time.
-    ///
-    /// Fixed by keeping both branches inside this one `body`, so
-    /// `ContentView` is always embedded as a single, stably-identified
-    /// view no matter which scene hosts it — `NMSApp.expertModeWindowContent`
-    /// now just calls `contentView(surface: .window)` directly again, the
-    /// same shape as the popover's own call.
     var body: some View {
-        if isExpertModeWindow {
-            // Footer pinned outside the scrollable region — the window's
-            // content (SNMP Devices, DHCP History, Bug Report) can run
-            // tall enough that without this, reaching
-            // Refresh/Screenshot/Bug Report/Quit meant resizing the
-            // window or scrolling all the way down first.
-            //
-            // `NoBounceScrollView` here for the same reason it used to
-            // wrap this whole view from `NMSApp`: no outer scroll
-            // floor-clamps the window to its full content height,
-            // confirmed broken on the M1 MacBook Air specifically (see
-            // that type's own doc comment, design 1) — moved one level
-            // deeper, from wrapping `ContentView` externally to living
-            // inside its own `body`, which is what restores the state
-            // continuity described above.
-            //
-            // **Skipped entirely when `isCapturingScreenshot`** — found
-            // via a live bug report filed right after the state-identity
-            // fix above shipped: `ImageRenderer` can't render
-            // `NoBounceScrollView`'s `NSViewRepresentable` content
-            // off-screen any better than it renders a plain `ScrollView`
-            // (see `ScreenshotService`'s own doc comment, quirk 1) — every
-            // capture taken in the window was silently missing
-            // `scrollableContent` entirely, confirmed by the resulting
-            // PNGs shrinking from 300-700KB to ~42KB. Same fix as that
-            // quirk: swap to the plain, unclipped form for the capturing
-            // copy only, never for the live window.
-            VStack(spacing: 0) {
-                if isCapturingScreenshot {
-                    scrollableContent
-                        .padding(12)
-                } else {
-                    NoBounceScrollView(persistentScrollbar: true) {
-                        scrollableContent
-                            .padding(12)
-                    }
-                }
-                Divider()
-                footerBar
-                    .padding(12)
-            }
-            .frame(width: 560)
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
+        // Footer pinned outside the scrollable region — the window's
+        // content (SNMP Devices, DHCP History) can run tall enough that
+        // without this, reaching Refresh/Quit meant resizing the window or
+        // scrolling all the way down first.
+        VStack(spacing: 0) {
+            ScrollView {
                 scrollableContent
-                footerBar
+                    .padding(.top, 12)
+                    .padding(.bottom, 12)
+                    // Wider than top/bottom on both sides, deliberately —
+                    // a real gutter between tile content and each window
+                    // edge. Scroll-wheel/trackpad input over one of the
+                    // inner-scrolling tiles (Network Health, Info) gets
+                    // consumed by that tile instead of chaining to this
+                    // outer scroll, so this gutter gives a reliable empty
+                    // strip on either side where wheel/trackpad input
+                    // reaches this outer scroll instead — confirmed live
+                    // to be enough on its own, so the permanently-visible
+                    // scroll indicator this once needed (a stand-in for
+                    // `NoBounceScrollView`'s old `persistentScrollbar`)
+                    // was removed again; the standard auto-hiding
+                    // indicator is back. The window's own `.frame(width:)`
+                    // grows by the same total amount so tile content
+                    // itself doesn't get any narrower.
+                    .padding(.horizontal, 32)
             }
-            .padding(12)
-            // 560→640, raised directly ("wider is OK") once
-            // `connectionHealthSection`'s `Grid` conversion (see that
-            // property's own doc comment) exposed a real width shortage:
-            // sharing one column width across every row meant a long
-            // label ("ISP Edge Router") and a long value ("Home
-            // Ethernet") could no longer both fit at 560pt the way they
-            // did under the old per-row-independent `HStack`/`Spacer`
-            // layout, so one or the other started truncating on every
-            // row, not just its own. 640pt was picked to comfortably fit
-            // both in the same row alongside a sparkline and icon column,
-            // not measured to an exact pixel minimum — some headroom
-            // rather than a repeat of this exact class of bug the moment
-            // a slightly longer label/value shows up.
-            //
-            // Was 560 (widened from an original 335pt for the DHCP
-            // History section, back when that still rendered here before
-            // the audience split moved it window-only; see `git blame`
-            // for that history if useful). Every section still has
-            // `.lineLimit(1)` truncation as its fallback regardless.
-            .frame(width: 640)
+            .frame(maxHeight: .infinity)
+            Divider()
+            footerBar
+                .padding(12)
         }
+        .frame(width: 600)
     }
 
-    /// Everything except the footer controls — split out so `body` can
-    /// give the window branch a pinned footer (via an inner
-    /// `NoBounceScrollView` around just this part) while the popover
-    /// branch keeps both in one plain `VStack`, unchanged either way:
-    /// `@ViewBuilder`'s tuple-view flattening means
-    /// `VStack(spacing: 6) { scrollableContent; footerBar }` lays out
-    /// identically to a single flat VStack containing the same content
-    /// inline. `private` again — both branches live inside this file's
-    /// own `body` now; see `body`'s doc comment for why an earlier
-    /// version of this split reached into `NMSApp` instead, and why that
-    /// broke `@State`.
     @ViewBuilder
     private var scrollableContent: some View {
             // Network Health, Info, Path to Internet, and Speed Test are
@@ -223,51 +85,24 @@ struct ContentView: View {
             // mechanisms this replaced — a dynamically-synced `Grid` row
             // for one pair, deliberately independent sizing for the
             // other). Every tile now sizes the same simple way.
-            //
-            // Window-only: reported from offsite testing that the 2-up
-            // arrangement left too little width for a tile's text to
-            // read comfortably, so the window stacks all four full-width
-            // instead — more width for the same fixed height. Left
-            // untouched on the popover, which stays the tight 2-up
-            // layout it's always been (the popover's fixed height budget
-            // is already the constraint this app has fought hardest —
-            // see `SectionLayout` — so a taller stack isn't a free win
-            // there the way it is in the resizable window).
             VStack(spacing: 12) {
-                if surface == .window {
-                    tile(title: "Network Health", fixedHeight: Self.tileHeight, scrolls: false) {
-                        connectionHealthSection
-                    }
-                    tile(title: "Info", fixedHeight: Self.tileHeight, scrolls: false) {
-                        infoSection
-                    }
-                } else {
-                    HStack(alignment: .top, spacing: 12) {
-                        tile(title: "Network Health", fixedHeight: Self.tileHeight, scrolls: false) {
-                            connectionHealthSection
-                        }
-                        tile(title: "Info", fixedHeight: Self.tileHeight, scrolls: false) {
-                            infoSection
-                        }
-                    }
+                tile(title: "Network Health", fixedHeight: Self.tileHeight) {
+                    connectionHealthSection
+                }
+                tile(title: "Info", fixedHeight: Self.tileHeight) {
+                    infoSection
                 }
                 // Path to Internet + Speed Test — see
-                // `ContentView+Window.swift`'s `pathAndSpeedRow`. Window-only
-                // already (both tiles' `SectionLayout` entries are
-                // `[.window]`), so this contributes nothing on the popover.
+                // `ContentView+Window.swift`'s `pathAndSpeedRow`.
                 pathAndSpeedRow
             }
 
-            // Window-only (declared in `SectionLayout`, not gated inline
-            // here) — this adds a full-width section, and the popover's
-            // fixed-height budget is exactly the constraint this whole app
-            // has fought hardest, so a section a fresh install didn't ask
-            // for doesn't get to spend it. Hidden outright on Ethernet —
-            // nothing here has a Wi-Fi answer. Placed above Events (moved
-            // up on request) rather than at the bottom with the other
-            // full-width sections, since it's read-at-a-glance current
-            // state, not scrollable history like they are.
-            if SectionLayout.wifi.appears(on: surface), wifiSSID.currentSSID != nil {
+            // Hidden outright on Ethernet — nothing here has a Wi-Fi
+            // answer. Placed above Events (moved up on request) rather
+            // than at the bottom with the other full-width sections,
+            // since it's read-at-a-glance current state, not scrollable
+            // history like they are.
+            if wifiSSID.currentSSID != nil {
                 Divider()
 
                 Text("Wi-Fi")
@@ -278,13 +113,12 @@ struct ContentView: View {
 
             // Ethernet's counterpart to the Wi-Fi section just above —
             // mutually exclusive with it by construction (a Mac's default
-            // route is either Wi-Fi or Ethernet, never both), gated the
-            // same two ways: `SectionLayout` for the space question,
-            // `ethernetLink.currentSpeedMbps != nil` for "is there
+            // route is either Wi-Fi or Ethernet, never both).
+            // `ethernetLink.currentSpeedMbps != nil` answers "is there
             // actually a negotiated link to report" (mirrors
             // `wifiSSID.currentSSID != nil` above — nothing to show while
             // the cable's unplugged either).
-            if SectionLayout.ethernetLink.appears(on: surface), ethernetLink.currentSpeedMbps != nil {
+            if ethernetLink.currentSpeedMbps != nil {
                 Divider()
 
                 Text("Ethernet")
@@ -293,14 +127,12 @@ struct ContentView: View {
                 ethernetLinkSection
             }
 
-            // Same two-independent-gates shape as SNMP Devices below:
-            // `FeatureFlags.saasMonitoring` answers a consent question
-            // (this reaches out to third-party services, not just this
-            // Mac's own LAN); `SectionLayout` answers a space question.
-            // Placed near Wi-Fi, not with the other full-width sections
-            // below — same reasoning: read-at-a-glance current state, not
-            // scrollable history.
-            if FeatureFlags.saasMonitoring, SectionLayout.saasMonitoring.appears(on: surface) {
+            // `FeatureFlags.saasMonitoring` is a consent question (this
+            // reaches out to third-party services, not just this Mac's
+            // own LAN). Placed near Wi-Fi, not with the other full-width
+            // sections below — same reasoning: read-at-a-glance current
+            // state, not scrollable history.
+            if FeatureFlags.saasMonitoring {
                 Divider()
 
                 Text("SaaS Status")
@@ -309,30 +141,17 @@ struct ContentView: View {
                 saasMonitoringSection
             }
 
-            // Window-only as of the audience split (see
-            // `SectionLayout.surfaces`): the popover's scope is now "can
-            // I work, what's restricted," which Network Health already
-            // answers, not "what changed and when" — that's the
-            // diagnostic read Events exists for, so it moved to the
-            // window along with Path to Internet and Speed Test rather
-            // than staying as the one full-width holdout on the popover.
-            if SectionLayout.events.appears(on: surface) {
-                Divider()
+            Divider()
 
-                Text("Events")
-                    .font(.headline)
+            Text("Events")
+                .font(.headline)
 
-                eventList
-            }
+            eventList
 
-            // Two independent gates. `FeatureFlags.snmpDevices` answers a
-            // consent question (this is active network probing against
-            // whatever LAN the Mac is on, not just a UI section — see that
-            // flag's doc comment); `SectionLayout` answers a space
-            // question (a scrollable list of per-device detail is squarely
-            // "niche," not popover-budget material). Neither implies the
-            // other, so both are checked.
-            if FeatureFlags.snmpDevices, SectionLayout.snmpDevices.appears(on: surface) {
+            // `FeatureFlags.snmpDevices` is a consent question (this is
+            // active network probing against whatever LAN the Mac is on,
+            // not just a UI section — see that flag's doc comment).
+            if FeatureFlags.snmpDevices {
                 Divider()
 
                 HStack {
@@ -368,44 +187,18 @@ struct ContentView: View {
             // (nothing called its `scan()`) and, even if it had been,
             // found nothing SNMP's own subnet sweep didn't already cover.
 
-            // Window-only, same reasoning as the Wi-Fi section above: the
-            // popover's fixed-height budget is the constraint this app has
-            // fought hardest, and DHCP History is scrollable history, not
-            // read-at-a-glance current state — exactly the kind of section
-            // that's cheap to lose from the popover (it's still one click
-            // away via Expert Mode) but expensive to keep paying for in
-            // every popover-height trim.
-            if SectionLayout.dhcpHistory.appears(on: surface) {
-                Divider()
-
-                Text("DHCP History")
-                    .font(.headline)
-
-                dhcpHistoryList
-            }
-    }
-
-    /// Refresh/Screenshot/Bug Report/Expert Mode/Networks…/
-    /// Preferences…/Quit, the build-hash/store-size line, and the
-    /// DEBUG-overrides banner — plus `bugReportRow`, whose comment
-    /// field is only reachable via a footer button, so it's pinned
-    /// alongside that button in the window rather than needing a
-    /// scroll back down to see what was just opened. See
-    /// `scrollableContent`'s doc comment for why this split exists, and
-    /// `body`'s for why both stay `private` and composed only within
-    /// this file.
-    @ViewBuilder
-    private var footerBar: some View {
-            bugReportRow
-
             Divider()
 
-            // `spacing: 4`, not the default 8 — see BUGS.md's "Footer
-            // buttons truncate" entry: 7 buttons in this fixed-560pt-wide
-            // popover left "Expert Mode…" too tight to render without
-            // SwiftUI's own truncation ellipsis stacking on top of the
-            // label's own trailing "…". Tried first, as the least
-            // invasive of that entry's three ranked options.
+            Text("DHCP History")
+                .font(.headline)
+
+            dhcpHistoryList
+    }
+
+    /// Refresh/Networks…/Preferences…/Quit, the build-hash/store-size
+    /// line, and the DEBUG-overrides banner.
+    @ViewBuilder
+    private var footerBar: some View {
             HStack(spacing: 4) {
                 Button("Refresh") {
                     viewModel.refresh()
@@ -415,75 +208,6 @@ struct ContentView: View {
                 .accessibilityLabel("Refresh")
                 .accessibilityHint("Re-reads network state, public IP and Wi-Fi network")
                 .accessibilityIdentifier("footer.refresh")
-                // Icon-only so it adds no new row — this whole feature
-                // exists to save a manual screenshot-and-hand-it-over
-                // step, so it needs to cost as little popover space as
-                // the thing it replaces cost none.
-                Button {
-                    // `self` here, unmutated (isCapturingScreenshot is
-                    // still false) — logs the real, on-screen-equivalent
-                    // height before the capturing copy below swaps every
-                    // scrollable section for a plain unclipped list. See
-                    // `ScreenshotViewModel.measureAndLogLiveHeight`.
-                    screenshot.measureAndLogLiveHeight(self, surface: surface)
-                    screenshot.capture(capturingScreenshotCopy)
-                } label: {
-                    Image(systemName: "camera")
-                }
-                .accessibilityLabel("Screenshot")
-                .accessibilityHint("Saves an image of this popover and logs an event naming the file, so it can be found without guessing")
-                .accessibilityIdentifier("footer.screenshot")
-                // Deliberately a separate button from Screenshot above,
-                // not a prompt bolted onto it — that one's whole value is
-                // staying a fast, no-prompt capture. This one exists
-                // specifically to stop and ask "what are you seeing,"
-                // which the automated capture can't infer on its own.
-                // See `bugReportRow` for the comment field this reveals,
-                // and `ScreenshotViewModel.captureBugReport` for what it
-                // captures (same screenshot + state-dump bundle, plus the
-                // comment, build hash and current severity).
-                Button {
-                    bugReportDraft = ""
-                    isReportingBug = true
-                } label: {
-                    Image(systemName: "ladybug")
-                }
-                .accessibilityLabel("Bug Report")
-                .accessibilityHint("Saves a screenshot and state dump along with a comment describing what you're seeing")
-                .accessibilityIdentifier("footer.bugReport")
-                // A permanent part of the footer now, not the experimental
-                // "compare this against a resizable window" toggle it
-                // started as (see `NMSApp`'s "expert-mode-window" scene) —
-                // `FeatureFlags.comparisonWindow` is gone entirely, along
-                // with its `PreferencesView` toggle. Still gated on
-                // `!isExpertModeWindow` alone: this button's whole job is
-                // opening Expert Mode *from* the popover, and without that
-                // guard it would also sit in the window's own footer, where
-                // clicking it just re-triggers opening the window you're
-                // already looking at. The inverse of the
-                // `isExpertModeWindow &&` gate every window-only *section*
-                // here uses (Wi-Fi, DHCP History, SNMP Devices, Printer
-                // Alerts) — those only belong inside the window; this
-                // button only belongs outside it.
-                if !isExpertModeWindow {
-                    // Visible label shortened to "Expert…" (was "Expert
-                    // Mode…") as part of the footer-truncation fix — see
-                    // BUGS.md's "Footer buttons truncate" entry. Kept the
-                    // ellipsis rather than dropping it: "Networks…"/
-                    // "Preferences…" both use it (the standard "opens
-                    // something needing further interaction" convention),
-                    // so this button dropping it alone would be the odd
-                    // one out in the same row. The full name lives on in
-                    // `accessibilityLabel` below, same "visible text and
-                    // VoiceOver label can differ" precedent
-                    // `footer.networks` already established.
-                    Button("Expert…") {
-                        openWindowInFront("expert-mode-window")
-                    }
-                    .accessibilityLabel("Expert Mode")
-                    .accessibilityHint("Opens the same content in a resizable window, with every diagnostic section — Events, SNMP Devices, DHCP History, Wi-Fi detail, Path to Internet, Speed Test")
-                    .accessibilityIdentifier("footer.expertMode")
-                }
                 Button("Networks…") {
                     openWindowInFront("known-networks")
                 }
@@ -569,10 +293,7 @@ struct ContentView: View {
                     .foregroundStyle(.red)
                     .lineLimit(2)
                     .accessibilityLabel("Database unavailable. Saved history cannot be read and new data is not being saved.")
-                    .appKitToolTip(
-                        NMSApp.storeFallbackReason ?? "",
-                        enabled: !isCapturingScreenshot
-                    )
+                    .help(NMSApp.storeFallbackReason ?? "")
             }
     }
 
@@ -600,27 +321,20 @@ struct ContentView: View {
     /// row added or removed from any section's content just changes how
     /// much of it needs a scroll, never whether it renders at all.
     ///
-    /// **Bumped 180→270 (+50%), then back down to 210 — both changes
-    /// raised directly.** The first bump gave deliberate headroom for the
-    /// popover's new "Video Call Check" row
-    /// (`connectionHealthSection`'s `quickCheckGridRow`), but 270 turned
-    /// out to overshoot: confirmed live, it left visible empty space
-    /// below Network Health/Info's actual content (8 rows fits in
-    /// meaningfully less than 270pt). 210 keeps real headroom over the
-    /// original 180 — which already left this exact tile needing to
-    /// scroll occasionally, by design (see above) — without the
-    /// obviously-wasted space 270 produced. Since this constant is shared
-    /// across surfaces (see this property's own history above), it grows
-    /// every tile that uses it — Network Health/Info on both surfaces,
-    /// Path to Internet/Speed Test/Apple networkQuality in the window — not
-    /// just the
-    /// popover row that motivated it. **Not verified against the M1
-    /// MacBook Air** — the one machine this budget has actually broken on
-    /// before (see `SectionLayout.estimatedPopoverCeiling`'s own
-    /// "Unconfirmed" framing) — worth an actual `liveHeight` reading
-    /// there rather than assuming any bump is automatically safe just
-    /// because today's popover has fewer sections than when 770pt was
-    /// last measured.
+    /// **History: 180→270→210→240→210.** Network Health and Info briefly
+    /// went through a `scrolls: false` phase (no internal scroll fallback
+    /// at all) to route around a real `Grid`/scroll-container interop bug
+    /// — see `connectionHealthSection`'s own doc comment. While that was
+    /// in effect, this constant had to fit both tiles' full worst-case
+    /// row count with real room, which is what pushed it to 240. Once the
+    /// underlying scroll container switched from a custom AppKit bridge
+    /// to a plain SwiftUI `ScrollView` (see `NoBounceScrollView`'s
+    /// removal), that `Grid` bug didn't reproduce — confirmed live — so
+    /// `scrolls: false` was dropped for both tiles and this reverted to
+    /// 210, back to the original "deliberately short, scrolling absorbs
+    /// the rest" design above. Raised directly: chasing an exact-fit
+    /// number here is the wrong ongoing cost when scrolling already
+    /// solves it.
     static let tileHeight: CGFloat = 210
 
     /// A bordered box with a header row (title, plus an optional trailing
@@ -647,19 +361,10 @@ struct ContentView: View {
     ///
     /// **First version of this was broken, confirmed by a live
     /// screenshot**: every tile collapsed to just its header row, content
-    /// invisible. Two independent mistakes, not one:
-    /// 1. The outer `.frame(maxHeight: fixedHeight)` only *caps* height —
-    ///    it doesn't force a smaller natural size to grow to fill it. A
-    ///    `maxHeight` alone left the tile at whatever tiny size its
-    ///    (empty-looking) content produced.
-    /// 2. The inner `NoBounceScrollView` got `.frame(maxHeight: .infinity)`,
-    ///    on the assumption a `VStack` would automatically hand it
-    ///    "whatever's left" the way it does a native `ScrollView`. It
-    ///    doesn't: `NoBounceScrollView` is an `NSViewRepresentable`, not a
-    ///    flexible SwiftUI container, and every *other* use of it in this
-    ///    file already gives it an explicit `.frame(height:)` — this
-    ///    should have followed that precedent instead of assuming
-    ///    automatic space distribution would apply to a custom view too.
+    /// invisible. The outer `.frame(maxHeight: fixedHeight)` only *caps*
+    /// height — it doesn't force a smaller natural size to grow to fill
+    /// it, so a `maxHeight` alone left the tile at whatever tiny size its
+    /// (empty-looking) content produced.
     ///
     /// Fixed by making both heights explicit rather than relying on
     /// flexible-layout distribution: `minHeight == maxHeight` forces the
@@ -676,22 +381,6 @@ struct ContentView: View {
     /// that genuinely wants to just size to its content shouldn't have to
     /// fake a height to get that.
     ///
-    /// **A second bug, caught by an actual Bug Report capture, not by
-    /// inspection.** The first version of this ignored
-    /// `isCapturingScreenshot` entirely, so every capture of a
-    /// `fixedHeight` tile rendered the tile's whole content area as a
-    /// solid yellow "prohibited" glyph instead of real content —
-    /// `ImageRenderer` can't render `NoBounceScrollView`'s
-    /// `NSViewRepresentable` off-screen any better than a plain
-    /// `ScrollView` (see `ScreenshotService`'s own doc comment, quirk 1),
-    /// and this is the exact "the capture branch is easy to forget, and
-    /// forgetting it fails silently" bug class `scrollBox` was built to
-    /// close off — reopened here because this function duplicates
-    /// `scrollBox`'s scrolling logic instead of routing through it.
-    /// Fixed by treating `fixedHeight` as inert during a capture, same as
-    /// `scrollBox` already does: the tile renders as a plain, unclipped
-    /// `VStack` showing everything, at whatever height that needs, rather
-    /// than trying to force a `NoBounceScrollView` capture to work.
     @ViewBuilder
     func tile(
         title: String,
@@ -700,9 +389,7 @@ struct ContentView: View {
         @ViewBuilder trailing: () -> some View,
         @ViewBuilder content: () -> some View
     ) -> some View {
-        // `nil` during a capture regardless of what was passed in — see
-        // this function's doc comment for the Bug Report that found why.
-        let effectiveHeight = isCapturingScreenshot ? nil : fixedHeight
+        let effectiveHeight = fixedHeight
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
@@ -713,20 +400,14 @@ struct ContentView: View {
             // `scrolls: false` — raised directly, for tiles whose content
             // is genuinely bounded (a small, fixed row count defined in
             // code, not user data that can grow without limit) rather
-            // than needing `NoBounceScrollView`'s safety net the way
-            // Speed Test's growing run history or Events' unbounded log
-            // do. Motivated by a real find: `Grid` (see
-            // `connectionHealthSection`) clips content when nested inside
-            // `NoBounceScrollView` — a `NoBounceScrollView`/AppKit-interop
-            // quirk, not a `Grid` bug — so a tile that doesn't need to
-            // scroll in the first place can skip the container that
-            // breaks it, rather than avoiding `Grid` everywhere. Traded
+            // than needing a scroll safety net the way Speed Test's
+            // growing run history or Events' unbounded log do. Traded
             // deliberately: if this tile's content ever does grow past
             // `effectiveHeight`, there's no scroll fallback to catch it
             // — accepted, since the row count here is capped by a fixed,
             // known list, not something a user can expand.
             if let effectiveHeight, scrolls {
-                NoBounceScrollView {
+                ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         content()
                     }
@@ -771,27 +452,9 @@ struct ContentView: View {
     private static let tileHeaderOverhead: CGFloat = 45
 
     /// The one place a fixed-height, independently-scrolling history box
-    /// gets built — Events, SNMP Devices, DHCP History, Speed Test and
-    /// traceroute hops all route through here.
-    ///
-    /// Each of these used to hand-roll the same three-way branch, which
-    /// went wrong in the same way twice: **the capture branch is easy to
-    /// forget, and forgetting it fails silently.** `ImageRenderer` doesn't
-    /// render `ScrollView` content off-screen at all (not clipped —
-    /// absent, confirmed 5-for-5 against a real screen capture), and it
-    /// can't render `NoBounceScrollView`'s `NSViewRepresentable` any
-    /// better; both times the result was a screenshot quietly missing
-    /// whole sections, caught only by a bug report rather than by any
-    /// error. Centralising it means a new section can't forget — there's
-    /// no per-section capture branch left to omit.
-    ///
-    /// Used to gate on a row-count threshold below which a box sized for
-    /// the worst case would leave visible blank space under 1-2 rows —
-    /// removed once every section that boxes at all became window-only
-    /// (see `SectionLayout.boxHeight`'s doc comment): the window always
-    /// boxes unconditionally, so that threshold check was unreachable at
-    /// every real call site and just dead weight to read past.
-    // Not `private` — called from every window-only list builder in
+    /// gets built — Events, SNMP Devices, DHCP History, Wi-Fi, Ethernet,
+    /// and SaaS Status all route through here.
+    // Not `private` — called from every list builder in
     // `ContentView+Window.swift`.
     @ViewBuilder
     func scrollBox(
@@ -799,19 +462,13 @@ struct ContentView: View {
         spacing: CGFloat = 2,
         @ViewBuilder content: () -> some View
     ) -> some View {
-        if !isCapturingScreenshot, let height = section.boxHeight(on: surface) {
-            NoBounceScrollView {
-                VStack(alignment: .leading, spacing: spacing) {
-                    content()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(height: height)
-        } else {
+        ScrollView {
             VStack(alignment: .leading, spacing: spacing) {
                 content()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(height: section.boxHeight)
     }
 
     /// Everything the "Info" tile shows: the current interface's
@@ -875,13 +532,10 @@ struct ContentView: View {
 
         networkIdentityStatus
 
-        // Window-only, per direct request — confirms the polling is
-        // actually active and shows its current state, without adding
-        // popover clutter for the vast majority of installs that never
-        // configure a hostname (row is absent entirely until one is).
-        if surface == .window {
-            ddnsRow
-        }
+        // Confirms the polling is actually active and shows its current
+        // state — absent entirely until a hostname is configured (see
+        // `ddnsRow`).
+        ddnsRow
     }
 
     /// One summary row for however many hostnames are configured — not
@@ -908,7 +562,7 @@ struct ContentView: View {
                 .disabled(ddns.isChecking)
                 .accessibilityLabel("Check DDNS hostnames now")
                 .accessibilityIdentifier("info.ddns.checkNow")
-                .appKitToolTip("Resolves every configured DDNS hostname now, rather than waiting for the next scheduled check.", enabled: !isCapturingScreenshot)
+                .help("Resolves every configured DDNS hostname now, rather than waiting for the next scheduled check.")
                 Circle()
                     .fill(ddnsSummaryColor)
                     .frame(width: 8, height: 8)
@@ -917,7 +571,7 @@ struct ContentView: View {
                     .truncationMode(.middle)
             }
             .font(.system(size: 12))
-            .appKitToolTip(ddnsTooltipText, enabled: !isCapturingScreenshot)
+            .help(ddnsTooltipText)
         }
     }
 
@@ -1131,26 +785,16 @@ struct ContentView: View {
         connectionLayersLowToHigh.first { $0.status == .unhealthy }?.id
     }
 
-    /// **`Grid`, take two — the first attempt broke content legibility,
-    /// root-caused before retrying, not just retried hopefully.** `Grid`
-    /// correctly aligned the Router and Call Check rows' icons, but every
-    /// row's label rendered with its first character clipped when this
-    /// tile's content lived inside `NoBounceScrollView` (an
-    /// `NSHostingView`/`NSScrollView` wrapper with a documented history
-    /// of not perfectly tracking SwiftUI's intrinsic sizing for certain
-    /// content — see that type's own doc comment on an earlier, vertical
-    /// version of the same interop quirk). Root cause narrowed to that
-    /// container specifically, not `Grid` itself: this tile's content is
-    /// a small, fixed row count (defined in code, not user data that
-    /// grows), so it doesn't actually need `NoBounceScrollView`'s
-    /// scroll-safety-net the way Speed Test's growing history or Events'
-    /// unbounded log do. Dropped it here (`scrolls: false` on this
-    /// tile's `tile(...)` call, alongside Info's for the same reason —
-    /// see `tile(...)`'s own doc comment), and `Grid` renders correctly
-    /// once it's no longer nested inside the container that broke it.
-    /// Traded deliberately: no scroll fallback if this content ever
-    /// grows past `ContentView.tileHeight` — accepted, since the row
-    /// count is capped by a fixed, known list.
+    /// **`Grid` clipping, found and fixed, worth remembering why.** `Grid`
+    /// once correctly aligned every row's icons but rendered every label
+    /// with its first character clipped, when this tile's content lived
+    /// inside `NoBounceScrollView` — a custom `NSHostingView`/`NSScrollView`
+    /// bridge with a documented history of not perfectly tracking
+    /// SwiftUI's intrinsic sizing for certain content. Root-caused to that
+    /// AppKit bridge specifically, not `Grid` itself: dropping down to a
+    /// plain SwiftUI `ScrollView` (see `NoBounceScrollView`'s removal)
+    /// made the bug stop reproducing entirely, confirmed live — no
+    /// special-casing needed here anymore.
     @ViewBuilder
     private var connectionHealthSection: some View {
         let layers = connectionLayersLowToHigh
@@ -1232,21 +876,12 @@ struct ContentView: View {
                     }
                 }
 
-                // Popover-only — raised directly, for a business user who
-                // wants "is this OK for a call right now" from the menu
-                // bar without opening Expert Mode. Not shown in the
-                // window: the full Apple networkQuality tile is already
-                // one glance away there, so a second, redundant quick
-                // version would just be clutter. First on-demand test
-                // the popover has ever had — every other popover row is
-                // a passive, near-zero-cost ping check; this one costs a
-                // real ~5s and real (if smaller) data, the same category
-                // of cost that kept the full tests window-only in the
-                // first place. Living inside Network Health's own tile
+                // A fast, on-demand responsiveness check, useful before a
+                // video call. Living inside Network Health's own tile
                 // rather than as a new one: no extra height budget spent.
-                if surface != .window {
-                    quickCheckGridRow
-                }
+                // The full Apple networkQuality tile still exists
+                // separately for the complete test/history.
+                quickCheckGridRow
             }
             .font(.system(size: 12))
 
@@ -1282,7 +917,7 @@ struct ContentView: View {
                 // (`ContentView+Window.rpmThresholdHelp`) — raised
                 // directly, so the two surfaces' colored verdicts explain
                 // themselves the same way.
-                .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
+                .help(Self.rpmThresholdHelp)
             // "networkQuality" — matches the Expert Mode tile's own name
             // for the full test this is a quick preview of, reported
             // directly as clearer than "Call Check". Length is close to
@@ -1305,10 +940,7 @@ struct ContentView: View {
             .accessibilityLabel("Video Call Check")
             .accessibilityHint("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
             .accessibilityIdentifier("networkHealth.quickCheck")
-            .appKitToolTip(
-                "Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.",
-                enabled: !isCapturingScreenshot
-            )
+            .help("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
             Color.clear.frame(width: 0, height: 0)
             Text(quickCheckDetailText)
                 .foregroundStyle(.primary)
@@ -1323,10 +955,10 @@ struct ContentView: View {
         return Self.statusColor(forRPM: status.rpm)
     }
 
-    /// The single green/yellow/red mapping both the popover's quick check
-    /// and the Expert Mode "Apple networkQuality" tile's history rows use
-    /// — raised directly, so a given RPM number reads the same color in
-    /// either place rather than each surface inventing its own cutoffs.
+    /// The single green/yellow/red mapping both the quick check row and
+    /// the "Apple networkQuality" tile's history rows use — raised
+    /// directly, so a given RPM number reads the same color in either
+    /// place rather than each inventing its own cutoffs.
     /// Not `private`: called from `ContentView+Window.swift`'s
     /// `appleQualityRows`, and Swift's `private` doesn't cross files even
     /// between extensions of the same type. Thresholds match
@@ -1381,98 +1013,6 @@ struct ContentView: View {
             status: check.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
             correlatedWithChange: check?.correlatedWithChange ?? false
         )
-    }
-
-    /// The footer's Bug Report button reveals this in place of nothing
-    /// (unlike `communityRow`, there's no persistent summary state to
-    /// show when inactive — a bug report isn't a setting) — same
-    /// TextField/Button/`onSubmit` shape as `communityRow`, one row, no
-    /// new vertical cost when inactive.
-    ///
-    /// Tinted/bordered rather than plain text, unlike the DEBUG-overrides
-    /// banner above (`FailureInjector.activeOverridesSummary`, orange
-    /// text with a ⚠ prefix, no box) — that one only ever needs to be
-    /// *noticed* in an otherwise-static footer; this one needs to read as
-    /// "you are now in a distinct mode, everything below applies to a
-    /// report you're composing," which a color/weight change alone
-    /// doesn't convey as clearly as a contained shape does.
-    @ViewBuilder
-    private var bugReportRow: some View {
-        if isReportingBug {
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Bug Report", systemImage: "ladybug.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.orange)
-                HStack {
-                    captureSafeTextField("What are you seeing?", text: $bugReportDraft) {
-                        submitBugReport()
-                    }
-                    Button("Submit") { submitBugReport() }
-                        .accessibilityLabel("Submit bug report")
-                        .accessibilityIdentifier("bugReport.submit")
-                        .font(.system(size: 11))
-                    Button("Cancel") {
-                        bugReportDraft = ""
-                        isReportingBug = false
-                    }
-                    .accessibilityLabel("Cancel bug report")
-                    .accessibilityIdentifier("bugReport.cancel")
-                    .font(.system(size: 11))
-                }
-                Text("Saved with a screenshot, the current build, and severity — a blank comment still saves those.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.orange.opacity(0.12))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.orange.opacity(0.5), lineWidth: 1)
-            )
-            Divider()
-        }
-    }
-
-    /// Severity computed the same way `NMSApp.overallStatus` does
-    /// (`OverallStatus.compute`), duplicated here rather than threading
-    /// a new parameter through `NMSApp.contentView(surface:)` and its
-    /// two call sites (the popover and the Expert Mode window). This
-    /// view model wiring has already caused three real bugs from a
-    /// dependency not being ready when first read (see `NMSApp
-    /// .wireDerivedStateDependencies`'s doc comment) — a one-line formula
-    /// repeated once is a smaller, more local cost than adding a new edge
-    /// to that graph for a debug-adjacent feature.
-    private func submitBugReport() {
-        let status = OverallStatus.compute(interfaceIsDown: viewModel.currentInterface == nil, checks: connectivity.checks)
-        let severityDescription: String
-        switch status {
-        case .normal: severityDescription = "Normal"
-        case .marginal: severityDescription = "Marginal"
-        case .critical: severityDescription = "Critical"
-        }
-
-        // Logged here as well as from the Screenshot button, and for the
-        // same cost (one extra render, no file written). A bug report is
-        // the *more* informative moment of the two — it arrives with a
-        // human comment saying what looked wrong — so having it silently
-        // contribute no height data was a gap: several reports have been
-        // filed about the popover's layout while this number, the one
-        // thing that would have dated them against a real measurement,
-        // went unrecorded. Must run before the capturing copy below, so
-        // it measures the live layout rather than the deliberately
-        // unclipped capture.
-        screenshot.measureAndLogLiveHeight(self, surface: surface)
-        screenshot.captureBugReport(
-            capturingScreenshotCopy,
-            comment: bugReportDraft,
-            buildInfo: buildInfo,
-            severityDescription: severityDescription
-        )
-        bugReportDraft = ""
-        isReportingBug = false
     }
 
     /// Network name (if any) plus connection type combined into one row
@@ -1630,48 +1170,9 @@ struct ContentView: View {
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint(accessibilityHint)
             // Same string as the VoiceOver hint above, shown as a real
-            // hover tooltip too — raised directly. Plain SwiftUI `.help`
-            // doesn't work in this app's popover (see `appKitToolTip`'s
-            // own doc comment), so every icon-only button here was
-            // mouse-undiscoverable until now.
-            .appKitToolTip(accessibilityHint, enabled: !isCapturingScreenshot)
+            // hover tooltip too.
+            .help(accessibilityHint)
         }
     }
 
-    /// A `TextField` that swaps to a plain `Text` during a capture — see
-    /// `ScreenshotService`'s quirk 4: any `NSViewRepresentable`, a plain
-    /// `TextField` included even with `.textFieldStyle(.plain)`, renders
-    /// off-screen as a solid yellow bar with a red "prohibited" glyph
-    /// instead of its real content.
-    ///
-    /// Centralized here, mirroring how `scrollBox`/`tile(fixedHeight:)`
-    /// already centralize the equivalent guard for `NoBounceScrollView`,
-    /// after this exact branch was hand-rolled independently at two call
-    /// sites (`bugReportRow`, `communityRow`) and simply missing at a
-    /// third — the same "the capture branch is easy to forget, and
-    /// forgetting it fails silently" bug class, just for `TextField`
-    /// instead of a scroll container. Using this instead of a raw
-    /// `TextField` anywhere in this capture path makes forgetting the
-    /// guard structurally harder, not just documented.
-    ///
-    /// `placeholder` doubles as the `TextField`'s prompt and the
-    /// capture-mode `Text`'s empty-state copy — both existing call sites
-    /// already used the same string for each, so this doesn't change
-    /// behavior, only removes the duplicated branch.
-    // Not `private` — called from `ContentView+Window.swift`'s
-    // `communityRow`.
-    @ViewBuilder
-    func captureSafeTextField(_ placeholder: String, text: Binding<String>, onSubmit: @escaping () -> Void) -> some View {
-        if isCapturingScreenshot {
-            Text(text.wrappedValue.isEmpty ? placeholder : text.wrappedValue)
-                .font(.system(size: 11))
-                .foregroundStyle(text.wrappedValue.isEmpty ? .secondary : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            TextField(placeholder, text: text)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
-                .onSubmit(onSubmit)
-        }
-    }
 }

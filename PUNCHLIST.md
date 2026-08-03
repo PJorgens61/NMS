@@ -8,6 +8,83 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Fold the Ethernet Speed/Duplex tile into the Info tile's Network
+  row, instead of its own separate section.** Currently
+  `ContentView+Window.swift`'s `ethernetLinkSection` is its own small
+  window-only box (`scrollBox(.ethernetLink)`, two rows: Speed, Duplex)
+  rendered below Info alongside the Wi-Fi/Ethernet sections — mutually
+  exclusive with `wifiSection` the same way. Move Speed/Duplex to live
+  with Info's own "Network" row instead (`ContentView.swift`'s
+  `infoContent`, `row("Network", networkDisplay(info))`), the way the
+  Wi-Fi tile's Signal/Channel/PHY Rate already sit apart from Info's
+  Network row today (BSSID especially) — worth deciding during
+  implementation whether that same precedent argues for leaving
+  Ethernet's own detail where it is instead of moving it, since this
+  request cuts the other way from that existing split.
+
+- [ ] **Info tile: move the DDNS row above the ISP row.** Currently
+  `ContentView.swift`'s `infoContent` puts `ddnsRow` after
+  `networkIdentityStatus`, below the inner VStack that ends with the ISP
+  row (Network/IP Address/Router/DNS Server/Public IP/ISP) — so on
+  screen DDNS renders last, after ISP. Move it to sit right after
+  "Public IP" and before "ISP" instead.
+
+- [ ] **Switch to Swift 6 language mode? Raised directly, not yet
+  decided.** Checked the project settings directly rather than
+  assuming: currently `SWIFT_VERSION = 5.0`, but already manually
+  opted into most of the individual upcoming features Swift 6 mode
+  bundles as a group — `DisableOutwardActorInference`,
+  `InferSendableFromCaptures`, `GlobalActorIsolatedTypesUsability`,
+  `MemberImportVisibility`, `InferIsolatedConformances`,
+  `NonisolatedNonsendingByDefault`, plus `-default-isolation=MainActor`
+  — a deliberate, incremental path rather than an oversight.
+
+  Flipping `SWIFT_VERSION` to 6 outright turns on strict, whole-program
+  data-race safety checking, which is a real, separate undertaking in a
+  codebase this size — 15+ view models, several background `Timer`s,
+  subprocess-shelling services (`SNMPService`, `DDNSResolutionService`,
+  `ConnectivityService`), and cross-view-model wiring
+  (`NMSApp.wireDependencies`) that's never been checked under strict
+  concurrency before. Expect a real batch of new errors to work through,
+  not a clean flip. Deliberately not bundled into the single-window-app
+  rebuild that was in progress when this was raised — a good candidate
+  for its own dedicated pass once that settles, not something to
+  compound into an already-large change.
+
+- [x] ~~Rebuild the UI from scratch in "simpler" SwiftUI, to stop the
+  recurring breakage?~~ **Done — rebuilt as a traditional single-window
+  app.** Investigated before rewriting: the breakage wasn't accidental
+  complexity, it was three separate `MenuBarExtra(.window)` platform
+  gaps (no pure-SwiftUI fix for bounce-free chaining scroll, `.help()`
+  rendering nothing, and safe screenshotting) each papered over with its
+  own AppKit bridge (`NoBounceScrollView`, `ToolTip.swift`,
+  `ImageRenderer`-based capture) — and each bridge accumulating its own
+  interop bugs (`Grid` clipping, SNMP Devices clipping, the Events-list
+  ghosting) as the app grew. Rather than keep patching bridges, dropped
+  the popover entirely for a `.regular`-policy single window: that alone
+  made `.help()` work natively (deleted `ToolTip.swift`), made a real
+  window-scoped screen capture safe (deleted the whole Screenshot/Bug
+  Report feature — redundant with `Cmd+Shift+4` on a real window
+  anyway), and removed the reason `NoBounceScrollView` existed (deleted
+  it for a plain `ScrollView`, with `.frame(maxHeight: .infinity)` to
+  stop the window floor-clamping to full content height). The `Grid`
+  clipping bug did not reoccur once `NoBounceScrollView` was gone,
+  confirming it was an AppKit-bridge quirk, not a `Grid` bug. Also added
+  `ContentView+Preview.swift`'s `#Preview` support (the project had none
+  before) so future tile layout changes don't need a full
+  build-relaunch-screenshot cycle to check.
+
+- [ ] **`README.md` (and the `gh-pages` website) still describe NMS as
+  living "quietly in your menu bar," a `MenuBarExtra` popover with a
+  status icon.** All stale since the single-window rebuild above —
+  there's no menu bar icon or popover anymore, just a Dock icon and a
+  normal window. Flagged directly during that rebuild and deliberately
+  left out of scope for it: that change was about the app itself, this
+  is a copy/docs pass across `README.md`'s "The popover" section, its
+  install instructions ("click the menu bar icon"), its source-tree
+  comments (`NMSApp.swift # ... menu bar scene`), and the website's own
+  framing.
+
 - [ ] **Review the internal tooling for observing this app's own UI — can
   Claude get a better view of what actually gets *rendered*, not just
   what data changed?** Raised directly, after two real bugs this

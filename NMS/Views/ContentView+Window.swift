@@ -1,21 +1,9 @@
 import SwiftUI
 
-/// Every section that only ever renders in the Expert Mode window —
-/// `SectionLayout.surfaces` returns `[.window]` for all of these as of
-/// the audience split, so on the popover none of this file contributes
-/// anything at all.
-///
-/// Split out from `ContentView.swift` for the same reason `SectionLayout`
-/// exists: since the audience split, Network Health and Info are the
-/// *only* content the popover and window still share — everything below
-/// used to sit in the same 1874-line file behind `if SectionLayout.X
-/// .appears(on: surface)` checks that are permanently `false` on the
-/// popover, which meant reading that file to understand "what does the
-/// popover actually show" meant first mentally filtering out most of it.
-/// One type, one set of view models (no duplication, no risk of the two
-/// surfaces' `tile()`/`scrollBox()` usage drifting apart) — just the
-/// window-only implementation physically separated from the always-shared
-/// core, the same decoupling `SectionLayout` already does for layout data.
+/// Most of `ContentView`'s sections, split out here purely to keep
+/// `ContentView.swift` itself from growing back into an unwieldy single
+/// file — no longer a popover/window audience split (NMS is a single-
+/// window app now; see `NMSApp`), just organization.
 ///
 /// A few members here (`pathAndSpeedRow`, `wifiSection`,
 /// `ethernetLinkSection`, `eventList`, `infrastructureList`,
@@ -29,11 +17,6 @@ import SwiftUI
 extension ContentView {
     // MARK: - Path to Internet + Speed Test
 
-    /// The tile grid's last two tiles. Both are window-only and always
-    /// appear together (`SectionLayout.pathToInternet`/`.speedTest` are
-    /// both `[.window]`), so there's no partial-row case — on the popover
-    /// this whole `VStack` is simply never called.
-    ///
     /// Fixed to `ContentView.tileHeight`, same as Network Health/Info —
     /// no longer deliberately independent. That independence used to be
     /// load-bearing: syncing this pair's height risked the "Speed Test's
@@ -49,43 +32,39 @@ extension ContentView {
     /// window grid moved to a single full-width column.
     var pathAndSpeedRow: some View {
         VStack(spacing: 12) {
-            if SectionLayout.pathToInternet.appears(on: surface) {
-                tile(title: "Path to Internet", fixedHeight: ContentView.tileHeight, trailing: {
-                    Button("Trace Now") {
-                        traceroute.run()
-                    }
-                    .disabled(traceroute.isRunning)
-                    .accessibilityLabel("Trace Now")
-                    .accessibilityHint("Runs a traceroute to find the path to the internet")
-                    .accessibilityIdentifier("pathToInternet.traceNow")
-                }) {
-                    tracerouteSection
+            tile(title: "Path to Internet", fixedHeight: ContentView.tileHeight, trailing: {
+                Button("Trace Now") {
+                    traceroute.run()
                 }
+                .disabled(traceroute.isRunning)
+                .accessibilityLabel("Trace Now")
+                .accessibilityHint("Runs a traceroute to find the path to the internet")
+                .accessibilityIdentifier("pathToInternet.traceNow")
+            }) {
+                tracerouteSection
             }
-            if SectionLayout.speedTest.appears(on: surface) {
-                tile(title: "Speed Test", fixedHeight: ContentView.tileHeight, trailing: {
-                    // `runningSource == .cloudflareEndpoint`, not the
-                    // shared `isRunning` — so this button only claims
-                    // "Testing…" when *this* tile's own test is the one
-                    // running, not whenever Apple networkQuality's tile
-                    // is. `.disabled(isRunning)` still uses the shared
-                    // flag: the two tests can't run concurrently either
-                    // way (see `NetworkQualityViewModel.runningSource`'s
-                    // doc comment), so this button is inert while the
-                    // other tile's test is in flight too, just without
-                    // claiming to be the one doing the work.
-                    Button(networkQuality.runningSource == .cloudflareEndpoint ? "Testing…" : "Run Speed Test") {
-                        networkQuality.run()
-                    }
-                    .disabled(networkQuality.isRunning)
-                    .accessibilityLabel(networkQuality.runningSource == .cloudflareEndpoint ? "Testing" : "Run Speed Test")
-                    .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
-                    .accessibilityIdentifier("speedTest.runCloudflare")
-                }) {
-                    speedTestTileContent
+            tile(title: "Speed Test", fixedHeight: ContentView.tileHeight, trailing: {
+                // `runningSource == .cloudflareEndpoint`, not the
+                // shared `isRunning` — so this button only claims
+                // "Testing…" when *this* tile's own test is the one
+                // running, not whenever Apple networkQuality's tile
+                // is. `.disabled(isRunning)` still uses the shared
+                // flag: the two tests can't run concurrently either
+                // way (see `NetworkQualityViewModel.runningSource`'s
+                // doc comment), so this button is inert while the
+                // other tile's test is in flight too, just without
+                // claiming to be the one doing the work.
+                Button(networkQuality.runningSource == .cloudflareEndpoint ? "Testing…" : "Run Speed Test") {
+                    networkQuality.run()
                 }
+                .disabled(networkQuality.isRunning)
+                .accessibilityLabel(networkQuality.runningSource == .cloudflareEndpoint ? "Testing" : "Run Speed Test")
+                .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
+                .accessibilityIdentifier("speedTest.runCloudflare")
+            }) {
+                speedTestTileContent
             }
-            if SectionLayout.appleNetworkQuality.appears(on: surface), networkQuality.isAppleTestAvailable {
+            if networkQuality.isAppleTestAvailable {
                 // A separate tile from Speed Test — see `PUNCHLIST.md`'s
                 // "Give Apple's networkQuality its own tile," raised
                 // directly out of concern that a genuinely distinct,
@@ -114,7 +93,7 @@ extension ContentView {
     /// Path to Internet's full content: current-trace status, then (once
     /// there's a real path) the hop list. Flat content, not its own scroll
     /// box — the outer `tile(fixedHeight:)` call this feeds already wraps
-    /// all of it in one `NoBounceScrollView` (see `ContentView.tileHeight`),
+    /// all of it in one `ScrollView` (see `ContentView.tileHeight`),
     /// so a second, inner scroll box here would just nest redundantly.
     @ViewBuilder
     var tracerouteSection: some View {
@@ -169,7 +148,7 @@ extension ContentView {
                 // pattern as `dhcpLeaseHelp`/`reachabilityHelp`, keeps the
                 // explanation without the line.
                 row("Suggested (unconfirmed)", suggested.hostname ?? suggested.address ?? "—")
-                    .appKitToolTip(Self.suggestedEdgeHopHelp, enabled: !isCapturingScreenshot)
+                    .help(Self.suggestedEdgeHopHelp)
             } else if traceroute.isRunning {
                 Text("Tracing…")
                     .foregroundStyle(.secondary)
@@ -332,7 +311,7 @@ extension ContentView {
     /// DHCP History every run gets a row regardless of whether the
     /// numbers differ from the last one. Flat content, not its own scroll
     /// box — the outer `tile(fixedHeight:)` call this feeds already wraps
-    /// all of `speedTestTileContent` in one `NoBounceScrollView` (see
+    /// all of `speedTestTileContent` in one `ScrollView` (see
     /// `ContentView.tileHeight`), so a second, inner box here would just
     /// nest redundantly.
     @ViewBuilder
@@ -487,11 +466,11 @@ extension ContentView {
     /// is Apple-sourced by construction (`appleRuns`).
     ///
     /// Built as separate `Text`s in an `HStack`, not one interpolated
-    /// string — `appKitToolTip` overlays a whole view, and `Text`
+    /// string — `.help(_:)` attaches to a specific view, and `Text`
     /// concatenation (`+`) merges into a single `Text` with no per-segment
-    /// view identity to overlay, so reaching `rpmThresholdHelp` onto just
-    /// the RPM figures (not the idle-latency figure beside them) needs
-    /// each to stay its own view.
+    /// view identity to attach to, so reaching `rpmThresholdHelp` onto
+    /// just the RPM figures (not the idle-latency figure beside them)
+    /// needs each to stay its own view.
     private var appleQualityRows: some View {
         ForEach(networkQuality.appleRuns) { run in
             VStack(alignment: .leading, spacing: 0) {
@@ -528,12 +507,12 @@ extension ContentView {
                         Circle()
                             .fill(Self.statusColor(forRPM: dl))
                             .frame(width: 6, height: 6)
-                            .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
+                            .help(Self.rpmThresholdHelp)
                         Text("\(dl) RPM down")
                         Circle()
                             .fill(Self.statusColor(forRPM: ul))
                             .frame(width: 6, height: 6)
-                            .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
+                            .help(Self.rpmThresholdHelp)
                         Text("\(ul) RPM up")
                         if run.baseRTTMs != nil {
                             Text("·")
@@ -573,14 +552,13 @@ extension ContentView {
     /// a tooltip, not a permanent caption: this is reference detail for
     /// someone who already sees a number and wants to know if it's good,
     /// not the first-contact explanation (`appleNetworkQualityTileContent`
-    /// covers that with a permanent line instead) — see `appKitToolTip`'s
-    /// own doc comment for why a hover tooltip is the right tool for
-    /// "more depth, not everyone needs it" versus "everyone should see
-    /// this once."
-    // Not `private` — reused by `ContentView.swift`'s popover quick-check
-    // dot (`quickCheckRow`) once both surfaces got a colored-dot verdict,
-    // raised directly to keep the two consistent. Swift's `private`
-    // doesn't cross files even between extensions of the same type.
+    /// covers that with a permanent line instead) — a hover tooltip is
+    /// the right tool for "more depth, not everyone needs it" versus
+    /// "everyone should see this once."
+    // Not `private` — reused by `ContentView.swift`'s quick-check dot
+    // (`quickCheckGridRow`) so both give the same colored verdict the
+    // same explanation. Swift's `private` doesn't cross files even
+    // between extensions of the same type.
     static let rpmThresholdHelp = """
         RPM (round trips per minute) measures responsiveness under load — \
         higher is better. Roughly: above 2000 is excellent, under 800 \
@@ -682,8 +660,8 @@ extension ContentView {
                 .font(.system(size: 12))
                 // Holds the same height the populated list would occupy,
                 // so a first event appearing doesn't make the whole
-                // popover jump.
-                .frame(height: SectionLayout.events.boxHeight(on: surface), alignment: .top)
+                // window jump.
+                .frame(height: SectionLayout.events.boxHeight, alignment: .top)
         } else {
             scrollBox(.events) {
                 eventRows
@@ -691,18 +669,8 @@ extension ContentView {
         }
     }
 
-    /// Capped when capturing, uncapped on screen — the opposite of every
-    /// other section here, and deliberate. On screen the list scrolls, so
-    /// depth is free; in a capture every row is rendered unclipped, so
-    /// depth is *height*, and height is legibility: a 39-event capture is
-    /// already ~3300px tall, and the full 200-event fetch would run
-    /// ~10,000px, which downscales to unreadable in any viewer. Since
-    /// being readable is the entire reason the capture exists (see
-    /// `ScreenshotService`), a legible window onto recent history beats a
-    /// complete but illegible one. 50 keeps captures at roughly the size
-    /// already confirmed readable.
     private var eventRows: some View {
-        ForEach(isCapturingScreenshot ? Array(eventLog.events.prefix(50)) : eventLog.events) { event in
+        ForEach(eventLog.events) { event in
             // `.top`, not the default `.center` — once `message` can wrap
             // to more than one line, centering would float the timestamp/
             // link partway down a tall row instead of pinning it level
@@ -805,10 +773,7 @@ extension ContentView {
                         // trouble at a glance and gets misread exactly
                         // when someone is scanning this list during an
                         // outage.
-                        .appKitToolTip(
-                            Self.reachabilityHelp(deviceReachability(device)),
-                            enabled: !isCapturingScreenshot
-                        )
+                        .help(Self.reachabilityHelp(deviceReachability(device)))
                     Text(device.displayName)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -854,7 +819,7 @@ extension ContentView {
                 // (this network's own switch) needs two lines to read in
                 // full. An unbounded, wrapping `Text` here reliably
                 // truncated to one line with a "…" live, inside this
-                // section's `NoBounceScrollView` box specifically
+                // section's `ScrollView` box specifically
                 // (confirmed fine in a plain `VStack`) — and every fix
                 // tried for *that* (`.fixedSize(vertical: true)` alone,
                 // on the whole row, combined with `NSHostingView
@@ -961,9 +926,10 @@ extension ContentView {
         if isEditingCommunity {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    captureSafeTextField("public, private", text: $communityDraft) {
-                        commitCommunity()
-                    }
+                    TextField("public, private", text: $communityDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                        .onSubmit { commitCommunity() }
                     Button("Set") { commitCommunity() }
                         .accessibilityLabel("Set community strings")
                         .accessibilityIdentifier("snmpDevices.setCommunity")
@@ -1054,7 +1020,7 @@ extension ContentView {
                     // genuinely opaque parts — bcast/gw/dns need no
                     // gloss for this app's audience, while T1/T2 and a
                     // bare hex transaction ID do.
-                    .appKitToolTip(DHCPLeaseRecord.transactionHelpText, enabled: !isCapturingScreenshot)
+                    .help(DHCPLeaseRecord.transactionHelpText)
             }
         }
     }

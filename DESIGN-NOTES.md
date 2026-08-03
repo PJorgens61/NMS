@@ -246,6 +246,15 @@ polarity color, so this is new `switch` cases, not new UI.
 
 ## UI tooltips
 
+**Historical.** This whole investigation was specific to
+`MenuBarExtra(.window)`, which no longer exists — NMS was rebuilt as a
+traditional single-window app (see the "rebuild in simpler SwiftUI"
+entry in `PUNCHLIST.md`), and in a real window plain SwiftUI `.help(_:)`
+works normally. `ToolTip.swift`/`AppKitToolTip` (the AppKit overlay this
+section arrives at) has been deleted; every call site now uses
+`.help(_:)` directly. Kept below for the reasoning trail, not as
+current behavior.
+
 The popover carries a fair amount of unexplained terminology by now — the
 Network Health layer chain, status colors, the ISP Edge Router concept,
 SNMP fields — and someone in the app's actual target audience ("small
@@ -1019,6 +1028,15 @@ the footer banner renders correctly; and a clean launch logged `none`
 with the footer absent. Scenario suite still 11/11 throughout.
 
 ## The MacBook Air height constraint, recurring, and a real fix for tracking it
+
+**Historical.** This entire constraint was specific to
+`MenuBarExtra(.window)`'s fixed, no-scroll-of-its-own popover height
+budget. NMS is now a traditional resizable window (see the "rebuild in
+simpler SwiftUI" entry in `PUNCHLIST.md`), so there's no popover height
+ceiling to track — the window scrolls, and `NoBounceScrollView` (the
+custom scroll bridge this section's fixes lean on) has been deleted for
+a plain SwiftUI `ScrollView`. Kept below for the reasoning trail, not as
+current behavior.
 
 The popover outgrew the M1 MacBook Air's screen again — the same
 constraint that forced Events from 170pt to 136pt once before (commit
@@ -2511,6 +2529,17 @@ section rendered all of it, including a visible two-point sparkline
 trending `-50 → -49`.
 
 ## Popover screenshot button
+
+**Historical — this feature has been removed.** The whole
+Screenshot/Bug Report capture path (`ScreenshotService`,
+`ScreenshotViewModel`, `BugReportExportService`, `ImageRenderer`-based
+rendering) was deleted as part of the "rebuild in simpler SwiftUI" pass
+(see `PUNCHLIST.md`): once NMS became a traditional single window
+instead of a popover, a real screen capture (`Cmd+Shift+4`/
+`screencapture -l<windowID>`) targets it precisely and safely, making
+this in-app capture path redundant rather than the only safe option it
+used to be. Kept below for the reasoning trail, not as current
+behavior.
 
 Built to close the loop on a real, recurring cost this whole project's
 development has paid: verifying a UI change meant the user manually

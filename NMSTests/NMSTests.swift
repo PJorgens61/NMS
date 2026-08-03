@@ -980,130 +980,18 @@ struct NATLayerDetectionTests {
 
 // MARK: - SectionLayout
 
-/// The popover's height budget, as arithmetic rather than as a recurring
-/// discovery on someone's smaller screen.
-///
-/// This app's single most-repeated bug is "the popover outgrew the M1
-/// MacBook Air again" — fixed at least three separate times by hand
-/// (Events 170→136, DHCP History 90→56, SNMP Devices 140→123), each time
-/// found only after it shipped, because nothing could answer "what does
-/// the popover cost?" without a human reading six scattered comments and
-/// adding them up. `SectionLayout` makes that a computation; these tests
-/// make it a build failure.
+/// Pins "declared, present, and not accidentally reverted to zero" for
+/// every fixed-height scroll box — a plainer check than this suite used
+/// to run back when there were two surfaces (a popover and a window)
+/// competing for a tight height budget. NMS is a single-window app now
+/// (see `NMSApp`), so there's no budget to guard, just a sanity check
+/// that every declared box still has a real, positive height.
 @Suite("SectionLayout")
 struct SectionLayoutTests {
-    @Test("the popover's scroll boxes stay within their declared budget")
-    func popoverBoxTotalWithinBudget() {
-        // The guard that actually catches the recurring regression:
-        // adding a section to the popover, or growing an existing box,
-        // fails here. Shrinking is deliberately free.
-        #expect(SectionLayout.popoverBoxTotal <= SectionLayout.popoverBoxBudget)
-    }
-
-    @Test("the budget reflects today's real total, not a number with slack in it")
-    func budgetHasNoHiddenSlack() {
-        // Pins the budget *to* the total, so the test above can't quietly
-        // stop being a constraint: if someone raises the budget to make a
-        // failure go away without shrinking anything, this catches it and
-        // forces the trade-off to be stated rather than absorbed.
-        #expect(SectionLayout.popoverBoxTotal == SectionLayout.popoverBoxBudget)
-    }
-
-    @Test("the popover has no scrollable, box-bearing content left at all")
-    func popoverHasNoBoxBearingContent() {
-        // This test used to assert the trim lever was *nearly* exhausted
-        // (~252pt of boxes against a ~846-860pt popover, with everything
-        // else having no trim mechanism at all). The audience split
-        // finished that trend rather than continuing to shave it: Events,
-        // Path to Internet and Speed Test all moved to window-only, so
-        // the popover now carries zero scrollable sections by design, not
-        // by a trim that happened to land on zero. `== 0`, not `< half
-        // the ceiling` — the weaker check would still pass if this
-        // regressed halfway back.
-        #expect(SectionLayout.popoverBoxTotal == 0)
-    }
-
-    @Test("window-only sections declare no popover height")
-    func windowOnlySectionsHaveNoPopoverHeight() {
-        // The exact defect this replaced: SNMP Devices and DHCP History
-        // both kept carefully-trimmed popover heights (123pt and 56pt)
-        // long after becoming window-only — ~180pt of budget that a
-        // future trim would have reasoned about and found wasn't there.
-        for section in SectionLayout.allCases where !section.appears(on: .popover) {
-            #expect(
-                section.boxHeight(on: .popover) == nil,
-                "\(section.rawValue) is window-only but declares a popover height"
-            )
-        }
-    }
-
-    @Test("the audience split scopes every declared section to the window only")
-    func audienceSplitIsWindowOnly() {
-        // Pins the split's exact scope directly, rather than leaving it
-        // as a side effect of the box-height check below. The popover is
-        // now just Network Health and Info (neither a `SectionLayout`
-        // case — see the type's doc comment), so every case that *is*
-        // declared here should be window-only. If this ever fails, it
-        // means something regressed back onto the popover, which is the
-        // one thing this whole split was for.
+    @Test("every declared section has a positive box height")
+    func everySectionHasAPositiveHeight() {
         for section in SectionLayout.allCases {
-            #expect(
-                !section.appears(on: .popover),
-                "\(section.rawValue) reappeared on the popover after the audience split"
-            )
-            #expect(section.appears(on: .window), "\(section.rawValue) renders nowhere")
-        }
-    }
-
-    @Test("every section appears on at least one surface")
-    func noOrphanedSections() {
-        for section in SectionLayout.allCases {
-            #expect(!section.surfaces.isEmpty, "\(section.rawValue) renders nowhere")
-        }
-    }
-
-    @Test("the window gives every box at least as much room as the popover")
-    func windowIsNeverTighterThanThePopover() {
-        // The window exists precisely because it has room the popover
-        // doesn't. A section that's tighter there would be a typo, not a
-        // decision.
-        for section in SectionLayout.allCases {
-            guard let popover = section.boxHeight(on: .popover),
-                  let window = section.boxHeight(on: .window) else { continue }
-            #expect(window >= popover, "\(section.rawValue) is tighter in the window")
-        }
-    }
-
-    @Test("Path to Internet, Speed Test, and Apple networkQuality all opt out of SectionLayout's own box height")
-    func tileGridPartnersSkipDeclaredHeight() {
-        // Superseded by `ContentView.tileHeight`: Path to Internet, Speed
-        // Test, Apple networkQuality, Network Health, and Info now all
-        // share one literal constant passed directly to
-        // `tile(fixedHeight:)`, so matching height is guaranteed by
-        // construction rather than by declaring equal values here. These
-        // three return `nil` from this table entirely — see
-        // `SectionLayout.boxHeight(on:)`'s doc comment.
-        #expect(SectionLayout.pathToInternet.boxHeight(on: .window) == nil)
-        #expect(SectionLayout.speedTest.boxHeight(on: .window) == nil)
-        #expect(SectionLayout.appleNetworkQuality.boxHeight(on: .window) == nil)
-    }
-
-    @Test("the three independently-boxed window sections are generously sized, not row-exact")
-    func windowBoxesAreGenerousNotExact() {
-        // Replaced a precisely-measured value (a DHCP History box
-        // deliberately shrunk to force scrolling against only 4 real
-        // leases) with a plainer, rounder number — same lesson
-        // `ContentView.tileHeight` applied to the top row: a box the
-        // window always scrolls doesn't need to be measured to fit any
-        // particular row count, since scrolling absorbs whatever doesn't
-        // fit. Unlike that shared constant, these three don't need to
-        // match each other — none of them sit side by side with another,
-        // so there's no alignment bug forcing one number on all of them.
-        // This just pins "declared, present, and not accidentally
-        // reverted to zero," not any specific value.
-        for section: SectionLayout in [.events, .snmpDevices, .dhcpHistory] {
-            let height = section.boxHeight(on: .window)
-            #expect(height != nil && height! > 0, "\(section.rawValue) should declare a positive window height")
+            #expect(section.boxHeight > 0, "\(section.rawValue) should declare a positive box height")
         }
     }
 }
@@ -1511,78 +1399,6 @@ struct StoreFallbackTests {
         let context = ModelContext(result.container)
         context.insert(FallbackTestModel(id: "test"))
         #expect(throws: Never.self) { try context.save() }
-    }
-}
-
-// MARK: - Capture-mode guard audit
-
-/// Reads `ContentView.swift`/`ContentView+Window.swift` as plain text and
-/// counts real `TextField`/`NoBounceScrollView` construction sites,
-/// rather than rendering anything — this file's own header explains why:
-/// scoped deliberately to pure logic, no view-model construction,
-/// because `ContentView`'s dozen `@ObservedObject` dependencies each
-/// have real side effects at `init` (timers start, subprocesses run
-/// immediately) that a unit test must not trigger.
-///
-/// Exists to catch the recurring "the capture branch is easy to forget,
-/// and forgetting it fails silently" bug class structurally, after it
-/// hit `communityRow` uncaught (see `BUGS.md`'s history — no dedicated
-/// entry, found during a deferred code-review pass) despite the
-/// identical guard already existing at `bugReportRow`. Every `TextField`
-/// now goes through `ContentView.captureSafeTextField`, and every
-/// `NoBounceScrollView` through one of three already-audited call sites
-/// — a fourth raw construction site appearing anywhere in these two
-/// files means a new one was added without going through the
-/// established, capture-safe path, exactly the shape of mistake this
-/// guards against. Counts are pinned to today's audited total, same
-/// convention as `SectionLayout.popoverBoxBudget`: a deliberate
-/// regression guard, not a physical limit — growing past it should fail
-/// the build and force the trade-off to be made explicitly, not silently
-/// reopen the bug.
-@Suite("Capture-mode guard audit")
-struct CaptureModeGuardAuditTests {
-    private static let repoRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-
-    private static func source(_ relativePath: String) -> String {
-        (try? String(contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)) ?? ""
-    }
-
-    private static func occurrenceCount(_ pattern: String, in text: String) -> Int {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return -1 }
-        return regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
-    }
-
-    @Test("every TextField goes through captureSafeTextField")
-    func onlyOneRawTextField() {
-        let contentView = Self.source("NMS/Views/ContentView.swift")
-        let contentViewWindow = Self.source("NMS/Views/ContentView+Window.swift")
-        #expect(!contentView.isEmpty, "ContentView.swift should have been readable")
-
-        // Word-boundary match so `captureSafeTextField(` itself doesn't
-        // count — only a bare `TextField(` construction.
-        let pattern = #"(?<![a-zA-Z])TextField\("#
-        let total = Self.occurrenceCount(pattern, in: contentView) + Self.occurrenceCount(pattern, in: contentViewWindow)
-        #expect(total == 1, "expected exactly one raw TextField (inside captureSafeTextField's own definition), found \(total)")
-    }
-
-    @Test("every NoBounceScrollView construction is one of the three already-audited call sites")
-    func onlyThreeRawNoBounceScrollViews() {
-        let contentView = Self.source("NMS/Views/ContentView.swift")
-        let contentViewWindow = Self.source("NMS/Views/ContentView+Window.swift")
-        #expect(!contentView.isEmpty, "ContentView.swift should have been readable")
-
-        // Matches both call shapes this type is actually constructed
-        // with: `NoBounceScrollView(persistentScrollbar:)` in `body`'s
-        // window branch, and the trailing-closure-only
-        // `NoBounceScrollView { ... }` in `tile(fixedHeight:)` and
-        // `scrollBox`.
-        let pattern = #"NoBounceScrollView\s*[({]"#
-        let inContentView = Self.occurrenceCount(pattern, in: contentView)
-        let inContentViewWindow = Self.occurrenceCount(pattern, in: contentViewWindow)
-        #expect(inContentView == 3, "expected 3 in ContentView.swift (body, tile(fixedHeight:), scrollBox), found \(inContentView)")
-        #expect(inContentViewWindow == 0, "expected 0 in ContentView+Window.swift — a new one here would need its own capture-mode audit")
     }
 }
 
