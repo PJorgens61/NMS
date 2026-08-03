@@ -229,18 +229,36 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem 0;
-    padding: 1.4rem 0;
+    padding: 1.1rem 0;
     border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg);
   }
   .hop-nav a {
     text-decoration: none;
     color: var(--muted);
     padding: 0.2rem 0.75rem;
     border-right: 1px solid var(--line);
+    position: relative;
   }
   .hop-nav a:last-child { border-right: none; }
   .hop-nav a:hover { color: var(--accent); }
+  .hop-nav a.active {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .hop-nav a.active::after {
+    content: "";
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: -1.1rem;
+    height: 2px;
+    background: var(--accent);
+  }
 
   .hop {
     padding: clamp(3.4rem, 7vw, 5.5rem) 0;
@@ -248,6 +266,7 @@
     opacity: 0;
     transform: translateY(14px);
     transition: opacity 0.6s ease, transform 0.6s ease;
+    scroll-margin-top: 4.2rem;
   }
   .hop.in { opacity: 1; transform: none; }
   .hop-trace {
@@ -400,14 +419,14 @@
   <nav class="hop-nav" id="trace">
     <a href="#hop-1">1 remote-workers</a>
     <a href="#hop-2">2 field-technicians</a>
-    <a href="#hop-3">3 homelab-enthusiasts</a>
+    <a href="#hop-3">3 homelab</a>
     <a href="#hop-4">4 corporate-it</a>
     <a href="#hop-5">5 swift-programmers</a>
-    <a href="#hop-6">6 opensource-fans</a>
+    <a href="#hop-6">6 opensource</a>
   </nav>
 
   <section class="hop" id="hop-1">
-    <div class="hop-trace"><span class="n">1</span> remote-workers.wfh <span class="rtt">0.4 ms</span></div>
+    <div class="hop-trace"><span class="n">1</span> remote-workers <span class="rtt">0.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>"Is it me, or is it everyone?"</h2>
@@ -438,7 +457,7 @@
   </section>
 
   <section class="hop" id="hop-2">
-    <div class="hop-trace"><span class="n">2</span> field-technicians.lan <span class="rtt">1.2 ms</span></div>
+    <div class="hop-trace"><span class="n">2</span> field-technicians <span class="rtt">1.2 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Scope out a customer's network in a flash.</h2>
@@ -460,7 +479,7 @@
   </section>
 
   <section class="hop" id="hop-3">
-    <div class="hop-trace"><span class="n">3</span> homelab-enthusiasts.lab <span class="rtt">2.4 ms</span></div>
+    <div class="hop-trace"><span class="n">3</span> homelab <span class="rtt">2.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Break things on purpose. Know when they come back.</h2>
@@ -486,7 +505,7 @@
   </section>
 
   <section class="hop" id="hop-4">
-    <div class="hop-trace"><span class="n">4</span> corporate-it.internal <span class="rtt">3.8 ms</span></div>
+    <div class="hop-trace"><span class="n">4</span> corporate-it <span class="rtt">3.8 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>You used to manage 1 network. Now you have 1000.</h2>
@@ -506,7 +525,7 @@
   </section>
 
   <section class="hop" id="hop-5">
-    <div class="hop-trace"><span class="n">5</span> swift-programmers.dev <span class="rtt">6.1 ms</span></div>
+    <div class="hop-trace"><span class="n">5</span> swift-programmers <span class="rtt">6.1 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Built the way you'd want a Mac utility built.</h2>
@@ -530,7 +549,7 @@
   </section>
 
   <section class="hop" id="hop-6">
-    <div class="hop-trace"><span class="n">6</span> opensource-fans.net <span class="rtt">9.4 ms</span></div>
+    <div class="hop-trace"><span class="n">6</span> opensource <span class="rtt">9.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Every decision, written down — including the honest parts.</h2>
@@ -580,6 +599,20 @@
     hops.forEach((hop) => io.observe(hop));
   } else {
     hops.forEach((hop) => hop.classList.add('in'));
+  }
+
+  const navLinks = document.querySelectorAll('.hop-nav a');
+  if ('IntersectionObserver' in window && navLinks.length) {
+    const linkFor = (id) => document.querySelector(`.hop-nav a[href="#${id}"]`);
+    const spy = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          navLinks.forEach((a) => a.classList.remove('active'));
+          linkFor(entry.target.id)?.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
+    hops.forEach((hop) => spy.observe(hop));
   }
 </script>
 </body>
