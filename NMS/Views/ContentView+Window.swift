@@ -87,6 +87,47 @@ extension ContentView {
                     appleNetworkQualityTileContent
                 }
             }
+            // Not Wi-Fi-exclusive, despite the underlying idea starting
+            // there — the mechanism (repeatedly ping the local router
+            // under load) is identical over Ethernet, and a wired
+            // connection can have its own real problems (a marginal
+            // cable, a flaky switch port) worth exposing the same way.
+            // Gated only on a known router address; "Local," not
+            // "Wi-Fi," in the title so it doesn't mislead on an
+            // Ethernet-connected Mac. See `PUNCHLIST.md`'s "local Wi-Fi
+            // stress test" entry for the full mechanism reasoning.
+            if let routerAddress = viewModel.currentInterface?.routerAddress {
+                let isWiFi = viewModel.currentInterface?.isWiFi == true
+                tile(title: "Local Stress Test", fixedHeight: ContentView.tileHeight, trailing: {
+                    Button(wifiStressTest.isRunning ? "Testing…" : "Run Test") {
+                        if wifiStressTest.hasConfirmedBefore {
+                            wifiStressTest.run(routerAddress: routerAddress, isWiFi: isWiFi)
+                        } else {
+                            isShowingWiFiStressTestConfirmation = true
+                        }
+                    }
+                    .disabled(wifiStressTest.isRunning)
+                    .accessibilityLabel(wifiStressTest.isRunning ? "Testing" : "Run Local Stress Test")
+                    .accessibilityHint("Fires many concurrent ping streams at the local router for about 1-2 seconds to check for packet loss under load. Generates real network traffic.")
+                    .accessibilityIdentifier("wifiStressTest.run")
+                    // Attached directly to the button, not hoisted to
+                    // `body` — same established local-attachment
+                    // pattern `.sheet(isPresented:
+                    // $isShowingAppleVerboseOutput)` already uses on
+                    // the "View Full Report…" button above.
+                    .alert("Run Local Stress Test?", isPresented: $isShowingWiFiStressTestConfirmation) {
+                        Button("Continue") {
+                            wifiStressTest.markConfirmed()
+                            wifiStressTest.run(routerAddress: routerAddress, isWiFi: isWiFi)
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This will generate real network traffic for about 1-2 seconds — continue?")
+                    }
+                }) {
+                    wifiStressTestTileContent
+                }
+            }
         }
     }
 
@@ -564,6 +605,64 @@ extension ContentView {
         higher is better. Roughly: above 2000 is excellent, under 800 \
         suggests bufferbloat.
         """
+
+    // MARK: - Local Stress Test
+
+    /// The "Local Stress Test" tile's full content — same shape as
+    /// `speedTestTileContent`/`appleNetworkQualityTileContent`. Packet
+    /// loss is the headline line (the primary metric — see
+    /// `PUNCHLIST.md`'s "local Wi-Fi stress test" entry), RTT
+    /// min/avg/max/stddev and this Mac's own CPU load during the burst
+    /// (see `CPULoadSampler`) are smaller supporting lines underneath.
+    @ViewBuilder
+    var wifiStressTestTileContent: some View {
+        Text("many concurrent MTU-sized pings, ~1-2s, real traffic")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+        wifiStressTestList
+        if let error = wifiStressTest.lastError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
+        }
+    }
+
+    /// Every run, newest first — a genuine time series, not deduplicated
+    /// against the previous one, same reasoning as `speedTestList`. Flat
+    /// content, not its own scroll box — the outer `tile(fixedHeight:)`
+    /// call already wraps all of `wifiStressTestTileContent` in one
+    /// `ScrollView`.
+    @ViewBuilder
+    private var wifiStressTestList: some View {
+        if wifiStressTest.recentRuns.isEmpty {
+            Text(wifiStressTest.isRunning ? "Testing…" : "No stress test run yet")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+        } else {
+            ForEach(wifiStressTest.recentRuns) { run in
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        Text(String(format: "%.1f%% loss", run.packetLossPercent))
+                            .foregroundStyle(run.packetLossPercent > 0 ? .red : .primary)
+                        Spacer()
+                        Text(run.testedAt, format: .dateTime.hour().minute())
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 12))
+                    if let min = run.minRTTMs, let avg = run.avgRTTMs, let max = run.maxRTTMs, let stddev = run.stddevRTTMs {
+                        Text(String(format: "%.1f/%.1f/%.1f/%.1f ms (min/avg/max/stddev)", min, avg, max, stddev))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let peakCPU = run.peakCPUPercent, let avgCPU = run.avgCPUPercent {
+                        Text(String(format: "CPU %.0f%% avg, %.0f%% peak · %d streams", avgCPU, peakCPU, run.streamCount))
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
 
     // MARK: - Wi-Fi
 

@@ -36,7 +36,8 @@ private enum ContentViewPreviewSupport {
             AppEventRecord.self,
             ProviderEdgeRecord.self,
             SNMPDeviceRecord.self,
-            WiFiSampleRecord.self
+            WiFiSampleRecord.self,
+            WiFiStressTestRecord.self
         ])
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         // `try!` — preview-only code; an in-memory container failing to
@@ -52,6 +53,7 @@ private enum ContentViewPreviewSupport {
         let ispIdentity = ISPIdentityViewModel(snapshotStore: store)
         let dhcpLease = DHCPLeaseViewModel(snapshotStore: store, networkMonitor: networkMonitor)
         let networkQuality = NetworkQualityViewModel(snapshotStore: store)
+        let wifiStressTest = WiFiStressTestViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let ethernetLink = EthernetLinkViewModel()
         let eventLog = EventLogViewModel(snapshotStore: store)
@@ -80,6 +82,7 @@ private enum ContentViewPreviewSupport {
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             networkQuality: networkQuality,
+            wifiStressTest: wifiStressTest,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
             eventLog: eventLog,

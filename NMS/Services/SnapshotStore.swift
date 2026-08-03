@@ -583,6 +583,26 @@ final class SnapshotStore {
         try? context.save()
     }
 
+    /// Unconditional insert, same reasoning as `recordNetworkQualityResult`
+    /// — every stress-test run is a deliberate data point, not a change
+    /// to dedupe against. See `WiFiStressTestResult`.
+    func recordWiFiStressTestResult(_ result: WiFiStressTestResult) {
+        context.insert(WiFiStressTestRecord(from: result, networkFingerprint: currentNetworkFingerprint))
+        try? context.save()
+    }
+
+    /// Scoped by `currentNetworkFingerprint`: a different network's stress
+    /// test runs never show here. See `WiFiStressTestRecord.networkFingerprint`.
+    func fetchWiFiStressTestHistory(limit: Int = 10) -> [WiFiStressTestRecord] {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<WiFiStressTestRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.testedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     /// Scoped by `currentNetworkFingerprint`: a different network's speed
     /// tests never show here. See `NetworkQualityRecord.networkFingerprint`.
     func fetchNetworkQualityHistory(limit: Int = 10) -> [NetworkQualityRecord] {

@@ -9,6 +9,7 @@ struct ContentView: View {
     @ObservedObject var ispIdentity: ISPIdentityViewModel
     @ObservedObject var dhcpLease: DHCPLeaseViewModel
     @ObservedObject var networkQuality: NetworkQualityViewModel
+    @ObservedObject var wifiStressTest: WiFiStressTestViewModel
     @ObservedObject var wifiSSID: WiFiSSIDViewModel
     @ObservedObject var ethernetLink: EthernetLinkViewModel
     @ObservedObject var eventLog: EventLogViewModel
@@ -37,6 +38,10 @@ struct ContentView: View {
     /// see `appleNetworkQualityTileContent` in `ContentView+Window.swift`.
     /// Not `private`, same cross-file reason as `communityDraft` above.
     @State var isShowingAppleVerboseOutput = false
+    /// Backs the Local Stress Test tile's one-time confirmation alert —
+    /// see `wifiStressTestSection`/the tile in `ContentView+Window.swift`.
+    /// Not `private`, same cross-file reason as `communityDraft` above.
+    @State var isShowingWiFiStressTestConfirmation = false
     /// Keyed by `ConnectionLayer.id`. Populated by the Network Health
     /// section's `.task`; empty until then, which simply renders no
     /// sparklines rather than empty boxes.

@@ -242,6 +242,73 @@ struct IPClassifierTests {
     }
 }
 
+@Suite("WiFiStressTestAggregator")
+struct WiFiStressTestAggregatorTests {
+    @Test("all packets answered — zero loss, exact min/avg/max, population stddev")
+    func allAnswered() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 3, rttsMs: [1.0, 2.0, 3.0], cpuSamples: [])
+        #expect(stats.packetLossPercent == 0)
+        #expect(stats.minRTTMs == 1.0)
+        #expect(stats.maxRTTMs == 3.0)
+        #expect(stats.avgRTTMs == 2.0)
+        // Population stddev of [1,2,3]: variance = ((1-2)^2 + (2-2)^2 + (3-2)^2) / 3 = 2/3
+        #expect(abs(stats.stddevRTTMs! - (2.0 / 3.0).squareRoot()) < 0.0001)
+    }
+
+    @Test("partial loss — packetsSent exceeds rtts.count")
+    func partialLoss() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 10, rttsMs: Array(repeating: 5.0, count: 7), cpuSamples: [])
+        #expect(stats.packetLossPercent == 30)
+        #expect(stats.packetsReceived == 7)
+    }
+
+    @Test("total loss — empty rtts, every RTT field nil")
+    func totalLoss() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 5, rttsMs: [], cpuSamples: [])
+        #expect(stats.packetLossPercent == 100)
+        #expect(stats.minRTTMs == nil)
+        #expect(stats.avgRTTMs == nil)
+        #expect(stats.maxRTTMs == nil)
+        #expect(stats.stddevRTTMs == nil)
+    }
+
+    @Test("zero packets sent doesn't divide by zero")
+    func zeroSent() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 0, rttsMs: [], cpuSamples: [])
+        #expect(stats.packetLossPercent == 0)
+    }
+
+    @Test("single sample has zero stddev")
+    func singleSample() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [4.2], cpuSamples: [])
+        #expect(stats.stddevRTTMs == 0)
+    }
+
+    /// Pins the deliberate choice of population stddev (÷N), matching BSD
+    /// `ping`'s own "round-trip min/avg/max/stddev" summary line, not
+    /// sample stddev (÷N-1) — the two clearly differ for this input.
+    @Test("stddev is population, not sample")
+    func populationNotSample() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 4, rttsMs: [1.0, 2.0, 3.0, 4.0], cpuSamples: [])
+        #expect(abs(stats.stddevRTTMs! - 1.1180) < 0.001)   // population ≈ 1.118
+        #expect(abs(stats.stddevRTTMs! - 1.2910) > 0.001)   // sample ≈ 1.291 — must not match
+    }
+
+    @Test("empty CPU samples yield nil, not zero")
+    func emptyCPUSamples() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [1.0], cpuSamples: [])
+        #expect(stats.peakCPUPercent == nil)
+        #expect(stats.avgCPUPercent == nil)
+    }
+
+    @Test("CPU peak and average are computed correctly")
+    func cpuPeakAndAverage() {
+        let stats = WiFiStressTestAggregator.aggregate(packetsSent: 1, rttsMs: [1.0], cpuSamples: [10, 50, 30])
+        #expect(stats.peakCPUPercent == 50)
+        #expect(stats.avgCPUPercent == 30)
+    }
+}
+
 // MARK: - OverallStatus
 
 @Suite("OverallStatus")

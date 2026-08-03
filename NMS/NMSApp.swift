@@ -23,6 +23,7 @@ struct NMSApp: App {
     @StateObject private var ispIdentity: ISPIdentityViewModel
     @StateObject private var dhcpLease: DHCPLeaseViewModel
     @StateObject private var networkQuality: NetworkQualityViewModel
+    @StateObject private var wifiStressTest: WiFiStressTestViewModel
     @StateObject private var wifiSSID: WiFiSSIDViewModel
     @StateObject private var ethernetLink: EthernetLinkViewModel
     @StateObject private var eventLog: EventLogViewModel
@@ -93,6 +94,9 @@ struct NMSApp: App {
         // own — deliberately never triggered automatically. See
         // `NetworkQualityViewModel`'s own doc comment.
         let networkQuality = NetworkQualityViewModel(snapshotStore: store)
+        // Same "on-demand only, never auto-triggered" restraint as
+        // `networkQuality` above.
+        let wifiStressTest = WiFiStressTestViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let ethernetLink = EthernetLinkViewModel()
         let eventLog = EventLogViewModel(snapshotStore: store)
@@ -128,6 +132,7 @@ struct NMSApp: App {
             traceroute: traceroute,
             snmp: snmp,
             networkQuality: networkQuality,
+            wifiStressTest: wifiStressTest,
             saasMonitoring: saasMonitoring,
             ddns: ddns
         )
@@ -139,6 +144,7 @@ struct NMSApp: App {
         _ispIdentity = StateObject(wrappedValue: ispIdentity)
         _dhcpLease = StateObject(wrappedValue: dhcpLease)
         _networkQuality = StateObject(wrappedValue: networkQuality)
+        _wifiStressTest = StateObject(wrappedValue: wifiStressTest)
         _wifiSSID = StateObject(wrappedValue: wifiSSID)
         _ethernetLink = StateObject(wrappedValue: ethernetLink)
         _eventLog = StateObject(wrappedValue: eventLog)
@@ -209,6 +215,7 @@ struct NMSApp: App {
         traceroute: TracerouteViewModel,
         snmp: SNMPViewModel,
         networkQuality: NetworkQualityViewModel,
+        wifiStressTest: WiFiStressTestViewModel,
         saasMonitoring: SaaSMonitoringViewModel,
         ddns: DDNSViewModel
     ) {
@@ -253,6 +260,7 @@ struct NMSApp: App {
             traceroute: traceroute,
             saasMonitoring: saasMonitoring,
             networkQuality: networkQuality,
+            wifiStressTest: wifiStressTest,
             ddns: ddns
         )
     }
@@ -493,6 +501,7 @@ struct NMSApp: App {
         traceroute: TracerouteViewModel,
         saasMonitoring: SaaSMonitoringViewModel,
         networkQuality: NetworkQualityViewModel,
+        wifiStressTest: WiFiStressTestViewModel,
         ddns: DDNSViewModel
     ) {
         networkMonitor.onEventLogged = { eventLog.refresh() }
@@ -531,6 +540,7 @@ struct NMSApp: App {
             // leaving that data point to wait out the full 300s timer.
             dhcpLease.check()
             networkQuality.reloadHistory()
+            wifiStressTest.reloadHistory()
             traceroute.reloadMonitoredHop()
             // Opt-in only (`FeatureFlags.autoBaselineNetworkQuality`'s own
             // doc comment has the why) — never on the very first time
@@ -558,6 +568,7 @@ struct NMSApp: App {
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             networkQuality: networkQuality,
+            wifiStressTest: wifiStressTest,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
             eventLog: eventLog,
@@ -744,7 +755,8 @@ struct NMSApp: App {
             AppEventRecord.self,
             ProviderEdgeRecord.self,
             SNMPDeviceRecord.self,
-            WiFiSampleRecord.self
+            WiFiSampleRecord.self,
+            WiFiStressTestRecord.self
         ])
         let storeURL = Self.storeURL()
         let (container, reason) = openStoreWithFallback(schema: schema, url: storeURL)
