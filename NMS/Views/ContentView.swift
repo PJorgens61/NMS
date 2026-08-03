@@ -766,6 +766,19 @@ struct ContentView: View {
     @ViewBuilder
     private var connectionHealthSection: some View {
         let layers = connectionLayersLowToHigh
+        // Split so `dhcpGridRow` can sit between Router and Network
+        // rather than only ever at the very top or bottom — DHCP
+        // supplies the addressing Router/Public IP/etc. depend on, but
+        // is itself more fundamental than Network's own Wi-Fi/Ethernet
+        // association (raised directly: "I think that is the right
+        // place in the hierarchy"). `layers` is already low-to-high
+        // with Network first (see `connectionLayersLowToHigh`'s own doc
+        // comment), so reversed-and-dropped-last is everything except
+        // Network, in the same most-dependent-to-most-fundamental
+        // display order the Grid already reads top to bottom.
+        let reversedLayers = Array(layers.reversed())
+        let aboveNetwork = reversedLayers.dropLast()
+        let networkLayer = reversedLayers.last
         VStack(alignment: .leading, spacing: 2) {
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
                 // At the top, not the bottom — the most aggregate,
@@ -775,92 +788,22 @@ struct ContentView: View {
                 // reads top-to-bottom as most-dependent to most-
                 // fundamental, matching `layers.reversed()` below).
                 quickCheckGridRow
-                ForEach(layers.reversed()) { layer in
-                    GridRow {
-                        Circle()
-                            .fill(layerColor(for: layer))
-                            .frame(width: 8, height: 8)
-                        Text(layer.label)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .gridColumnAlignment(.leading)
-                        // Network's own sparkline (Wi-Fi only — Ethernet
-                        // has no signal strength to chart) uses RSSI
-                        // history from `wifiSSID.recentSamples`, not
-                        // `latencyHistory`: this row isn't a ping-latency
-                        // check, so `latencyHistory` has no entry for it
-                        // at all. Same values/reversal `wifiSection`'s
-                        // own Signal row already uses for the identical
-                        // chart.
-                        if let url = layer.url {
-                            externalLinkIcon(
-                                url: url,
-                                accessibilityLabel: "\(layer.label) admin page",
-                                accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
-                            )
-                        } else {
-                            // Not `EmptyView()` — confirmed by direct
-                            // testing that a literal `EmptyView()` cell
-                            // doesn't reliably reserve its `Grid` column,
-                            // so rows with an empty icon/sparkline
-                            // silently collapsed a column relative to
-                            // rows with real content there (Router's icon
-                            // pushed its sparkline right of every ping
-                            // row's). `Color.clear` measures as a real
-                            // zero-color view and keeps every row's cell
-                            // count *and* column position honest.
-                            Color.clear.frame(width: 0, height: 0)
-                        }
-                        if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
-                           wifiSSID.recentSamples.count > 1 {
-                            Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
-                        } else if let samples = latencyHistory[layer.id] {
-                            Sparkline(values: samples.map(\.latencyMs))
-                        } else {
-                            Color.clear.frame(width: 0, height: 0)
-                        }
-                        // `minWidth` protects this column specifically —
-                        // confirmed necessary again on the second `Grid`
-                        // attempt: sharing one column width across every
-                        // row means a long label ("ISP Edge Router")
-                        // squeezes this column on every row, not just its
-                        // own. A value truncated in the middle
-                        // ("Hom...hernet") is unreadable garble; a label
-                        // truncated at the tail ("ISP Edge…") still
-                        // starts with its most identifying word — so this
-                        // column gets the guaranteed room, and the label
-                        // column absorbs whatever compression is left.
-                        // 85pt comfortably fits the longest real value
-                        // seen here ("Home Ethernet"). `maxWidth: .infinity`
-                        // marks this column flexible so `Grid` gives it the
-                        // tile's leftover width instead of shrink-wrapping
-                        // the whole grid to its narrowest fit — without it,
-                        // a wide Expert Mode window left the grid (and this
-                        // "trailing"-aligned column) bunched at the tile's
-                        // left edge instead of flush against its real right
-                        // edge. Confirmed via user screenshot: looked fine
-                        // in the narrower popover, misaligned only in the
-                        // window.
-                        Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
-                            .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
-                            .gridColumnAlignment(.trailing)
-                    }
+                ForEach(aboveNetwork) { layer in
+                    layerGridRow(layer)
                 }
-
-                // Below Network (the most fundamental row above), not
-                // slotted into `connectionLayersLowToHigh` itself — DHCP
-                // isn't a `ConnectivityCheck`-backed reachability signal
-                // like every other row here, it's a three-state identity
+                // Between Router and Network, not slotted into
+                // `connectionLayersLowToHigh` itself — DHCP isn't a
+                // `ConnectivityCheck`-backed reachability signal like
+                // every other row here, it's a three-state identity
                 // check (normal/changed/abnormal), which `LayerStatus`
                 // has no clean case for (`.unknown` already means "gray,
                 // nothing to judge yet," not "yellow, something changed
-                // recently"). Raised directly. See `dhcpStatusColor`'s
-                // own doc comment for what each color means.
+                // recently"). See `dhcpStatusColor`'s own doc comment
+                // for what each color means.
                 dhcpGridRow
+                if let networkLayer {
+                    layerGridRow(networkLayer)
+                }
             }
             .font(.system(size: 12))
 
@@ -891,6 +834,81 @@ struct ContentView: View {
         // problem develop.
         .task(id: connectivity.lastCheckedAt) {
             latencyHistory = connectivity.latencyHistory()
+        }
+    }
+
+    /// Extracted from `connectionHealthSection`'s own `Grid` content so
+    /// `dhcpGridRow` can be inserted between two calls to this rather
+    /// than only ever before/after one single `ForEach` over every
+    /// layer. Same row every layer in `connectionLayersLowToHigh` has
+    /// always used — no behavior change, just made callable twice from
+    /// two different slices of `layers.reversed()`.
+    @ViewBuilder
+    private func layerGridRow(_ layer: ConnectionLayer) -> some View {
+        GridRow {
+            Circle()
+                .fill(layerColor(for: layer))
+                .frame(width: 8, height: 8)
+            Text(layer.label)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .gridColumnAlignment(.leading)
+            // Network's own sparkline (Wi-Fi only — Ethernet has no
+            // signal strength to chart) uses RSSI history from
+            // `wifiSSID.recentSamples`, not `latencyHistory`: this row
+            // isn't a ping-latency check, so `latencyHistory` has no
+            // entry for it at all. Same values/reversal `wifiSection`'s
+            // own Signal row already uses for the identical chart.
+            if let url = layer.url {
+                externalLinkIcon(
+                    url: url,
+                    accessibilityLabel: "\(layer.label) admin page",
+                    accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
+                )
+            } else {
+                // Not `EmptyView()` — confirmed by direct testing that a
+                // literal `EmptyView()` cell doesn't reliably reserve
+                // its `Grid` column, so rows with an empty icon/
+                // sparkline silently collapsed a column relative to
+                // rows with real content there (Router's icon pushed
+                // its sparkline right of every ping row's). `Color
+                // .clear` measures as a real zero-color view and keeps
+                // every row's cell count *and* column position honest.
+                Color.clear.frame(width: 0, height: 0)
+            }
+            if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
+               wifiSSID.recentSamples.count > 1 {
+                Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
+            } else if let samples = latencyHistory[layer.id] {
+                Sparkline(values: samples.map(\.latencyMs))
+            } else {
+                Color.clear.frame(width: 0, height: 0)
+            }
+            // `minWidth` protects this column specifically — confirmed
+            // necessary again on the second `Grid` attempt: sharing one
+            // column width across every row means a long label ("ISP
+            // Edge Router") squeezes this column on every row, not just
+            // its own. A value truncated in the middle ("Hom...hernet")
+            // is unreadable garble; a label truncated at the tail ("ISP
+            // Edge…") still starts with its most identifying word — so
+            // this column gets the guaranteed room, and the label
+            // column absorbs whatever compression is left. 85pt
+            // comfortably fits the longest real value seen here ("Home
+            // Ethernet"). `maxWidth: .infinity` marks this column
+            // flexible so `Grid` gives it the tile's leftover width
+            // instead of shrink-wrapping the whole grid to its narrowest
+            // fit — without it, a wide Expert Mode window left the grid
+            // (and this "trailing"-aligned column) bunched at the
+            // tile's left edge instead of flush against its real right
+            // edge. Confirmed via user screenshot: looked fine in the
+            // narrower popover, misaligned only in the window.
+            Text(layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""))
+                .foregroundStyle(layer.status == .unhealthy ? layerColor(for: layer) : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
+                .gridColumnAlignment(.trailing)
         }
     }
 
@@ -930,7 +948,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .disabled(networkQuality.isRunningQuickCheck || networkQuality.isRunning)
-            .accessibilityLabel("Video Call Check")
+            .accessibilityLabel("networkQuality")
             .accessibilityHint("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
             .accessibilityIdentifier("networkHealth.quickCheck")
             .help("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")

@@ -8,6 +8,73 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **Brief in-tile explanatory text for each test feature — "I keep
+  forgetting how each test works."** Raised directly. Checked what
+  already exists before assuming a gap: three of the four dedicated
+  test tiles already carry a short, always-visible caption (10pt,
+  secondary color) — Speed Test ("up to ~50MB per run"), Apple
+  networkQuality (two lines: the real data-plan cost, plus "Higher RPM
+  means a more responsive connection under load" explaining the
+  metric's own convention), and Local Stress Test ("many concurrent
+  MTU-sized pings, ~1-2s, real traffic"). Every explanation beyond that
+  currently lives only in `.accessibilityHint(...)` — screen-reader-only,
+  invisible to a sighted user, which is probably the real gap behind
+  "I keep forgetting": the fuller explanation exists in the code, just
+  not on screen.
+  Two real gaps found:
+  1. **Path to Internet has no inline caption at all** (`ContentView
+     +Window.swift`'s `tracerouteSection`) — jumps straight to status/
+     hop rows with nothing explaining what "Trace Now" does or why
+     confirming a hop with the star matters.
+  2. **The `networkQuality` quick-check row (top of the merged Network
+     tile) has no room for one** — unlike the other three, it's one row
+     inside a dense, multi-row tile, not its own tile with header space
+     to spare. Adding a caption there costs real vertical budget inside
+     `ContentView.tileHeight`'s fixed height, the same tension that
+     originally motivated splitting Apple networkQuality into its own
+     tile in the first place (see that tile's own doc comment: "easy to
+     miss as a small, secondary button buried inside Speed Test's
+     tile"). A tooltip (`.help(...)`, hover-visible unlike
+     `accessibilityHint`) might be the better fit for this one
+     specifically rather than fighting for inline space.
+  Not built — worth deciding whether the fix is "add captions to the
+  two gaps and call it consistent" or "audit whether the three existing
+  captions are actually good enough" (they currently explain cost/
+  duration more than *purpose* — e.g. Speed Test's caption says nothing
+  about what a bufferbloat/RPM reading is *for* versus raw throughput).
+
+- [ ] **`docs/user-guide.md` needs a real structural rewrite, not just
+  a section patch — scoped and then deliberately not done yet.**
+  Started live, then explicitly cancelled to be tracked here instead.
+  Confirmed directly, past what the "annotated screenshot" item below
+  already flagged (stale popover language, stale Network Health/Info
+  split): the app has no menu bar icon or status item *at all* anymore
+  — `grep`ed the whole app for `MenuBarExtra`/`NSStatusItem`/dock-badge
+  code and found none; `NMSApp.swift`'s own comment confirms
+  `.regular` activation policy (Dock icon, app switcher, standard menu
+  bar) replaced the old `.accessory` one. So beyond the two staleness
+  layers already tracked, there's a third: the doc's whole framing —
+  opening line ("A menu bar utility"), `## 2. The menu bar icon`
+  (describes a green/yellow/red glance-without-opening status this app
+  no longer has *in any form*, not even a Dock badge — a real capability
+  gap worth deciding whether to just document as gone or actually
+  rebuild, not silently drop), and `## 3. Anatomy of the popover` /
+  `## 4. Expert Mode` as two separate surfaces — needs a real rewrite,
+  not a patch. Sections 3 and 4's actual *content* (Path to Internet,
+  Speed Test, Wi-Fi, Ethernet, SaaS Status, Events, SNMP Devices, DHCP
+  History) is still accurate and worth keeping, just needs to become
+  one section describing the one window instead of two.
+
+  Directly relevant context for how to write it, not just what to fix:
+  current plan is to focus development on the single app window itself
+  to speed up building out the network tooling, and only once that
+  matures, consider a separate simplified UI for non-technical users.
+  So this rewrite should describe the current single-window app
+  plainly, as the real current shape, not hedge it as temporary or
+  gesture at a future popover/simple-mode — that's a later, separate
+  decision, not part of documenting what exists today.
+
+
 - [ ] **SNMP community strings, the Local Stress Test's confirmation,
   and LAN Discovery's sweep all touch other devices on whatever
   network the Mac is on — protection against an unfamiliar/office
