@@ -1084,7 +1084,16 @@ struct ContentView: View {
            Date().timeIntervalSince(firstObservedAt) < Self.dhcpRecentChangeWindow {
             return "Changed recently"
         }
-        return dhcpLease.history.isEmpty ? "Not checked" : "Normal"
+        // "Nominal," not "Normal" — tried directly, on request, as this
+        // app's one trial of NASA mission-control status language for
+        // an all-expert audience. Only here so far: this row's green
+        // dot supplies the "everything's fine" context the word alone
+        // doesn't carry (real risk flagged before trying it — "nominal"
+        // collides with its much more common everyday meaning, "a
+        // nominal fee," near the opposite of what's meant here), so the
+        // word is flavor on top of an unambiguous signal, not the only
+        // one.
+        return dhcpLease.history.isEmpty ? "Not checked" : "Nominal"
     }
 
     /// How long a fresh lease (by `firstObservedAt`) still reads as
