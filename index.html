@@ -394,11 +394,11 @@
     <div class="hop-grid">
       <div>
         <h2>"Is it me, or is it everyone?"</h2>
-        <p class="lede">A call drops. A page won't load. Your team's Slack goes quiet mid-sentence. You don't have an IT department down the hall — you have a menu bar and a guess. NMS turns the guess into an answer, in the time it takes to glance up.</p>
+        <p class="lede">A call drops. Your email won't load. Your team's Slack goes quiet mid-sentence. You don't have an IT department down the hall — you have a menu bar and a guess. NMS turns the guess into an answer, in the time it takes to glance up.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> Is your Wi-Fi actually ready for that Zoom call? Check signal strength and latency before you join, not after it drops.</li>
-          <li><span class="mark">→</span> "Why does the Wi-Fi feel slow today?" — a real answer (weak signal, a saturated link, high latency), not a shrug.</li>
-          <li><span class="mark">→</span> Also checks the status pages Slack, Google, Notion, and a dozen other SaaS tools publish themselves — so a real outage on their end never gets mistaken for a problem on yours.</li>
+          <li><span class="mark">→</span> Is your Wi-Fi actually ready for that Zoom call? Check your signal strength and networkQuality before you join, not after it drops.</li>
+          <li><span class="mark">→</span> "Is the Wi-Fi slow today?" — a real answer (weak signal, dropped packets, power problems), not a shrug.</li>
+          <li><span class="mark">→</span> Also checks the official status pages for the top SaaS apps — understand why your network is fine, but you can't run your apps.</li>
           <li><span class="mark">→</span> A quiet history of every outage, so "the internet's been flaky all week" stops being a feeling and starts being a timestamped fact.</li>
         </ul>
       </div>
@@ -418,7 +418,7 @@
     <div class="hop-grid">
       <div>
         <h2>Scope out a customer's network in a flash.</h2>
-        <p class="lede">You show up to a site you've never seen. NMS sweeps the subnet, finds every SNMP switch, access point, router, and printer that speaks SNMP, traces the real path out to the internet, and identifies the ISP on the other end of it — all before you can check the ancient documentation.</p>
+        <p class="lede">You show up to a site you've never seen. NMS sweeps the subnet, finds every switch, access point, router, and printer that speaks SNMP, traces the real path out to the internet, and identifies the ISP on the other end of it — all before you can check the ancient documentation.</p>
         <ul class="feat-list">
           <li><span class="mark">→</span> Detects what changed since your last visit — a restart, a firmware update, a device that wasn't there before.</li>
           <li><span class="mark">→</span> Every SNMP device's software version and system uptime, at a glance — with one click to access the device's web page.</li>
@@ -445,8 +445,8 @@
           <li><span class="mark">→</span> A continuous smoke test of your own network — DNS, DHCP, the gateway, every device you've told it to watch — running the whole time you're editing configs and moving cables.</li>
           <li><span class="mark">→</span> When you're done experimenting, know your network is actually back to normal — every check green again, not just "probably fine now."</li>
           <li><span class="mark">→</span> See exactly what changed right before something broke — a topology change correlated against the failure, not a coincidence you have to spot yourself.</li>
-          <li><span class="mark">→</span> Watches your public IP and logs the exact moment it changes — the thing that silently breaks a self-hosted VPN endpoint or a port-forwarded/DNAT'd service (Plex, a game server, remote access into your lab) if you're not on a static IP and nothing's watching for the change. No more finding out your WireGuard peer's been unreachable for two days because the ISP handed out a new address.</li>
-          <li><span class="mark">→</span> Runs Apple's own networkQuality test on demand to catch bufferbloat — the reason your ping spikes to garbage the second someone else in the house starts a big upload or download. Know it's the network, not your aim.</li>
+          <li><span class="mark">→</span> Watches your dynamic public IP and logs the exact moment it changes — the thing that silently breaks a self-hosted VPN endpoint or a port-forwarded/DNAT'd service (Plex, a game server, remote access into your lab) if you're not on a static IP and nothing's watching for the change. No more finding out your WireGuard peer's been unreachable for two days because the ISP handed out a new address.</li>
+          <li><span class="mark">→</span> Runs Apple's own networkQuality test on demand to catch bufferbloat — the reason you get fragged in Call of Duty while watching a 4K Netflix stream. Know if it's the network, not your aim.</li>
           <li><span class="mark">→</span> A simple Mac app, zero setup — no separate monitoring stack to stand up before you can run it.</li>
         </ul>
       </div>
@@ -466,7 +466,7 @@
     <div class="hop-grid">
       <div>
         <h2>You used to manage 1 network. Now you have 1000.</h2>
-        <p class="lede">NMS doesn't replace your monitoring stack — it runs from the Macs your users are actually using, and it uses the Mac's native protocol stacks to accurately report their network experience.</p>
+        <p class="lede">NMS doesn't replace your monitoring stack — it runs from the Macs your users are actually using, with the Mac's native protocol stacks to accurately report their network experience.</p>
         <ul class="feat-list">
           <li><span class="mark">→</span> Helps your remote users support their own home networks. When you need to get involved, you get a single screen that provides all the critical information about the user's network environment.</li>
           <li><span class="mark">→</span> No account, no cloud, no telemetry — everything runs on the Mac it's installed on. The source is fully open, so your security team can verify that directly instead of taking a vendor's word for it.</li>
@@ -489,8 +489,8 @@
         <p class="lede">SwiftUI for the interface, SwiftData for local persistence, and nothing else — no third-party dependencies at all. Where macOS already ships a tool that does the job right, NMS shells out to it instead of reinventing it.</p>
         <ul class="feat-list">
           <li><span class="mark">→</span> Modern Apple technologies for the interface and logic — SwiftUI, SwiftData, Swift concurrency throughout.</li>
-          <li><span class="mark">→</span> The actual backend is ping, traceroute, and snmpget — the same BSD tools Darwin inherited from 4.2BSD networking, not reimplemented.</li>
-          <li><span class="mark">→</span><span>The bufferbloat/responsiveness test is Apple's own networkQuality — an implementation of <a href="https://datatracker.ietf.org/doc/html/draft-ietf-ippm-responsiveness" target="_blank" rel="noopener">draft-ietf-ippm-responsiveness</a>, a real IETF standard, not something Apple or we invented.</span></li>
+          <li><span class="mark">→</span> The actual backend is ping and traceroute — the same BSD tools Darwin inherited from 4.2BSD networking — plus Net-SNMP, the open-source SNMP toolkit with roots in Carnegie Mellon's early-90s CMU SNMP project.</li>
+          <li><span class="mark">→</span><span>The bufferbloat/responsiveness test is Apple's own networkQuality — an implementation of <a href="https://datatracker.ietf.org/doc/html/draft-ietf-ippm-responsiveness" target="_blank" rel="noopener">draft-ietf-ippm-responsiveness</a>, a draft IETF standard, not something we invented.</span></li>
           <li><span class="mark">→</span> No dependencies. None. Not one third-party package.</li>
         </ul>
       </div>
