@@ -25,3 +25,8 @@ script/fixtures/
 # contain real values (e.g. the DNS row's actual server IP) until a
 # sanitization pass exists.
 script/doc-captures/
+
+# Diagnostic exports from script/export-diagnostic.sh -- real network
+# identifiers (IPs, router MAC, SNMP descriptors), always private, no
+# public-sharing path exists for these. Never committed.
+script/diagnostic-exports/
