@@ -74,6 +74,20 @@ new ones as they come up.
   gesture at a future popover/simple-mode — that's a later, separate
   decision, not part of documenting what exists today.
 
+  **The "document as gone or rebuild" question above has a real
+  answer now, from a later conversation**: rebuild, eventually, as
+  part of that same future simplified UI, not as its own earlier
+  effort. "Perhaps the future UI will have a popover that expresses
+  the Nominal concept as its core" — the at-a-glance status this app
+  lost isn't just restored as-is, it becomes organized around a single
+  mission-control-style word (see the "Nominal" status-language trial
+  already shipped on the DHCP row, and the tagline material in issue
+  #7) rather than the old green/yellow/red dot-only glance. Still not
+  built, still gated on the technical-focus phase finishing first — but
+  worth knowing the eventual shape isn't a blank slate, so this
+  document's own rewrite (above) shouldn't accidentally foreclose it
+  by describing the current gap as permanent.
+
 
 - [ ] **SNMP community strings, the Local Stress Test's confirmation,
   and LAN Discovery's sweep all touch other devices on whatever

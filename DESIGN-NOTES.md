@@ -71,6 +71,7 @@ friend's actual name).
 - [How NMS uses RDAP: the technical reference, one level below the ISP-status-page story above](#how-nms-uses-rdap-the-technical-reference-one-level-below-the-isp-status-page-story-above)
 - [Testing races: the confirmation gap is systemic, and the real blocker is dependency injection](#testing-races-the-confirmation-gap-is-systemic-and-the-real-blocker-is-dependency-injection)
 - [AI-assisted troubleshooting: an alternative to hand-curated remediation guides](#ai-assisted-troubleshooting-an-alternative-to-hand-curated-remediation-guides)
+- ["All systems Nominal": defining the aggregate status, and validating it against a real scenario](#all-systems-nominal-defining-the-aggregate-status-and-validating-it-against-a-real-scenario)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -5601,3 +5602,185 @@ per-network scoping was built to prevent — Events, DHCP History, Wi-Fi
 samples, Speed Test history, ISP identity — was already confirmed
 cleanly separated on this same live test; this was the one gap, and
 it's closed now.
+
+## "All systems Nominal": defining the aggregate status, and validating it against a real scenario
+
+Prompted directly, tying together two threads already in motion: the
+"Nominal" status-language trial (`ContentView.dhcpDetailText`, shipped
+on the DHCP row) and the "Mission Control for your home network"
+framing floated for the project site. The question: what would it
+actually take for NMS to declare a single, trustworthy "All systems
+Nominal" verdict, and is there a real scenario to validate that
+declaration against?
+
+### The aggregate logic already exists — it's just dormant
+
+`OverallStatus.compute(interfaceIsDown:checks:)` (`NMS/Services
+/OverallStatus.swift`) is a real, already-written three-tier framework
+— not something to design from scratch:
+
+```swift
+static func compute(interfaceIsDown: Bool, checks: [ConnectivityCheck]) -> OverallStatus {
+    if interfaceIsDown { return .critical }
+    if checks.contains(where: { !$0.success && criticalLabels.contains($0.label) }) { return .critical }
+    if checks.contains(where: { !$0.success && !criticalLabels.contains($0.label) }) { return .marginal }
+    return .normal
+}
+```
+
+`criticalLabels` is Router, Internet, DNS, HTTP, ISP Edge Router, and
+Public IP — the checks where failure means the network is actually
+broken. Anything else failing is `.marginal`, not `.critical`. This
+was the menu bar icon's color before the single-window rebuild
+(`4e4e83a`) deleted the icon that displayed it — confirmed directly by
+grepping the whole app for a call site: nothing calls `.compute(...)`
+anymore. The label constants (`routerLabel`, `criticalLabels`, etc.)
+are still load-bearing everywhere else, but the aggregation function
+itself is orphaned.
+
+**Directly confirmed, not assumed:** raised the specific question of
+whether an SNMP-monitored device failing should produce yellow
+(marginal) rather than red (critical) if everything else is fine. It
+already would, by construction — SNMP devices were never in
+`criticalLabels`, and the type's own doc comment already states the
+intent ("one monitored LAN device being unreachable... [is] worth
+noting but don't mean [the network is actually broken]"). The design
+was already correct; it's just never been wired up to a real SNMP
+signal, because `SNMPDevice` isn't `ConnectivityCheck`-shaped and
+nothing translates one into the other today. DHCP status
+(`dhcpStatusColor`) has the identical gap — a real signal, not
+`ConnectivityCheck`-shaped, not fed into `compute(...)`.
+
+**What should probably stay out of the aggregate entirely:** SaaS
+Status. A Slack outage isn't a problem with *this* network — counting
+it toward "All systems Nominal" would misattribute fault. It's useful
+information, just not part of this specific verdict.
+
+### The missing piece isn't logic, it's history
+
+`OverallStatus.compute` is a pure snapshot function — one failed check
+in one round flips the result, with no memory of the round before.
+This network's own documented flap-proneness (dozens of up/down
+transitions logged in a few minutes of ordinary testing, elsewhere in
+this file and in `BUGS.md`) means a snapshot-only "Nominal" would
+flicker on nearly every poll cycle, which defeats the entire point of
+declaring it — a status that flickers doesn't mean anything. Reviving
+`OverallStatus` for real use needs the same sustained-vs-transient
+reasoning `ConnectivityViewModel` already applies elsewhere
+(`isWithinTopologyChangeWindow`/`shouldSuppressAsLocalInterference`) —
+N consecutive failing rounds, or a short sustained window, before a
+state change counts. Nothing in `OverallStatus` itself has this today;
+adding it is the real work, not the tier logic.
+
+### The canonical scenario: Zoom, Call of Duty, and Netflix 4K, simultaneously
+
+Chosen directly as the scenario "Nominal" should be validated against:
+a video call, a competitive game, and 4K streaming, all running at
+once. The framing that matters: **NMS can't make this work — it isn't
+a QoS/traffic-shaping tool — but it might know in advance that the
+combination is likely to fail, and explain why.** Diagnostic and
+predictive, not corrective.
+
+**Why this combination specifically breaks:** the three activities have
+almost opposite profiles. Zoom needs low, stable latency and modest
+bandwidth in both directions. Call of Duty needs near-zero bandwidth
+but is brutally latency-sensitive (small, frequent, latency-critical
+UDP packets). Netflix 4K needs high *sustained download* bandwidth
+(~25 Mbps+) and is latency-insensitive (it buffers ahead). Run all
+three on a router with no real queue management and the classic
+failure is bufferbloat: Netflix's bulk download saturates the link,
+and without active queue management the latency-sensitive traffic
+queues up behind it — calls stutter, games spike to 300ms ping — even
+though a plain speed test still shows plenty of raw Mbps. It isn't a
+capacity problem in the moment it's felt; it's a queuing problem.
+
+**Two existing signals, not one, are needed to actually validate this** —
+confirmed directly after initially treating RPM as the one to use:
+
+1. **Capacity** — Speed Test's Mbps. Is there enough combined raw
+   bandwidth for the three activities at all (roughly 30+ Mbps for this
+   trio)? A connection can have excellent responsiveness under load and
+   still fail this scenario for a completely unrelated reason: it
+   simply doesn't have enough throughput, and no amount of queue
+   management fixes that.
+2. **Responsiveness under load** — `networkQuality`'s RPM (the quick
+   check, `AppleNetworkQualityService.measureQuick`). This is the
+   single best existing test for the scenario specifically, agreed
+   directly: it's purpose-built to detect the contention-latency
+   mechanism that actually breaks Zoom/CoD when Netflix is also
+   running, where a plain throughput number can't. A connection with
+   plenty of Mbps but poor RPM is exactly the "you have the bandwidth,
+   it'll still stutter" case this scenario is about.
+
+Neither alone is sufficient — capacity without responsiveness misses
+bufferbloat entirely; responsiveness without capacity can't tell "will
+degrade under contention" from "was never going to fit."
+
+**Real limitations of RPM as a proxy for this scenario, not glossed
+over:** the quick check is Apple's own synthetic saturating transfer
+over ~5 seconds, not literally three concurrent apps' real traffic
+patterns — a good general-purpose proxy for contention behavior, not a
+literal simulation of gaming UDP plus a CBR video stream plus a video
+call's RTP. And the quick check's RPM is one combined figure (parallel
+mode), not split by direction the way the full test's
+`downloadResponsivenessRPM`/`uploadResponsivenessRPM` are — which
+matters here specifically, since Zoom's upload path and Netflix's
+download saturation are genuinely different failure modes that a
+single blended number can't distinguish between.
+
+### Real gaps in this scenario as a general stand-in for QoS challenges
+
+Raised directly, checked one at a time rather than assumed
+comprehensive — the scenario is a good canonical case, not a complete
+one:
+
+1. **Download-heavy, upload-light.** Nothing here stresses the upload
+   side the way Netflix stresses download — Zoom's own upload is
+   modest (~3-4 Mbps). Most home connections are far more asymmetric
+   than this scenario exercises (500 down / 20 up is a typical cable
+   plan), so upload-side bufferbloat (a second household member's
+   Zoom call, a cloud backup syncing) is a real, distinct failure mode
+   this scenario doesn't cover.
+2. **Doesn't distinguish Wi-Fi-local contention from WAN-link
+   contention.** This scenario tests "is the internet link saturated,"
+   a different problem from "is the Wi-Fi radio saturated" (2.4GHz
+   interference, too many devices, a weak signal) — a different root
+   cause needing a different fix. NMS already has a separate tool aimed
+   at the second one (Local Stress Test, repeatedly pinging the local
+   router under load) — worth keeping these as two scenarios rather
+   than collapsing them into one.
+3. **No attribution.** Even a correct "this will likely stutter"
+   prediction doesn't say *whose* problem it is: a home router with no
+   queue management (fixable — a better router, or enabling its own
+   QoS/SQM settings) versus genuine ISP-side last-mile congestion (not
+   fixable by the user at all). That distinction matters a great deal
+   for what advice NMS could actually give, and this scenario alone
+   doesn't produce it.
+4. **No real-time utilization visibility.** NMS can say "this
+   connection is generally capable/incapable of this combination," not
+   "someone is already streaming 4K right now, so don't start that
+   call" — the latter needs per-device/real-time bandwidth visibility,
+   a genuinely bigger and separate feature, not implied by anything
+   built so far.
+
+**Decision, for now:** keep the three-way scenario as the canonical
+North Star — it covers the single most common and most consequential
+real-world case (bufferbloat from bulk download traffic) — and treat
+the four gaps above as known-incomplete, worth their own future
+scenarios later, not blockers on using this one today.
+
+### Not yet built
+
+Nothing here is implemented. In rough dependency order, were this to
+be picked up: (1) add the sustained-vs-transient window to
+`OverallStatus` so a real verdict doesn't flicker, (2) translate
+`SNMPDevice` reachability and `dhcpStatusColor` into something
+`compute(...)` can see, deciding along the way whether `compute(...)`
+should be widened to accept those directly or whether `ConnectivityCheck`
+itself should grow a synthetic entry per non-ping signal, (3) revive a
+real call site for the result now that there's no menu bar icon to
+show it on — the merged Network tile's own header, most likely, given
+where "Nominal" already lives — and only after that, (4) the
+capacity+responsiveness pairing for the Zoom/CoD/Netflix scenario
+specifically, which is really a *report* built on top of Speed Test
+and `networkQuality`'s existing data rather than a new measurement.
