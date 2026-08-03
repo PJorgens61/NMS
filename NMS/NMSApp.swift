@@ -523,6 +523,13 @@ struct NMSApp: App {
         networkIdentity.onNetworkRecognized = {
             eventLog.refresh()
             dhcpLease.reloadHistory()
+            // `check()`, not just `reloadHistory()`: the launch/topology-
+            // change check that raced ahead of recognition (see
+            // `SnapshotStore.recordDHCPLeaseIfChanged`'s doc comment) is
+            // now correctly a no-op instead of a duplicate row, so this
+            // re-runs it under the now-known fingerprint rather than
+            // leaving that data point to wait out the full 300s timer.
+            dhcpLease.check()
             networkQuality.reloadHistory()
             traceroute.reloadMonitoredHop()
         }

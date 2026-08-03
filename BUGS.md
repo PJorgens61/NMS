@@ -29,10 +29,170 @@ than summarized away.
 
 ## Open
 
-Nothing open right now — see Fixed below for what was most recently
-closed out.
+### `NMSUITests` launches the real app against the real, on-disk production store
+
+- **Status**: Open — confirmed, not yet fixed.
+- **Severity**: Low — a test-isolation gap, not a live-usage bug, but a
+  real one: every `script/test-max.sh` run writes real launch-time rows
+  (DHCP checks, etc.) into the user's actual history rather than a
+  scratch copy.
+- **Found in build**: 17564f9+dirty
+
+`NMSUITests.swift`'s `XCUIApplication().launch()` calls (both
+`testWindowOpensWithRealContent` and `testLaunchPerformance`, the
+latter launching the app repeatedly to measure it) carry no launch
+arguments overriding the store path, so they run against the real
+`~/Library/Application Support/NMS/default.store` — confirmed by the
+store's own file-modification time matching exactly when
+`script/test-max.sh` last ran. `script/scenarios.sh`'s live scenarios
+already avoid this (seeding a scratch copy of the real store rather
+than touching it directly); the UI test target has no equivalent. This
+is what turned the launch-time DHCP race below (now fixed) from a rare,
+easy-to-miss edge case into five duplicate rows in about ninety
+seconds. Worth giving the UI test target its own isolated store the
+same way `scenarios.sh` does, so a test run stops writing into the
+user's real history at all.
+
+### Events list briefly shows ghosted/blended text during an active rubber-band scroll
+
+- **Status**: Open — not reliably reproducible on demand, so not yet
+  investigated past the description below.
+- **Severity**: Low — purely cosmetic, self-corrects the instant
+  scrolling stops, no effect on the underlying data (the event log
+  itself, and every value in it, was confirmed correct throughout).
+- **Found in build**: 3f478dc+
+
+Reported directly: the top row of the Events list (the window's
+independently-scrolling history box, see `ContentView.scrollBox`/
+`SectionLayout.events`) briefly shows what looks like two frames of
+text blended together — described as visually doubled/smeared, not
+simple top-or-bottom clipping — specifically while actively rubber-
+banding/momentum-scrolling the list, confirmed reproducible at least
+twice by the same description independent of which event happened to
+be at the top.
+
+**Not yet pinned to an exact frame.** Several attempts to catch it in a
+single screenshot or a paused video frame (screen recording, then
+scrubbing in QuickTime) all landed on clean, crisp renders instead —
+consistent with something that only exists for a very short window
+during the scroll gesture itself and fully resolves before a still
+capture (or a paused frame chosen after the fact) can land inside it.
+
+**Plausible, unconfirmed connection**: this is the same category of bug
+as two other `NoBounceScrollView`/`NSHostingView` interop issues already
+found and fixed this project (SNMP Devices' first-row vertical clipping,
+and the `Grid`-inside-`NoBounceScrollView` horizontal clipping bug) —
+both were real rendering defects with root causes "never fully pinned
+down (SwiftUI/AppKit interop internals, not this app's own logic)" per
+`NoBounceScrollView`'s own doc comment, and both only manifested under
+specific interaction/content conditions. This one hasn't been connected
+to either of those specifically, and `NoBounceScrollView` sets
+`verticalScrollElasticity = .none` on the inner box (which should
+disable elastic bounce outright), so it's not yet understood whether
+"rubber-banding" here means genuine elastic overscroll or a momentum-
+scroll overshoot-and-settle that behaves similarly without going
+through that elasticity setting at all.
+
+**Next step, if it resurfaces**: try to catch it with `screencapture`'s
+own timed/interval capture rather than a single manual shot or a
+post-hoc paused recording, timed to fire *during* the scroll gesture
+rather than after; or instrument `NoBounceScrollCoordinator` to log
+scroll-view content-offset changes alongside `UIStateLogger`, which
+might correlate the visual glitch to a specific offset/velocity
+condition without needing to catch it visually at all.
 
 ## Fixed
+
+### DHCP History gets a duplicate row, unchanged lease and all, every time the app relaunches before network recognition finishes
+
+- **Status**: Fixed
+- **Severity**: Low — cosmetic/noise in a history list, not incorrect
+  data (every duplicate row's fields were genuinely accurate, just
+  repeated) and no event was ever logged for it (`recordDHCPLeaseIfChanged`
+  only fires a `.dhcpLeaseChanged` event when fields actually differ,
+  which they didn't here).
+- **Found in build**: 17564f9+dirty
+- **Fixed in build**: not yet released — see git log
+
+Reported directly as "DHCP history updated every minute" with a
+screenshot showing five back-to-back rows, all with identical content
+(`10.0.0.1 · 10.0.0.159/24`, same lease/T1/T2, same transaction ID
+`0xa517dc76`) but distinct timestamps a few seconds to just over a
+minute apart. Not linked to DDNS — `DDNSViewModel` never touches
+`SnapshotStore`'s DHCP-recording path at all, ruled out by reading
+`DDNSViewModel.swift` directly rather than assuming.
+
+**Confirmed against the real store, not just the code.** Queried the
+live `ZDHCPLEASERECORD` table directly:
+
+```
+Z_PK  ZOBSERVEDAT        ZTRANSACTIONID  ZNETWORKFINGERPRINT
+755   807434742.89       0xa517dc76      bc:b9:23:81:a6:d4|10.0.0.0/24
+754   807434670.56       0xa517dc76      bc:b9:23:81:a6:d4|10.0.0.0/24
+753   807434659.82       0xa517dc76      bc:b9:23:81:a6:d4|10.0.0.0/24
+752   807434648.26       0xa517dc76      bc:b9:23:81:a6:d4|10.0.0.0/24
+751   807434638.00       0xa517dc76      bc:b9:23:81:a6:d4|10.0.0.0/24
+```
+
+Every "duplicate" carried the exact same transaction ID and, after the
+fact, the exact same network fingerprint — which is exactly what should
+have made the old guard (`SnapshotStore.swift`'s
+`recordDHCPLeaseIfChanged`: `guard previous?.transactionID !=
+info.transactionID else { return (false, false) }`) refuse to insert.
+The gap between rows (6–13s in the dense cluster above) was far tighter
+than `DHCPLeaseViewModel`'s own 300s poll timer, which ruled out the
+timer as the trigger — it only lined up with something relaunching the
+app itself repeatedly in a short window (a `script/test-max.sh` UI-test
+run — see the still-open "`NMSUITests` launches the real app against
+the real, on-disk production store" entry above, which is what turned
+an otherwise-rare race into five duplicates in ninety seconds).
+
+**Root cause: `currentNetworkFingerprint` starts `nil` on every fresh
+launch, and `DHCPLeaseViewModel.init()` calls `check()` unconditionally
+before the first LAN scan can recognize which network this is** — a
+race `SnapshotStore.swift`'s own doc comment already named directly for
+SNMP/DHCP writes in general ("SNMP discovery and DHCP checks both run
+before the first LAN scan can resolve which network this is, so their
+writes land with `nil`"), with a retroactive-backfill method
+(`NetworkIdentityViewModel.recognize`'s `adoptUntaggedRecords`) that
+re-tags those `nil` rows once recognition completes. That backfill is
+exactly why the *stored* fingerprint on every duplicate row above ended
+up correct — it masked the bug in the data after the fact. But the
+backfill didn't help `recordDHCPLeaseIfChanged`'s own lookup, which ran
+*before* the backfill, scoped to `currentNetworkFingerprint` as it
+stood at that moment: `nil`. `latestDHCPLease()`'s fetch predicate
+(`networkFingerprint == nil`) found nothing — every prior row on this
+network was already correctly fingerprinted by the previous session's
+own backfill, so no `nil`-tagged row existed to match against — so
+`previous` came back `nil`, the guard's `nil != "0xa517dc76"` was
+trivially true, and a new row got inserted even though the lease was
+byte-for-byte the one already on file.
+
+**Fix**: `recordDHCPLeaseIfChanged` (`SnapshotStore.swift`) is now a
+deliberate no-op while `currentNetworkFingerprint` is still `nil`,
+instead of writing under an unscoped fingerprint. Considered and
+rejected: making `latestDHCPLease()` fall back to the most recent lease
+*regardless* of fingerprint when `nil` — that would have fixed the
+launch case but reopened exactly the cross-network leak class this
+codebase has already hit and fixed before (see "ISP info leaking across
+networks," "SNMP device webURL/hostname cache leaking across
+networks"): on a genuine topology change mid-session, the fingerprint
+is also briefly `nil` between `NetworkIdentityViewModel.reset()` and
+recognition completing, and falling back there would compare the *new*
+network's lease against the *departing* network's stale one, likely
+logging a nonsensical cross-network "DHCP lease changed" event. Skipping
+entirely is safe either way: `NMSApp.wireDependencies`'s
+`onNetworkRecognized` closure now also calls `dhcpLease.check()`
+directly (previously it only called `reloadHistory()`, a plain re-read),
+so the deferred check re-runs correctly-scoped the moment the network
+is actually known, rather than silently waiting out the full 300s timer
+or duplicating a row that hadn't changed. `SNMPViewModel`'s equivalent
+dedupe wasn't audited for the same gap — worth a follow-up look, per the
+doc comment's framing of this as a shared, general race rather than a
+DHCP-specific one.
+
+Verified: `script/test-quick.sh`, 109/109 tests passing after the
+change.
 
 ### A brief interface-down blip during a network transition falsely logs "Back to a single NAT layer"
 

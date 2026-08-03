@@ -547,11 +547,29 @@ final class SnapshotStore {
     /// inserted, and whether this is the very first lease ever observed
     /// *on this network* (so callers can skip logging a "changed" event
     /// when there's nothing on this network to compare against yet).
+    ///
+    /// Deliberately a no-op while `currentNetworkFingerprint` is still
+    /// `nil` (not yet recognized) — see BUGS.md's "DHCP History gets a
+    /// duplicate row" entry. `DHCPLeaseViewModel` checks once at launch
+    /// and on every topology change, both of which can land before the
+    /// first LAN scan recognizes the network. Recording under `nil`
+    /// looked harmless (`NetworkIdentityViewModel.recognize`'s
+    /// `adoptUntaggedRecords` retroactively re-tags it once recognition
+    /// completes), but broke this method's own dedup: the *next* time
+    /// this runs under `nil` again (e.g. the following launch), the prior
+    /// row already carries the real fingerprint, not `nil` — so the
+    /// `nil`-scoped lookup below finds nothing, `previous` comes back
+    /// `nil`, and an unchanged lease gets inserted as a "new" one.
+    /// Skipping here instead is safe: `check()` retries in 300s
+    /// regardless, and `NMSApp.wireDependencies` also fires it directly
+    /// from `onNetworkRecognized`, so the real write just happens once
+    /// the fingerprint is actually known, correctly scoped the first time.
     @discardableResult
     func recordDHCPLeaseIfChanged(_ info: DHCPLeaseInfo) -> (changed: Bool, isFirstEver: Bool) {
+        guard let fingerprint = currentNetworkFingerprint else { return (false, false) }
         let previous = latestDHCPLease()
         guard previous?.transactionID != info.transactionID else { return (false, false) }
-        context.insert(DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt, networkFingerprint: currentNetworkFingerprint))
+        context.insert(DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt, networkFingerprint: fingerprint))
         try? context.save()
         return (true, previous == nil)
     }
