@@ -1203,11 +1203,13 @@ struct ContentView: View {
                 // directly, so the two surfaces' colored verdicts explain
                 // themselves the same way.
                 .appKitToolTip(Self.rpmThresholdHelp, enabled: !isCapturingScreenshot)
-            // "Call Check" not "Video Call Check" — reported directly:
-            // the longer label was squeezing the result text into
-            // truncating (this row's label is otherwise the longest of
-            // any in this list, unlike "Router"/"Network"/"HTTP").
-            Text("Call Check")
+            // "networkQuality" — matches the Expert Mode tile's own name
+            // for the full test this is a quick preview of, reported
+            // directly as clearer than "Call Check". Length is close to
+            // the original "Video Call Check" that was shortened for
+            // truncation reasons (see `quickCheckDetailText`'s trailing
+            // column) — re-verify visually after this rename.
+            Text("networkQuality")
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .gridColumnAlignment(.leading)
@@ -1394,17 +1396,27 @@ struct ContentView: View {
     }
 
     /// Network name (if any) plus connection type combined into one row
-    /// (e.g. "Thistle Wi-Fi", "Thistle Ethernet", or just "Ethernet" with
-    /// no known name yet) instead of separate "Network"/"Interface" and
-    /// "Type" rows, to save vertical space in the Info section. Prefers a
-    /// user-assigned network label over the live Wi-Fi SSID over nothing
-    /// at all — the raw interface hardware name (e.g. "USB 10/100/1000
+    /// (e.g. "<network name> Wi-Fi", "<network name> Ethernet", or just
+    /// "Ethernet" with no known name yet) instead of separate "Network"/
+    /// "Interface" and "Type" rows, to save vertical space in the Info
+    /// section. The raw interface hardware name (e.g. "USB 10/100/1000
     /// LAN") is dropped entirely here in favor of just the connection
     /// type, since it added little once a name or type is already shown.
+    ///
+    /// On Wi-Fi, the live SSID wins over a user-assigned `KnownNetwork`
+    /// label — reported directly: `KnownNetwork` is keyed by router MAC
+    /// + subnet, not SSID (see that type's own doc comment), so the same
+    /// physical LAN reached over Ethernet and Wi-Fi shares one label. A
+    /// label set from the Ethernet side was silently overriding the
+    /// genuinely different, accurate live Wi-Fi SSID instead of just
+    /// supplementing it. Off Wi-Fi there's no live-SSID equivalent, so
+    /// the label is still the best available name there.
     private func networkDisplay(_ info: NetworkInterfaceInfo) -> String {
         let type = info.isWiFi ? "Wi-Fi" : "Ethernet"
         let label = networkIdentity.currentNetwork?.label
-        let name = (label?.isEmpty == false ? label : nil) ?? wifiSSID.currentSSID
+        let name: String? = info.isWiFi
+            ? (wifiSSID.currentSSID ?? (label?.isEmpty == false ? label : nil))
+            : (label?.isEmpty == false ? label : nil)
         guard let name else { return type }
         return "\(name) \(type)"
     }
