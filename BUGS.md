@@ -29,30 +29,6 @@ than summarized away.
 
 ## Open
 
-### `NMSUITests` launches the real app against the real, on-disk production store
-
-- **Status**: Open — confirmed, not yet fixed.
-- **Severity**: Low — a test-isolation gap, not a live-usage bug, but a
-  real one: every `script/test-max.sh` run writes real launch-time rows
-  (DHCP checks, etc.) into the user's actual history rather than a
-  scratch copy.
-- **Found in build**: 17564f9+dirty
-
-`NMSUITests.swift`'s `XCUIApplication().launch()` calls (both
-`testWindowOpensWithRealContent` and `testLaunchPerformance`, the
-latter launching the app repeatedly to measure it) carry no launch
-arguments overriding the store path, so they run against the real
-`~/Library/Application Support/NMS/default.store` — confirmed by the
-store's own file-modification time matching exactly when
-`script/test-max.sh` last ran. `script/scenarios.sh`'s live scenarios
-already avoid this (seeding a scratch copy of the real store rather
-than touching it directly); the UI test target has no equivalent. This
-is what turned the launch-time DHCP race below (now fixed) from a rare,
-easy-to-miss edge case into five duplicate rows in about ninety
-seconds. Worth giving the UI test target its own isolated store the
-same way `scenarios.sh` does, so a test run stops writing into the
-user's real history at all.
-
 ### Events list briefly shows ghosted/blended text during an active rubber-band scroll
 
 - **Status**: Open — not reliably reproducible on demand, so not yet
@@ -102,6 +78,51 @@ might correlate the visual glitch to a specific offset/velocity
 condition without needing to catch it visually at all.
 
 ## Fixed
+
+### `NMSUITests` launches the real app against the real, on-disk production store
+
+- **Status**: Fixed
+- **Severity**: Low — a test-isolation gap, not a live-usage bug, but a
+  real one: every `script/test-max.sh` run was writing real launch-time
+  rows (DHCP checks, etc.) into the user's actual history rather than a
+  scratch copy.
+- **Found in build**: 17564f9+dirty
+- **Fixed in build**: not yet released — see git log
+
+`NMSUITests.swift`'s `XCUIApplication().launch()` calls (both
+`testWindowOpensWithRealContent` and `testLaunchPerformance`, the
+latter launching the app repeatedly to measure it) carried no launch
+arguments overriding the store path, so they ran against the real
+`~/Library/Application Support/NMS/default.store` — confirmed by the
+store's own file-modification time matching exactly when
+`script/test-max.sh` last ran. `script/scenarios.sh`'s live scenarios
+already avoided this (seeding a scratch copy of the real store rather
+than touching it directly); the UI test target had no equivalent. This
+is what turned the launch-time DHCP race (see "DHCP History gets a
+duplicate row" below) from a rare, easy-to-miss edge case into five
+duplicate rows in about ninety seconds.
+
+**Fix**: new `NMSUITests/IsolatedAppLaunch.swift`, an
+`XCUIApplication.configureIsolatedStore()` extension that points
+`-NMSStorePath` (`NMSApp.storeURL()`'s existing `#if DEBUG` override,
+already used by `script/scenarios.sh` via `defaults write`) at a fresh
+`NSTemporaryDirectory()` path via `launchArguments` instead — Foundation
+registers `-Key value` launch arguments into `UserDefaults.standard`'s
+argument domain for just that one process, so it needs no
+`defaults write`/`defaults delete` cleanup and can't race a real
+running instance's own preferences. All three UI tests
+(`NMSUITests.swift`'s two, plus `NMSUITestsLaunchTests.testLaunch`) now
+call it before `launch()`, and remove the scratch `.store`/`-shm`/`-wal`
+files in `tearDown`.
+
+Verified directly, not just by inspection: recorded the real store's
+`.store` file modification time before running `script/test-max.sh`,
+ran the full suite (all 3 UI tests + 109 unit tests + all 11 live
+scenarios passing), and confirmed the `.store` file's mtime was
+unchanged afterward and no new rows landed in `ZDHCPLEASERECORD`. The
+`-wal`/`-shm` files do still get touched at the very end, but that's
+`scenarios.sh`'s own final `launch_app` step (the real app's normal
+relaunch after its cleanup), not the UI tests.
 
 ### DHCP History gets a duplicate row, unchanged lease and all, every time the app relaunches before network recognition finishes
 

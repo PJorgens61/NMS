@@ -19,14 +19,22 @@ import XCTest
 /// all — `testLaunch` now just runs once, in whatever appearance is
 /// already active, no toggling either way.
 final class NMSUITestsLaunchTests: XCTestCase {
+    private var scratchStorePath: String?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
+    override func tearDownWithError() throws {
+        if let scratchStorePath {
+            removeIsolatedStore(at: scratchStorePath)
+        }
+    }
+
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        scratchStorePath = app.configureIsolatedStore()
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,
