@@ -18,17 +18,27 @@ import AppKit
 /// `ScrollView` content (see `ScreenshotService`). See DESIGN-NOTES.md's
 /// "UI tooltips".
 ///
-/// Deliberately no `hitTest` override: an overlay that swallowed mouse
-/// events would silently break `.textSelection(.enabled)` on the value
-/// rows, which exists so an address can be copied mid-troubleshooting.
-/// Verified by dragging across a tooltipped row's value — selection
-/// still works as-is, so suppressing hit-testing would be solving a
-/// problem that doesn't exist.
+/// `PassthroughView` overrides `hitTest` to always return `nil` — without
+/// it, a stock `NSView` overlay returns *itself* from the default
+/// `hitTest(_:)` for any point inside its bounds, silently swallowing
+/// every click on whatever SwiftUI content sits underneath. Confirmed
+/// directly: after `externalLinkIcon` started overlaying this tooltip,
+/// every `Link` it wraps (Router, ISP, SNMP device admin pages) stopped
+/// opening a browser in both the popover and the Expert Mode window —
+/// hovering still worked (a tooltip's tracking area is independent of
+/// hit-testing), so this went unnoticed until someone actually clicked
+/// one. `.textSelection(.enabled)` on the value rows was verified
+/// working before this fix too, so the swallowed-click risk this
+/// override exists to remove was real, not hypothetical.
 private struct AppKitToolTip: NSViewRepresentable {
     let text: String
 
+    private final class PassthroughView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = PassthroughView()
         view.toolTip = text
         return view
     }
