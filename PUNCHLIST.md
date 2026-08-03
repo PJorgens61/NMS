@@ -630,10 +630,23 @@ new ones as they come up.
   - **TCP**: no echo needed — open a real connection to something
     guaranteed to answer and push/pull a bulk transfer, timed. This is
     exactly `NetworkQualityService`'s existing probe/full-transfer
-    shape, just pointed at a LAN target (a router's admin HTTPS port,
-    confirmed reachable via the same web-detection work
-    `DeviceWebDetectionService` already does) rather than Cloudflare's
+    shape, just pointed at a LAN target rather than Cloudflare's
     endpoint.
+
+    **Not the router's own admin HTTPS port** — the original idea here,
+    reconsidered after the local ping stress test above shipped and
+    revealed a real router-control-plane-overload risk (a consumer
+    router's management CPU choking under sustained load, not just its
+    switching fabric — see that entry's own notes on this). A router's
+    embedded web UI is served by that same fragile management CPU, and
+    HTTP(S) is *more* expensive per-request than ICMP echo to begin
+    with — TLS handshake overhead, request parsing, often a dynamically
+    generated status page — so hammering it with a bulk transfer would
+    stress exactly the fragile path already flagged as risky, likely
+    harder than ping does. Target some other device on the LAN instead
+    (a NAS, a Mac, anything that isn't the router's own management
+    plane) if this gets built — confirmed reachable the same way via
+    `DeviceWebDetectionService`, just not the router itself.
   - **UDP**: trivial to send, but proves only "can send," not
     "arrived" — no built-in delivery confirmation, so measuring loss
     needs a cooperating receiver. Nothing on a stock router does this;
