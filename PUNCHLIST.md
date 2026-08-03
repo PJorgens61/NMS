@@ -2939,6 +2939,120 @@ from this list. This one remains, since it's an idea, not a defect):
   a reader being able to rerun the exact commands themselves, not from
   who's credited as having written it).
 
+- [ ] **Field-testing session (2026-08-03): a batch of ideas raised
+  during real field use, not yet built.** Recorded here together since
+  they came out of one session; each is independent.
+
+  1. **ISP short names.** The Network tile shows the RDAP-identified
+     organization's full legal name ("Sonic.net, LLC") — raised
+     directly as too formal for a glance-at-a-tile display. Wants a
+     1-2 word display form ("Sonic") instead. Needs a mapping (curated
+     list of known ISPs to short names, falling back to the full name
+     for anything unrecognized) — probably lives near
+     `ISPIdentityService`/`ISPIdentityViewModel`.
+
+  2. **Preferences window sizing bug — in progress, code written but
+     untested/uncommitted as of this entry.** Reported directly: too
+     tall for a MacBook Air's screen and couldn't be resized by
+     dragging at all. Root cause confirmed by reading the code:
+     `NMSApp`'s `Window("Preferences", ...)` used
+     `.windowResizability(.contentSize)`, which locks the window to
+     exactly its content's height with no manual resize possible —
+     fine when `PreferencesView` was short, but it grew (13 SaaS
+     services, DDNS hostnames, several toggles) past what fits on a
+     smaller screen, the same failure `ContentView.body`'s own outer
+     `ScrollView` already exists to prevent for the main window.
+     Fix applied (not yet built/tested/committed): wrapped
+     `PreferencesView.body`'s content in a `ScrollView`, changed the
+     scene to `.defaultSize(width: 380, height: 500)` instead of
+     `.contentSize`. Needs: build, visual verification, commit.
+
+  3. **Main window's scroll gutter is too narrow, and doesn't grow
+     when the window is widened.** Reported directly: the empty
+     margin meant to catch trackpad/wheel input for the outer
+     `ScrollView` (`ContentView.body`'s `.padding(.horizontal, 32)`)
+     is a fixed 32pt regardless of window width, and widening the
+     window doesn't help — confirmed live: resizing the window from
+     600pt to 900pt left the tile content roughly centered with dead,
+     non-interactive margin on both sides rather than the gutter
+     itself growing. Root cause not yet fully fixed: the outer
+     `VStack` (`ContentView.body`, wrapping both the `ScrollView` and
+     the footer) is pinned to `.frame(width: 600)`, so the *whole*
+     content column stays fixed width and the window's extra space
+     becomes blank area outside the interactive `ScrollView` entirely,
+     not inside it. Likely fix: let the outer container fill available
+     window width (`.frame(maxWidth: .infinity)` or similar) while
+     capping `scrollableContent`'s own tiles at their current
+     effective width and centering them, so the *padding* (not a
+     separate outer margin) is what grows with the window — not yet
+     implemented.
+
+  4. **A curated list of common Wi-Fi router/AP vendor MAC OUI
+     prefixes, to enrich the Wi-Fi display.** E.g. recognizing a
+     BSSID's OUI as Aruba/Ubiquiti/Netgear/etc. and showing the vendor
+     name alongside the raw MAC. Needs a data-source decision: the
+     full IEEE OUI registry is large (tens of thousands of entries) —
+     probably want a small curated subset of consumer/prosumer router
+     vendors rather than the whole registry, bundled as a static
+     resource rather than fetched live.
+
+  5. **Can NMS read more from macOS's own DHCP client, and could it
+     trigger a renewal to help itself?** Two distinct questions raised
+     together: (a) does macOS expose more DHCP lease detail than NMS
+     currently gathers (`ipconfig getpacket <if>` is the likely lead —
+     not yet checked), and (b) could NMS trigger a DHCP renew/inform
+     itself (`ipconfig set <if> DHCP` or similar) rather than only
+     observing. **(b) is a real, disruptive action — explicitly flagged
+     as such directly ("this is disruptive so the user needs to be
+     informed")**, so it needs the same "generates a real effect,
+     needs explicit consent" treatment the Local Stress Test's
+     confirmation alert already established, not a silent
+     auto-trigger. Research needed before any design: what `ipconfig`
+     (or `SystemConfiguration` framework) actually exposes and
+     supports on macOS, not yet investigated.
+
+  6. **Wi-Fi signal strength/speed history on the Network tile,
+     dot-history style like `networkQuality`'s sparkline, with a
+     color that changes over time (yellow initially, settling to
+     green or red).** Raised directly as a natural extension of the
+     existing dot-history pattern (`NetworkQualityRecord`'s own
+     sparkline) applied to `WiFiSampleRecord`'s already-collected RSSI/
+     PHY-rate data instead of a new metric. The color-over-time idea
+     (start yellow, resolve to green/red) is a distinct interaction
+     question from the data itself — worth its own design pass on what
+     "resolves" means (a fixed timeout? enough samples collected? a
+     confidence threshold?).
+
+  7. **DNS-unreachable should be visually distinct from other
+     connectivity failures, not just red like everything else.**
+     Raised directly after observing a real DNS-unreachable state in
+     the field. Reasoning worth keeping: DNS failing while the router
+     and raw connectivity stay healthy is a particularly confusing
+     failure for a typical user — browsers fail cryptically, and it
+     *looks* like "the whole internet is down" even though it isn't.
+     Already distinguished at the *event* level (`dnsUnreachable` is
+     its own `AppEventKind`, separate from `routerUnreachable`/
+     `httpUnreachable` — see `script/scenarios.sh`'s "HTTP left
+     healthy (injection is selective)" assertion), just not yet at the
+     *tile display* level. Not yet designed what "visually distinct"
+     should look like beyond red.
+
+  8. **Fingerprinting common ISP/chain-store deployment models —
+     considered, deliberately not pursued yet.** Idea: since chain
+     locations (a Starbucks, a Whole Foods) might run identical or
+     near-identical network deployments store-to-store, NMS could save
+     ISP/topology data locally for comparison across visits, and
+     potentially fold patterns into future app releases. The local,
+     single-user comparison case (is every Starbucks the same?) is
+     genuinely testable with data already collected. **The
+     "incorporate into future NMS releases" half is a much bigger
+     step, and not close to in scope**: it implies eventually
+     crowdsourcing across *other* users' installs, which needs a
+     server, a data-collection/consent model, and real privacy design
+     — none of which exist and none of which should be assumed just
+     because the local case is easy. Let the local-comparison version
+     prove itself useful before considering that jump at all.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
