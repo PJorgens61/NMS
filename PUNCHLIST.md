@@ -2951,21 +2951,21 @@ from this list. This one remains, since it's an idea, not a defect):
      for anything unrecognized) — probably lives near
      `ISPIdentityService`/`ISPIdentityViewModel`.
 
-  2. **Preferences window sizing bug — in progress, code written but
-     untested/uncommitted as of this entry.** Reported directly: too
-     tall for a MacBook Air's screen and couldn't be resized by
-     dragging at all. Root cause confirmed by reading the code:
+  2. ~~**Preferences window sizing bug.**~~ **Fixed in `99b0eb5`,
+     closes #9.** Reported directly: too tall for a MacBook Air's
+     screen and couldn't be resized by dragging at all. Root cause:
      `NMSApp`'s `Window("Preferences", ...)` used
      `.windowResizability(.contentSize)`, which locks the window to
      exactly its content's height with no manual resize possible —
      fine when `PreferencesView` was short, but it grew (13 SaaS
      services, DDNS hostnames, several toggles) past what fits on a
      smaller screen, the same failure `ContentView.body`'s own outer
-     `ScrollView` already exists to prevent for the main window.
-     Fix applied (not yet built/tested/committed): wrapped
-     `PreferencesView.body`'s content in a `ScrollView`, changed the
-     scene to `.defaultSize(width: 380, height: 500)` instead of
-     `.contentSize`. Needs: build, visual verification, commit.
+     `ScrollView` already exists to prevent for the main window. Fix:
+     wrapped `PreferencesView.body`'s content in a `ScrollView`,
+     changed the scene to `.defaultSize(width: 380, height: 500)`
+     instead of `.contentSize`. Verified: full test suite green, and
+     live — opened the window, resized it programmatically via System
+     Events (450x700, stuck), visually confirmed on the MacBook.
 
   3. **Main window's scroll gutter is too narrow, and doesn't grow
      when the window is widened.** Reported directly: the empty
