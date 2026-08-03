@@ -84,18 +84,18 @@ struct ContentView: View {
 
     @ViewBuilder
     private var scrollableContent: some View {
-            // Network Health, Info, Path to Internet, and Speed Test are
-            // all fixed to `ContentView.tileHeight` (see that constant's
-            // doc comment for the three earlier, more intricate alignment
-            // mechanisms this replaced — a dynamically-synced `Grid` row
-            // for one pair, deliberately independent sizing for the
-            // other). Every tile now sizes the same simple way.
+            // Network Health and Info merged into one "Network" tile —
+            // real content overlap (Router/Network/DNS/Public IP/ISP
+            // each showed up in both, just as two different facets of
+            // the same concept), see `PUNCHLIST.md`'s "Network Health
+            // and Info tiles" item for the full reasoning this was
+            // built from. Still fixed to `ContentView.tileHeight`, same
+            // as Path to Internet/Speed Test below (see that constant's
+            // own doc comment for the three earlier, more intricate
+            // alignment mechanisms this replaced).
             VStack(spacing: 12) {
-                tile(title: "Network Health", fixedHeight: Self.tileHeight) {
+                tile(title: "Network", fixedHeight: Self.tileHeight) {
                     connectionHealthSection
-                }
-                tile(title: "Info", fixedHeight: Self.tileHeight) {
-                    infoSection
                 }
                 // Path to Internet + Speed Test — see
                 // `ContentView+Window.swift`'s `pathAndSpeedRow`.
@@ -476,73 +476,6 @@ struct ContentView: View {
         .frame(height: section.boxHeight)
     }
 
-    /// Everything the "Info" tile shows: the current interface's
-    /// identifying details, a public-IP error if there is one, and the
-    /// network-recognition status — previously inlined directly in `body`
-    /// before Info became its own tile.
-    @ViewBuilder
-    private var infoSection: some View {
-        if let info = viewModel.currentInterface {
-            VStack(alignment: .leading, spacing: 2) {
-                row("Network", networkDisplay(info))
-                // BSSID moved to the Wi-Fi tile (window-only) — topically
-                // at home there alongside Signal/Channel/PHY Rate rather
-                // than here. Real tradeoff, not a silent one: this makes
-                // BSSID strictly less discoverable than before, since Info
-                // is popover-visible and the Wi-Fi tile isn't. Accepted —
-                // it already sits in the same "niche per-device detail"
-                // bucket SNMP Devices is in.
-                row("IP Address", ipAddressDisplay(info))
-                row("Router", routerDisplay(info))
-                row("DNS Server", info.dnsServer ?? "—")
-                row("Public IP", publicIP.currentIP ?? (publicIP.isChecking ? "Checking…" : "—"))
-                // Omitted entirely rather than showing "—" while unknown —
-                // this is a best-effort RDAP lookup (see
-                // `ISPIdentityService`), not a check with a settled
-                // "nothing found yet" state worth displaying.
-                if let name = ispIdentity.organizationName {
-                    HStack {
-                        Text("ISP")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        // Absent for an ISP not in the curated table (e.g.
-                        // Astound — checked live, no public status page
-                        // exists) — the name still shows, just with no
-                        // link icon, which is the correct behavior here.
-                        if let url = ispIdentity.statusPageURL {
-                            externalLinkIcon(
-                                url: url,
-                                accessibilityLabel: "\(name) status page",
-                                accessibilityHint: "Opens \(name)'s status page in your browser"
-                            )
-                        }
-                        Text(name)
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .font(.system(size: 12))
-                }
-            }
-        } else {
-            Text("No active network connection")
-                .foregroundStyle(.secondary)
-        }
-
-        if let error = publicIP.lastError {
-            Text(error)
-                .font(.system(size: 11))
-                .foregroundStyle(.red)
-        }
-
-        networkIdentityStatus
-
-        // Confirms the polling is actually active and shows its current
-        // state — absent entirely until a hostname is configured (see
-        // `ddnsRow`).
-        ddnsRow
-    }
-
     /// One summary row for however many hostnames are configured — not
     /// one row per hostname, to keep this from growing the tile
     /// unboundedly the way `FeatureFlags.UserAddedSaaSSite` deliberately
@@ -614,25 +547,6 @@ struct ContentView: View {
         }.joined(separator: "\n")
     }
 
-    /// The label-entry input is hidden entirely now — this is read-only
-    /// recognition status. A label, once set, still shows via the "Network"
-    /// row in Info; there's just no in-popover way to enter/change one
-    /// anymore.
-    @ViewBuilder
-    private var networkIdentityStatus: some View {
-        if let network = networkIdentity.currentNetwork {
-            HStack {
-                Text(networkIdentity.isNewNetwork ? "New network" : "Known network")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("seen \(network.timesSeen)×")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
     /// Ordered low (most fundamental) to high (most dependent on
     /// everything below it working first).
     private var connectionLayersLowToHigh: [ConnectionLayer] {
@@ -652,12 +566,23 @@ struct ContentView: View {
             let hasName = (networkIdentity.currentNetwork?.label?.isEmpty == false) || wifiSSID.currentSSID != nil
             // On Wi-Fi this row shows a signal-strength sparkline instead
             // of the network's name (see `connectionHealthSection`'s own
-            // per-row rendering) — the name still reads correctly from
-            // the Info tile's own row, which reuses `networkDisplay(_:)`
-            // unchanged. Requested directly: "Name" + "Ethernet" (via
-            // `networkDisplay`, unchanged) or a sparkline + "Wi-Fi"
-            // (here), not "Name" + "Wi-Fi" as before.
-            let detail = info.isWiFi ? "Wi-Fi" : networkDisplay(info)
+            // per-row rendering) — the name still reads via
+            // `networkDisplay(_:)` off Wi-Fi. Requested directly: "Name" +
+            // "Ethernet" (via `networkDisplay`, unchanged) or a sparkline
+            // + "Wi-Fi" (here), not "Name" + "Wi-Fi" as before.
+            //
+            // This Mac's own IP and the known-network recognition count
+            // (formerly Info's separate "IP Address" row and
+            // `networkIdentityStatus`) fold in here too — merged-tile
+            // work, see `PUNCHLIST.md`'s "Network Health and Info tiles"
+            // item. `knownNetworkSuffix` is empty until
+            // `NetworkIdentityViewModel` has actually recognized
+            // something, same "nothing to show yet" reasoning
+            // `networkIdentityStatus` used before it was folded in here.
+            let knownNetworkSuffix = networkIdentity.currentNetwork.map { network in
+                " · \(networkIdentity.isNewNetwork ? "new" : "seen \(network.timesSeen)×")"
+            } ?? ""
+            let detail = (info.isWiFi ? "Wi-Fi" : networkDisplay(info)) + " · \(ipAddressDisplay(info))" + knownNetworkSuffix
             if info.isWiFi && !hasName {
                 // Not a connectivity failure — just missing information
                 // (e.g. Location permission not granted yet) — so this is
@@ -692,10 +617,14 @@ struct ContentView: View {
             // uncertainty — cascade as unhealthy instead of `.unknown`.
             localRouterLayer = ConnectionLayer(id: "localRouter", label: OverallStatus.routerLabel, detail: "—", status: .unhealthy)
         } else {
+            // The router's own IP (formerly Info's separate "Router"
+            // row) leads the detail text — merged-tile work, see
+            // `PUNCHLIST.md`'s "Network Health and Info tiles" item.
+            let addressPrefix = info?.routerAddress.map { "\($0) · " } ?? ""
             localRouterLayer = ConnectionLayer(
                 id: "localRouter",
                 label: OverallStatus.routerLabel,
-                detail: routerCheck.map(checkDetail) ?? "Not checked",
+                detail: addressPrefix + (routerCheck.map(checkDetail) ?? "Not checked"),
                 status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
                 correlatedWithChange: routerCheck?.correlatedWithChange ?? false,
                 // Always shown once the address is known, not gated behind
@@ -719,19 +648,22 @@ struct ContentView: View {
         let publicIPLayer: ConnectionLayer
         if info == nil {
             publicIPLayer = ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "—", status: .unhealthy)
-        } else if publicIP.currentIP == nil {
+        } else if let currentPublicIP = publicIP.currentIP {
+            // The address itself (formerly Info's separate "Public IP"
+            // row) leads the detail text, same merged-tile reasoning as
+            // Local Router above.
+            publicIPLayer = ConnectionLayer(
+                id: "publicIP",
+                label: OverallStatus.publicIPLabel,
+                detail: "\(currentPublicIP) · " + (publicIPCheck.map(checkDetail) ?? "Not checked"),
+                status: publicIPCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: publicIPCheck?.correlatedWithChange ?? false
+            )
+        } else {
             // Not a failure — `PublicIPViewModel`'s own (much slower,
             // 5-minute-cadence) lookup just hasn't completed yet, most
             // likely right after launch.
             publicIPLayer = ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "Not checked", status: .unknown)
-        } else {
-            publicIPLayer = ConnectionLayer(
-                id: "publicIP",
-                label: OverallStatus.publicIPLabel,
-                detail: publicIPCheck.map(checkDetail) ?? "Not checked",
-                status: publicIPCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-                correlatedWithChange: publicIPCheck?.correlatedWithChange ?? false
-            )
         }
 
         // Discovery (which hop is the ISP edge) and monitoring (is it still
@@ -740,6 +672,15 @@ struct ContentView: View {
         // pings that hop's address on the same fast/reactive cadence as
         // Router/Internet/DNS/HTTP, so this reads like every other layer
         // here (a response time, not a re-trace's resolved hostname).
+        // The ISP's name (formerly Info's separate "ISP" row) leads the
+        // detail text wherever there's room for it, same merged-tile
+        // reasoning as Local Router/Public IP above — independent of
+        // traceroute hop confirmation, since RDAP identifies the ISP
+        // from the public IP directly, not from the hop itself. Absent
+        // for an ISP not in the curated status-page table (e.g.
+        // Astound — checked live, no public status page exists), same
+        // as Info's own row: the name still shows, just with no link.
+        let ispPrefix = ispIdentity.organizationName.map { "\($0) · " } ?? ""
         let peRouterLayer: ConnectionLayer
         if info == nil {
             // Same reasoning as Network/Local Router/Public IP above: no
@@ -754,15 +695,22 @@ struct ContentView: View {
         } else if traceroute.monitoredHop == nil {
             // Not a failure — you haven't confirmed which traceroute hop is
             // the ISP's edge yet (see the Path to Internet section).
-            peRouterLayer = ConnectionLayer(id: "peRouter", label: OverallStatus.peRouterLabel, detail: "Not confirmed", status: .unknown)
+            peRouterLayer = ConnectionLayer(
+                id: "peRouter",
+                label: OverallStatus.peRouterLabel,
+                detail: ispPrefix + "Not confirmed",
+                status: .unknown,
+                url: ispIdentity.statusPageURL
+            )
         } else {
             let peRouterCheck = connectivity.checks.first { $0.label == OverallStatus.peRouterLabel }
             peRouterLayer = ConnectionLayer(
                 id: "peRouter",
                 label: OverallStatus.peRouterLabel,
-                detail: peRouterCheck.map(checkDetail) ?? "Not checked",
+                detail: ispPrefix + (peRouterCheck.map(checkDetail) ?? "Not checked"),
                 status: peRouterCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
-                correlatedWithChange: peRouterCheck?.correlatedWithChange ?? false
+                correlatedWithChange: peRouterCheck?.correlatedWithChange ?? false,
+                url: ispIdentity.statusPageURL
             )
         }
 
@@ -777,7 +725,22 @@ struct ContentView: View {
         // guard of its own — confirmed by reading that guard rather than
         // assumed, before relying on it here.
         let internetLayer = standardLayer(id: "internet", label: OverallStatus.internetLabel)
-        let dnsLayer = standardLayer(id: "dns", label: OverallStatus.dnsLabel)
+        // Can't use `standardLayer` — that helper has no way to fold in
+        // the DNS server's own address (formerly Info's separate "DNS
+        // Server" row), same merged-tile reasoning as Local Router/
+        // Public IP/ISP Edge Router above. `info?.dnsServer` is `nil`
+        // exactly when `standardLayer`'s own no-interface case already
+        // applies, so the prefix is simply empty then rather than
+        // needing a matching local guard.
+        let dnsCheck = connectivity.checks.first { $0.label == OverallStatus.dnsLabel }
+        let dnsAddressPrefix = info?.dnsServer.map { "\($0) · " } ?? ""
+        let dnsLayer = ConnectionLayer(
+            id: "dns",
+            label: OverallStatus.dnsLabel,
+            detail: dnsAddressPrefix + (dnsCheck.map(checkDetail) ?? "Not checked"),
+            status: dnsCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: dnsCheck?.correlatedWithChange ?? false
+        )
         let httpLayer = standardLayer(id: "http", label: OverallStatus.httpLabel)
 
         return [networkLayer, localRouterLayer, publicIPLayer, peRouterLayer, internetLayer, dnsLayer, httpLayer]
@@ -805,6 +768,13 @@ struct ContentView: View {
         let layers = connectionLayersLowToHigh
         VStack(alignment: .leading, spacing: 2) {
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
+                // At the top, not the bottom — the most aggregate,
+                // most-dependent-on-everything-else signal of the set
+                // (see `PUNCHLIST.md`'s "Network Health and Info tiles"
+                // item for the full row-ordering reasoning: this Grid
+                // reads top-to-bottom as most-dependent to most-
+                // fundamental, matching `layers.reversed()` below).
+                quickCheckGridRow
                 ForEach(layers.reversed()) { layer in
                     GridRow {
                         Circle()
@@ -881,12 +851,16 @@ struct ContentView: View {
                     }
                 }
 
-                // A fast, on-demand responsiveness check, useful before a
-                // video call. Living inside Network Health's own tile
-                // rather than as a new one: no extra height budget spent.
-                // The full Apple networkQuality tile still exists
-                // separately for the complete test/history.
-                quickCheckGridRow
+                // Below Network (the most fundamental row above), not
+                // slotted into `connectionLayersLowToHigh` itself — DHCP
+                // isn't a `ConnectivityCheck`-backed reachability signal
+                // like every other row here, it's a three-state identity
+                // check (normal/changed/abnormal), which `LayerStatus`
+                // has no clean case for (`.unknown` already means "gray,
+                // nothing to judge yet," not "yellow, something changed
+                // recently"). Raised directly. See `dhcpStatusColor`'s
+                // own doc comment for what each color means.
+                dhcpGridRow
             }
             .font(.system(size: 12))
 
@@ -895,6 +869,20 @@ struct ContentView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
             }
+
+            // Formerly Info's own trailing content — merged in here
+            // rather than dropped, see `PUNCHLIST.md`'s "Network Health
+            // and Info tiles" item.
+            if let error = publicIP.lastError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+
+            // Confirms the polling is actually active and shows its
+            // current state — absent entirely until a hostname is
+            // configured (see `ddnsRow`).
+            ddnsRow
         }
         // Loaded when the section appears rather than kept continuously
         // up to date — the popover is shut almost all the time. Keyed on
@@ -946,7 +934,7 @@ struct ContentView: View {
             .accessibilityHint("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
             .accessibilityIdentifier("networkHealth.quickCheck")
             .help("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
-            Color.clear.frame(width: 0, height: 0)
+            quickCheckHistoryDots
             Text(quickCheckDetailText)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
@@ -958,6 +946,42 @@ struct ContentView: View {
     private var quickCheckColor: Color {
         guard let status = networkQuality.quickCheckStatus else { return .gray }
         return Self.statusColor(forRPM: status.rpm)
+    }
+
+    /// A verdict trail, not a line chart — each quick check is a discrete
+    /// good/fair/poor judgment, not a continuous value, so a sequence of
+    /// colored dots reads more honestly than a `Sparkline` interpolating
+    /// between them. Packed tightly at a fixed gap rather than stretched
+    /// to the same `44pt` width every other row's `Sparkline` occupies —
+    /// tried that first (even `Spacer`-based distribution filling a
+    /// fixed width, 2pt dots) and confirmed live it was the wrong
+    /// trade-off: technically visible, practically unreadable as a
+    /// "trail" rather than dust on the screen, especially with few
+    /// points spread thin across the full width. Larger, close-packed
+    /// dots read clearly; the column simply grows with history instead
+    /// of remaining pinned to the same width as the layer rows' own
+    /// sparklines. Oldest first (leftmost), matching every other row's
+    /// sparkline convention here (`wifiSSID.recentSamples.reversed()`/
+    /// `samples.map(\.latencyMs)` are both already-reversed-to-
+    /// chronological arrays by the time they reach `Sparkline`).
+    @ViewBuilder
+    private var quickCheckHistoryDots: some View {
+        let rpms = networkQuality.quickCheckHistory.reversed().compactMap(\.combinedResponsivenessRPM)
+        if rpms.isEmpty {
+            // Same "always emit every cell" rule the rest of this Grid
+            // follows — see the `Color.clear` comment on the layer rows'
+            // own sparkline column for why an empty cell still needs a
+            // real, zero-sized view rather than being omitted outright.
+            Color.clear.frame(width: 0, height: 0)
+        } else {
+            HStack(spacing: 2) {
+                ForEach(Array(rpms.enumerated()), id: \.offset) { _, rpm in
+                    Circle()
+                        .fill(Self.statusColor(forRPM: rpm))
+                        .frame(width: 5, height: 5)
+                }
+            }
+        }
     }
 
     /// The single green/yellow/red mapping both the quick check row and
@@ -986,6 +1010,72 @@ struct ContentView: View {
         if let status = networkQuality.quickCheckStatus { return "\(status.label) (\(status.rpm))" }
         return "Tap to check"
     }
+
+    /// A DHCP row raised directly for the merged Network tile — "just a
+    /// colored dot to indicate normal/changed/abnormal status." Same
+    /// five-cell shape every other `GridRow` in `connectionHealthSection`
+    /// uses, no sparkline/link icon (`Color.clear` in both slots, same
+    /// "always emit every cell" rule the rest of this Grid follows).
+    private var dhcpGridRow: some View {
+        GridRow {
+            Circle()
+                .fill(dhcpStatusColor)
+                .frame(width: 8, height: 8)
+            Text("DHCP")
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .gridColumnAlignment(.leading)
+            Color.clear.frame(width: 0, height: 0)
+            Color.clear.frame(width: 0, height: 0)
+            Text(dhcpDetailText)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
+                .gridColumnAlignment(.trailing)
+        }
+    }
+
+    /// Three states, not the shared `LayerStatus` every other row here
+    /// uses — deliberately: `.unknown` already means "gray, nothing to
+    /// judge yet" (see `layerColor(for:)`), not "yellow, something
+    /// changed recently," so shoehorning DHCP into that enum would have
+    /// reused a color for two different meanings. Red covers both real
+    /// failure signals `DHCPLeaseViewModel` already tracks — a link-local
+    /// (APIPA) fallback, meaning DHCP failed outright, and a renewal
+    /// that's run past its expected T2 deadline — checked first so an
+    /// abnormal state always wins over a merely-recent change. Yellow is
+    /// "the current lease is new" (within `dhcpRecentChangeWindow` of
+    /// its own `firstObservedAt`), not a separate tracked flag — a real
+    /// lease change already gets its own `AppEventKind` pair
+    /// (`.dhcpLeaseChanged`) for the Events log; this only needs "is that
+    /// recent enough to still matter here."
+    private var dhcpStatusColor: Color {
+        if dhcpLease.isFallenBackToLinkLocal || dhcpLease.isRenewalOverdue { return .red }
+        if let firstObservedAt = dhcpLease.history.first?.firstObservedAt,
+           Date().timeIntervalSince(firstObservedAt) < Self.dhcpRecentChangeWindow {
+            return .yellow
+        }
+        return .green
+    }
+
+    private var dhcpDetailText: String {
+        if dhcpLease.isFallenBackToLinkLocal { return "Link-local fallback" }
+        if dhcpLease.isRenewalOverdue { return "Renewal overdue" }
+        if let firstObservedAt = dhcpLease.history.first?.firstObservedAt,
+           Date().timeIntervalSince(firstObservedAt) < Self.dhcpRecentChangeWindow {
+            return "Changed recently"
+        }
+        return dhcpLease.history.isEmpty ? "Not checked" : "Normal"
+    }
+
+    /// How long a fresh lease (by `firstObservedAt`) still reads as
+    /// "changed" rather than settling back to "normal" — a few multiples
+    /// of `DHCPLeaseViewModel.checkInterval` (5 minutes), long enough
+    /// that the yellow dot is still there for someone who glances at the
+    /// tile sometime after the actual renewal, not just in the instant
+    /// it happened.
+    private static let dhcpRecentChangeWindow: TimeInterval = 600
 
     private func layerColor(for layer: ConnectionLayer) -> Color {
         switch layer.status {
@@ -1044,22 +1134,6 @@ struct ContentView: View {
             : (label?.isEmpty == false ? label : nil)
         guard let name else { return type }
         return "\(name) \(type)"
-    }
-
-    /// Just the IP — deliberately not appending the router's `KnownNetwork`
-    /// fingerprint the way this used to. That was originally a bare MAC
-    /// address, shown so a VRRP failover between two physical boxes at the
-    /// same IP would be visible without cross-referencing the SNMP device
-    /// list. Once the per-network scoping work changed `fingerprint` to
-    /// `routerMAC|subnet` (see DESIGN-NOTES.md's "Per-network device
-    /// scoping"), this row started leaking that internal identity string
-    /// verbatim — `10.0.0.1 (bc:b9:23:81:a6:d4|10.0.0.0/24)` — never a
-    /// deliberate display choice, just an unaudited side effect. Reported
-    /// directly; simplified to the plain IP rather than reconstructing a
-    /// clean bare-MAC-only version, since that's what was actually asked
-    /// for.
-    private func routerDisplay(_ info: NetworkInterfaceInfo) -> String {
-        info.routerAddress ?? "—"
     }
 
     /// Opens a window scene *and* actually puts it in front. Used by all

@@ -35,11 +35,14 @@ final class NMSUITests: XCTestCase {
         app.launch()
 
         // Generous timeout — the first real content only appears once
-        // the launch-time connectivity round resolves.
-        let networkHealthTile = app.staticTexts["Network Health"]
+        // the launch-time connectivity round resolves. "Network," not
+        // "Network Health" — renamed when Network Health and Info
+        // merged into one tile (see `PUNCHLIST.md`'s "Network Health
+        // and Info tiles" entry).
+        let networkTile = app.staticTexts["Network"]
         XCTAssertTrue(
-            networkHealthTile.waitForExistence(timeout: 10),
-            "Network Health tile should appear once the window renders real content"
+            networkTile.waitForExistence(timeout: 10),
+            "Network tile should appear once the window renders real content"
         )
 
         // A second, independent anchor — the footer, not the tile grid —

@@ -615,6 +615,28 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    /// `.quickCheck`-source rows only, filtered at the query level rather
+    /// than fetched via `fetchNetworkQualityHistory` and post-filtered in
+    /// Swift — the quick check is expected to run far more often than a
+    /// full speed test (it's the "before a video call" habit, not the
+    /// occasional deliberate one), so post-filtering a shared, small
+    /// `limit` could starve this down to just a couple of points whenever
+    /// full-test runs happen to be interleaved. Filtering in the
+    /// predicate means `limit` always means "this many quick checks,"
+    /// not "this many of any kind that happened to include some."
+    /// Default of 15, not 10 — matches the dot-history row's own width
+    /// budget (see `PUNCHLIST.md`'s "Network Health and Info tiles" item).
+    func fetchQuickCheckHistory(limit: Int = 15) -> [NetworkQualityRecord] {
+        let fingerprint = currentNetworkFingerprint
+        let sourceValue = NetworkQualityResult.Source.quickCheck.rawValue
+        var descriptor = FetchDescriptor<NetworkQualityRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint && $0.source == sourceValue },
+            sortBy: [SortDescriptor(\.testedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     /// Unconditional insert, same reasoning as `recordNetworkQualityResult`
     /// — a genuine time series, not a change to dedupe against. Unlike that
     /// one, this runs on a timer (`WiFiSSIDViewModel`'s periodic sampling)

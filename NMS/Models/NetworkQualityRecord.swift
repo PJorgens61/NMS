@@ -8,8 +8,13 @@ import SwiftData
 /// entry.
 @Model
 final class NetworkQualityRecord {
-    var downloadMbps: Double
-    var uploadMbps: Double
+    /// `nil` for a `.quickCheck`-source row — see `NetworkQualityResult
+    /// .downloadMbps`'s own doc comment. Widened from a required `Double`
+    /// to optional for the merged Network tile's dot-history row; a
+    /// lightweight migration like the fields below, since every row
+    /// written before this existed already has a real, non-`nil` value.
+    var downloadMbps: Double?
+    var uploadMbps: Double?
     var testedAt: Date
     /// Added alongside `AppleNetworkQualityService`. All four new fields
     /// are optional with a default, so this stays a lightweight migration
@@ -19,6 +24,10 @@ final class NetworkQualityRecord {
     /// no RPM measurement, not missing data.
     var downloadResponsivenessRPM: Int? = nil
     var uploadResponsivenessRPM: Int? = nil
+    /// The `.quickCheck` source's own single combined RPM — see
+    /// `NetworkQualityResult.combinedResponsivenessRPM`'s own doc
+    /// comment. Same safe-migration shape as everything else here.
+    var combinedResponsivenessRPM: Int? = nil
     var baseRTTMs: Double? = nil
     /// Same safe-migration shape as the fields above — added later,
     /// optional with a default, so existing rows just read back as `nil`
@@ -46,6 +55,7 @@ final class NetworkQualityRecord {
         testedAt = result.testedAt
         downloadResponsivenessRPM = result.downloadResponsivenessRPM
         uploadResponsivenessRPM = result.uploadResponsivenessRPM
+        combinedResponsivenessRPM = result.combinedResponsivenessRPM
         baseRTTMs = result.baseRTTMs
         downloadBytesTransferred = result.downloadBytesTransferred
         uploadBytesTransferred = result.uploadBytesTransferred

@@ -395,8 +395,14 @@ extension ContentView {
         }
     }
 
+    /// Only ever called on `cloudflareRuns`/`appleRuns` — both filtered
+    /// to a specific `source`, never `.quickCheck` — so `downloadMbps`/
+    /// `uploadMbps` being `nil` here would mean that invariant broke,
+    /// not a real case to render text for. The fallback is defensive,
+    /// not expected to show live.
     private static func throughputText(_ run: NetworkQualityRecord) -> String {
-        String(format: "%.0f Mbps down, %.0f Mbps up", run.downloadMbps, run.uploadMbps)
+        guard let downloadMbps = run.downloadMbps, let uploadMbps = run.uploadMbps else { return "—" }
+        return String(format: "%.0f Mbps down, %.0f Mbps up", downloadMbps, uploadMbps)
     }
 
     /// Real data used, not an estimate — `NetworkQualityRecord

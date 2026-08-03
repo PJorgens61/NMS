@@ -69,18 +69,23 @@ final class NetworkQualityViewModel: ObservableObject {
 
     /// The popover's ~5s quick check — raised directly, for a business
     /// user who wants "is this OK for a call right now" without the full
-    /// test's ~30s/GB-scale cost. Independent of `runningSource`: this
-    /// writes no `NetworkQualityResult` at all (nothing to persist —
-    /// see `AppleNetworkQualityService.measureQuick`'s own doc comment on
-    /// why parallel mode's combined RPM is the whole point, not a
-    /// downgrade), so it isn't one of the two history sources that flag
-    /// share. Still mutually exclusive with both, though — see
-    /// `runQuickCheck`'s own doc comment.
+    /// test's ~30s/GB-scale cost. Independent of `runningSource` — still
+    /// mutually exclusive with both other sources (see `runQuickCheck`'s
+    /// own doc comment), just tracked separately since it isn't one of
+    /// the two `NetworkQualityResult.Source` cases `runningSource`
+    /// itself is typed over.
     @Published private(set) var isRunningQuickCheck = false {
         didSet { UIStateLogger.log("NetworkQualityViewModel.isRunningQuickCheck", isRunningQuickCheck) }
     }
     @Published private(set) var quickCheckStatus: QuickCheckStatus?
     @Published private(set) var quickCheckError: String?
+    /// Newest first, `.quickCheck`-source rows only — backs the merged
+    /// Network tile's dot-history row (see `PUNCHLIST.md`'s "Network
+    /// Health and Info tiles" item). `quickCheckStatus` above stays the
+    /// separate, ephemeral "what did the very last run say" value the
+    /// row's trailing text already used before this existed; this is
+    /// additive, not a replacement.
+    @Published private(set) var quickCheckHistory: [NetworkQualityRecord] = []
 
     private let service = NetworkQualityService()
     private let appleService = AppleNetworkQualityService()
@@ -101,6 +106,7 @@ final class NetworkQualityViewModel: ObservableObject {
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         recentRuns = snapshotStore.fetchNetworkQualityHistory()
+        quickCheckHistory = snapshotStore.fetchQuickCheckHistory()
     }
 
     /// Re-reads history scoped to whatever `currentNetworkFingerprint` is
@@ -112,6 +118,7 @@ final class NetworkQualityViewModel: ObservableObject {
     /// `NMSApp`.
     func reloadHistory() {
         recentRuns = snapshotStore.fetchNetworkQualityHistory()
+        quickCheckHistory = snapshotStore.fetchQuickCheckHistory()
     }
 
     /// Clears a stale error left over from a run attempted during an
@@ -158,6 +165,7 @@ final class NetworkQualityViewModel: ObservableObject {
                     uploadMbps: upload.mbps,
                     downloadResponsivenessRPM: nil,
                     uploadResponsivenessRPM: nil,
+                    combinedResponsivenessRPM: nil,
                     baseRTTMs: nil,
                     downloadBytesTransferred: download.bytes,
                     uploadBytesTransferred: upload.bytes,
@@ -205,6 +213,7 @@ final class NetworkQualityViewModel: ObservableObject {
                         uploadMbps: measurement.uploadMbps,
                         downloadResponsivenessRPM: measurement.downloadResponsivenessRPM,
                         uploadResponsivenessRPM: measurement.uploadResponsivenessRPM,
+                        combinedResponsivenessRPM: nil,
                         baseRTTMs: measurement.baseRTTMs,
                         downloadBytesTransferred: measurement.downloadBytesTransferred,
                         uploadBytesTransferred: measurement.uploadBytesTransferred,
@@ -259,6 +268,26 @@ final class NetworkQualityViewModel: ObservableObject {
                 switch outcome {
                 case let .success(rpm):
                     self.quickCheckStatus = QuickCheckStatus(rpm: rpm)
+                    // Persisted as its own `.quickCheck`-source row —
+                    // see `NetworkQualityResult.Source.quickCheck`'s doc
+                    // comment. Bypasses `apply(_:)` deliberately: that
+                    // helper also clears `runningSource`, which this path
+                    // never set in the first place (`isRunningQuickCheck`
+                    // is its own flag).
+                    let result = NetworkQualityResult(
+                        downloadMbps: nil,
+                        uploadMbps: nil,
+                        downloadResponsivenessRPM: nil,
+                        uploadResponsivenessRPM: nil,
+                        combinedResponsivenessRPM: rpm,
+                        baseRTTMs: nil,
+                        downloadBytesTransferred: nil,
+                        uploadBytesTransferred: nil,
+                        source: .quickCheck,
+                        testedAt: Date()
+                    )
+                    self.snapshotStore.recordNetworkQualityResult(result)
+                    self.quickCheckHistory = self.snapshotStore.fetchQuickCheckHistory()
                 case .failure(.unavailable):
                     self.quickCheckError = "networkQuality unavailable"
                 case let .failure(.processFailed(code)):

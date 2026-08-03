@@ -19,6 +19,14 @@ final class DHCPLeaseViewModel: ObservableObject {
         didSet { UIStateLogger.log("DHCPLeaseViewModel.history", history.map(\.info)) }
     }
     @Published private(set) var isFallenBackToLinkLocal = false
+    /// Same shape as `isFallenBackToLinkLocal` above — kept unconditionally
+    /// current in `checkRenewalOverdue()`, `wasOverdue` below stays the
+    /// separate, private edge-detector for the actual transition logging.
+    /// Added for the merged Network tile's DHCP status dot (see
+    /// `PUNCHLIST.md`'s "Network Health and Info tiles" item) — this
+    /// state already existed for `.dhcpRenewalOverdue`/`.dhcpRenewalRecovered`
+    /// event logging, it just wasn't readable by the UI before now.
+    @Published private(set) var isRenewalOverdue = false
 
     private let service = DHCPLeaseService()
     private let snapshotStore: SnapshotStore
@@ -213,6 +221,7 @@ final class DHCPLeaseViewModel: ObservableObject {
         // Same additive shape as the link-local hook above: injection can
         // force an overdue renewal but never suppress a genuine one.
         let isOverdue = FailureInjector.isDHCPRenewalOverdueForced || Date() > expectedT2At
+        isRenewalOverdue = isOverdue
         defer { wasOverdue = isOverdue }
         guard isOverdue != wasOverdue else { return }
         if isOverdue {

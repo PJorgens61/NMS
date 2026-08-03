@@ -8,6 +8,150 @@ new ones as they come up.
 
 ## Open
 
+- [ ] **SNMP community strings, the Local Stress Test's confirmation,
+  and LAN Discovery's sweep all touch other devices on whatever
+  network the Mac is on — protection against an unfamiliar/office
+  network is inconsistent across the three, not yet fixed.** Raised
+  directly, with a real safety angle: "could this protect office
+  networks from the stress test features," then "any others?" Audited
+  every active-probing feature against the passive/read-only ones
+  (Path to Internet, Network Health, SaaS Status — none of these touch
+  anyone else's gear beyond normal, expected ping/traceroute/HTTPS
+  traffic) and found three with real gaps, each different:
+  1. **SNMP community strings are global, not per-network.**
+     `SNMPViewModel.communities` persists under one `UserDefaults` key
+     (`NMS.snmpCommunities`), so a string set for one network's gear
+     (or left on the "public" default) gets tried against *every*
+     other network's SNMP devices too, not just the one it was
+     actually confirmed correct for. The feature itself *is* already
+     off by default (`FeatureFlags.snmpDevices`, opt-in) — this gap is
+     about the community string, not whether scanning happens at all.
+  2. **The Local Stress Test's confirmation is global, not
+     per-network, and the feature has no flag at all.** `WiFiStressTestViewModel
+     .hasConfirmedBefore`/`markConfirmed()` read/write one global
+     `UserDefaults` bool — once dismissed on a home network, the
+     one-time alert never appears again on any other network the Mac
+     joins, including an office network where firing concurrent
+     MTU-sized ping bursts at someone else's router without a fresh,
+     explicit yes is a real problem. Unlike SNMP, this feature has *no*
+     `FeatureFlags` gate at all — the confirmation alert is the only
+     protection it has, and it's the weaker, global-not-per-network
+     kind.
+  3. **LAN Discovery's subnet sweep has no gate of any kind.**
+     `LANDiscoveryViewModel.scan()` — an ARP-based active sweep that
+     feeds SNMP candidate addresses and MAC-merge data — runs
+     unconditionally, confirmed by reading the whole file: no
+     `FeatureFlags` check, no confirmation, not even gated behind
+     `FeatureFlags.snmpDevices` despite mainly existing to feed it.
+     Runs on every network regardless of familiarity.
+  This is the same *class* of bug already found and fixed once in this
+  project's history: `TracerouteViewModel.monitoredHopNumber` had the
+  identical "single global `UserDefaults` value, no per-network
+  scoping" shape, confirmed live to carry a stale confirmation over
+  between networks (see `BUGS.md`'s "Confirmed ISP Edge Router hop
+  isn't scoped per network" entry) — worth checking whether any other
+  `UserDefaults`-backed setting in this app has the same gap rather
+  than fixing just these in isolation.
+  Recommended fix shape, not yet built: key by
+  `currentNetworkFingerprint` the same way `KnownNetwork`/per-network
+  history tables already do — re-prompting the stress test's
+  confirmation on a network it's never seen, letting SNMP communities
+  be tried/remembered per network rather than globally, and giving LAN
+  Discovery's sweep a real gate (its own, or folded into
+  `FeatureFlags.snmpDevices` since that's most of what it's for)
+  rather than none. A per-network "confirmed/known" fix is the right
+  lever for all three — it makes every one of them effectively
+  restricted by default on any network the Mac hasn't explicitly said
+  yes to, without needing a separate always-off toggle on top. Real
+  design question first: does "confirmed on this network" need its own
+  dictionary-shaped default (`[fingerprint: Bool]`), or does it belong
+  in a real per-network SwiftData row instead, matching how most other
+  per-network state in this app already persists.
+
+- [ ] **User guide: an annotated screenshot explaining every UI
+  element, not yet built.** Raised directly — a real screenshot of the
+  app with callout boxes/arrows pointing at each element (menu bar
+  icon, tiles, footer buttons) and a short label on what it does,
+  rather than (or alongside) `docs/user-guide.md`'s current prose-only
+  "Anatomy of the popover" section. Worth noting before building: that
+  section's own title is already stale — the app is a single-window
+  app now, no popover left at all (see `ContentView+Window.swift`'s
+  doc comment, "no longer a popover/window audience split... just
+  organization") — so a real screenshot pass should fix that language
+  too, not just add callouts on top of it. Mechanically: a real PNG
+  captured from the running app (`screencapture`, or the app's own
+  Screenshot button once it's confirmed to reflect live layout — see
+  `BUGS.md`'s "the capture path never actually exercises the
+  `NSHostingView`/`NSScrollView` layout" finding on that button's own
+  limits) with callout boxes/labels composited on top, saved under
+  `docs/images/` alongside this doc's existing screenshots. Nothing
+  built yet — needs a real pass once the current merged-tile work
+  lands, so the screenshot isn't stale before it's even committed.
+
+  **That merge has now landed, and it added a second layer of
+  staleness on top of the popover one.** README.md and
+  `docs/user-guide.md` both still describe Network Health and Info as
+  two separate tiles ("side by side, each its own bordered box," a
+  dedicated `### Network Health` section, `docs/user-guide.md`'s own
+  `### Network Health` heading and its "full-width copy of Network
+  Health and Info" line) — all written before today's merge into one
+  "Network" tile (see this file's own "Network Health and Info tiles"
+  entry, now marked Built). Confirmed by grepping both docs directly:
+  README.md alone has 7 separate references assuming the old two-tile
+  shape. Whatever screenshot/callout pass happens here needs to catch
+  both staleness layers at once — the popover language and the
+  two-tile language — not just the one that prompted this item
+  originally.
+
+  **Mirror the callout labels from the app's own tooltips, not a
+  parallel set of captions.** Raised directly — a lot of controls
+  already carry `.help(...)`/accessibility-hint text (the reachability
+  dot's tooltip, `rpmThresholdHelp`, every external-link icon's
+  accessibility hint, and more), so a callout's label text should be
+  sourced from — or at least kept word-for-word consistent with — the
+  same string already live in the Swift code, rather than hand-written
+  doc prose that can quietly drift from what the real UI says. One
+  source of truth: update a tooltip, the next screenshot regeneration
+  reflects it. What doesn't mirror automatically is layout — matching a
+  label to *where* its element actually sits on a real screenshot stays
+  a manual/visual step regardless.
+
+- [x] ~~Network Health and Info tiles: real content overlap, worth a
+  combined design.~~ **Built.** Merged into one "Network" tile
+  (`ContentView.connectionHealthSection`) — `infoSection` is gone
+  entirely, its content folded row-by-row into the matching
+  `ConnectionLayer` rather than kept as a separate trailing section:
+  Router/Public IP/DNS now show their identity value alongside
+  reachability/timing in one row each ("10.0.0.1 · 8ms"), ISP's name
+  and status-page link moved onto the ISP Edge Router row, and the
+  known-network count + this Mac's own IP moved onto the Network row.
+  `publicIP.lastError` and `ddnsRow` still render, now at the bottom of
+  the merged tile instead of Info's own bottom.
+
+  The `networkQuality` quick check moved to the top of the Grid (most
+  aggregate/dependent signal of the set) and gained a real dot-history
+  trail in its sparkline slot, backed by new persistence that didn't
+  exist before: `NetworkQualityResult`/`NetworkQualityRecord` gained a
+  `.quickCheck` source case and a `combinedResponsivenessRPM` field
+  (`downloadMbps`/`uploadMbps` widened to optional, safe-migration
+  shape), `SnapshotStore.fetchQuickCheckHistory(limit:)` reads them
+  back per-network-scoped, and `runQuickCheck` persists a row on every
+  run. Visual iteration mattered here: an evenly-`Spacer`-distributed
+  row of 2pt dots stretched to the layer rows' shared 44pt sparkline
+  width was confirmed live to be technically-visible-but-unreadable;
+  shipped instead as 5pt dots at a fixed 2pt gap, packed tight and
+  growing with history rather than pinned to that width.
+
+  Also added while this tile was open, raised directly: a DHCP status
+  row (`dhcpGridRow`) with a three-state color
+  (green/yellow/red = normal/changed recently/abnormal) that doesn't
+  reuse `LayerStatus` — `.unknown` already means "nothing to judge yet,"
+  not "changed," so it needed its own tri-color logic
+  (`dhcpStatusColor`) rather than a fourth `LayerStatus` case.
+  `DHCPLeaseViewModel.isRenewalOverdue` is new too — the overdue signal
+  already existed for event logging but wasn't published for the UI to
+  read before now.
+
 - [ ] **Expose NMS's checks to Siri/Apple Intelligence via App Intents.**
   Raised directly, sketched out, not yet built. Checked the real
   constraint first: NMS already targets macOS 15.7
@@ -62,26 +206,31 @@ new ones as they come up.
   the sparkline's width changes, since the two columns aren't sized
   from a shared reference today.
 
-- [ ] **Fold the Ethernet Speed/Duplex tile into the Info tile's Network
-  row, instead of its own separate section.** Currently
-  `ContentView+Window.swift`'s `ethernetLinkSection` is its own small
-  window-only box (`scrollBox(.ethernetLink)`, two rows: Speed, Duplex)
-  rendered below Info alongside the Wi-Fi/Ethernet sections — mutually
-  exclusive with `wifiSection` the same way. Move Speed/Duplex to live
-  with Info's own "Network" row instead (`ContentView.swift`'s
-  `infoContent`, `row("Network", networkDisplay(info))`), the way the
-  Wi-Fi tile's Signal/Channel/PHY Rate already sit apart from Info's
-  Network row today (BSSID especially) — worth deciding during
-  implementation whether that same precedent argues for leaving
-  Ethernet's own detail where it is instead of moving it, since this
-  request cuts the other way from that existing split.
+- [ ] **Fold the Ethernet Speed/Duplex tile into the merged Network
+  tile's own Network row, instead of its own separate section.**
+  Reference updated after the Network Health/Info merge above — the
+  target is now `connectionLayersLowToHigh`'s `networkLayer` (the
+  "Network" row inside `ContentView.connectionHealthSection`), not
+  `infoContent`/`infoSection`, which no longer exist. Still open,
+  reasoning unchanged: `ContentView+Window.swift`'s `ethernetLinkSection`
+  is its own small window-only box (`scrollBox(.ethernetLink)`, two
+  rows: Speed, Duplex) rendered separately, mutually exclusive with
+  `wifiSection` the same way. Move Speed/Duplex to live with the
+  Network row instead, the way the Wi-Fi tile's Signal/Channel/PHY Rate
+  already sit apart from that row today (BSSID especially) — worth
+  deciding during implementation whether that same precedent argues for
+  leaving Ethernet's own detail where it is instead of moving it, since
+  this request cuts the other way from that existing split.
 
-- [ ] **Info tile: move the DDNS row above the ISP row.** Currently
-  `ContentView.swift`'s `infoContent` puts `ddnsRow` after
-  `networkIdentityStatus`, below the inner VStack that ends with the ISP
-  row (Network/IP Address/Router/DNS Server/Public IP/ISP) — so on
-  screen DDNS renders last, after ISP. Move it to sit right after
-  "Public IP" and before "ISP" instead.
+- [x] ~~Info tile: move the DDNS row above the ISP row.~~ **Superseded
+  by the Network Health/Info merge above**, not built as originally
+  described — the structure this referred to no longer exists. There's
+  no separate "ISP row" to reorder against anymore (folded onto the ISP
+  Edge Router row), and `ddnsRow` already moved as part of that merge
+  (now at the bottom of the merged tile, alongside `publicIP.lastError`).
+  If a specific DDNS position is still wanted relative to the new
+  layout, that's a fresh request against the current structure, not
+  this one.
 
 - [ ] **Switch to Swift 6 language mode? Raised directly, not yet
   decided.** Checked the project settings directly rather than
