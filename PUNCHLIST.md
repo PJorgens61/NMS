@@ -47,50 +47,82 @@ checked off as of that date, full reasoning intact.
   duration more than *purpose* — e.g. Speed Test's caption says nothing
   about what a bufferbloat/RPM reading is *for* versus raw throughput).
 
-- [ ] **`docs/user-guide.md` needs a real structural rewrite, not just
-  a section patch — scoped and then deliberately not done yet.**
-  Started live, then explicitly cancelled to be tracked here instead.
-  Confirmed directly, past what the "annotated screenshot" item below
-  already flagged (stale popover language, stale Network Health/Info
-  split): the app has no menu bar icon or status item *at all* anymore
-  — `grep`ed the whole app for `MenuBarExtra`/`NSStatusItem`/dock-badge
-  code and found none; `NMSApp.swift`'s own comment confirms
-  `.regular` activation policy (Dock icon, app switcher, standard menu
-  bar) replaced the old `.accessory` one. So beyond the two staleness
-  layers already tracked, there's a third: the doc's whole framing —
-  opening line ("A menu bar utility"), `## 2. The menu bar icon`
-  (describes a green/yellow/red glance-without-opening status this app
-  no longer has *in any form*, not even a Dock badge — a real capability
-  gap worth deciding whether to just document as gone or actually
-  rebuild, not silently drop), and `## 3. Anatomy of the popover` /
-  `## 4. Expert Mode` as two separate surfaces — needs a real rewrite,
-  not a patch. Sections 3 and 4's actual *content* (Path to Internet,
-  Speed Test, Wi-Fi, Ethernet, SaaS Status, Events, SNMP Devices, DHCP
-  History) is still accurate and worth keeping, just needs to become
-  one section describing the one window instead of two.
+- [ ] **`docs/user-guide.md` (and README.md) need a real pass covering
+  two confirmed staleness layers — a text rewrite and an annotated
+  screenshot, grouped here since both keep re-deriving the same
+  diagnosis independently.** Started live once already, then explicitly
+  cancelled to be tracked here instead.
 
-  Directly relevant context for how to write it, not just what to fix:
-  current plan is to focus development on the single app window itself
-  to speed up building out the network tooling, and only once that
-  matures, consider a separate simplified UI for non-technical users.
-  So this rewrite should describe the current single-window app
+  **Why it's stale, confirmed directly, not assumed — and why a rewrite
+  that already happened didn't fix it.** `docs/user-guide.md` got a real
+  rewrite in `0fd18fe` (Aug 2), but that commit predates the
+  single-window rebuild (`4e4e83a`, Aug 3) by about a day — it was
+  accurate when written and immediately re-invalidated by the very next
+  architectural change. Re-confirmed live just now, not trusted from the
+  commit message alone: `grep`ing `NMS/NMSApp.swift`'s actual `Scene`
+  body shows three plain `Window` scenes (`"NMS"`/main,
+  `"Known Networks"`, `"Preferences"`) and zero `MenuBarExtra` anywhere
+  in the app — yet `docs/user-guide.md` still opens with "A menu bar
+  utility," still has a `## 2. The menu bar icon` section describing a
+  green/yellow/red glance-without-opening status the app has in no form
+  today (not even a Dock badge), and still frames `## 3. Anatomy of the
+  popover` / `## 4. Expert Mode` as two separate surfaces instead of the
+  one window that actually exists. **A second, independent staleness
+  layer, also still present in both docs** (re-confirmed live:
+  `docs/user-guide.md` and `README.md` both still have separate
+  `### Network Health` and `### Info` headings): both predate the
+  Network Health/Info merge into one "Network" tile (this file's own
+  archived "Network Health and Info tiles" entry). Sections 3/4's actual
+  *content* (Path to Internet, Speed Test, Wi-Fi, Ethernet, SaaS Status,
+  Events, SNMP Devices, DHCP History) is otherwise accurate and worth
+  keeping — this needs restructuring around what's real today, not a
+  content rewrite from scratch.
+
+  **Directly relevant context for how to write it, not just what to
+  fix**: current plan is to focus development on the single app window
+  itself to speed up building out the network tooling, and only once
+  that matures, consider a separate simplified UI for non-technical
+  users. So the rewrite should describe the current single-window app
   plainly, as the real current shape, not hedge it as temporary or
   gesture at a future popover/simple-mode — that's a later, separate
-  decision, not part of documenting what exists today.
+  decision, not part of documenting what exists today. **The "document
+  the lost at-a-glance status as gone, or rebuild it" question has a
+  real answer from a later conversation**: rebuild, eventually, as part
+  of that same future simplified UI, organized around a single
+  mission-control-style word rather than the old green/yellow/red
+  dot-only glance (see the "Nominal" status-language trial already
+  shipped on the DHCP row, and the tagline material in issue #7) — still
+  not built, still gated on the technical-focus phase finishing first,
+  but worth knowing the eventual shape isn't a blank slate so this
+  rewrite shouldn't describe the current gap as permanent.
 
-  **The "document as gone or rebuild" question above has a real
-  answer now, from a later conversation**: rebuild, eventually, as
-  part of that same future simplified UI, not as its own earlier
-  effort. "Perhaps the future UI will have a popover that expresses
-  the Nominal concept as its core" — the at-a-glance status this app
-  lost isn't just restored as-is, it becomes organized around a single
-  mission-control-style word (see the "Nominal" status-language trial
-  already shipped on the DHCP row, and the tagline material in issue
-  #7) rather than the old green/yellow/red dot-only glance. Still not
-  built, still gated on the technical-focus phase finishing first — but
-  worth knowing the eventual shape isn't a blank slate, so this
-  document's own rewrite (above) shouldn't accidentally foreclose it
-  by describing the current gap as permanent.
+  Two deliverables against that same diagnosis, not one:
+
+  1. **The structural text rewrite** — merge sections 3/4 into one
+     description of the single window, fix the "menu bar utility"
+     framing, and fold Network Health/Info into the one real "Network"
+     section, across both `docs/user-guide.md` and `README.md`.
+
+  2. **An annotated screenshot** — a real screenshot with callout
+     boxes/arrows pointing at each element (tiles, footer buttons) and a
+     short label on what it does, alongside the prose rather than
+     replacing it. Mechanically: a real PNG (`screencapture`, or the
+     app's own Screenshot button once it's confirmed to reflect live
+     layout — see `BUGS.md`'s "the capture path never actually exercises
+     the `NSHostingView`/`NSScrollView` layout" finding on that button's
+     own limits) with callout boxes/labels composited on top, saved
+     under `docs/images/`. **Mirror the callout labels from the app's
+     own tooltips, not a parallel set of captions** — a lot of controls
+     already carry `.help(...)`/accessibility-hint text (the
+     reachability dot's tooltip, `rpmThresholdHelp`, every external-link
+     icon's accessibility hint, and more), so a callout's label should be
+     sourced from — or kept word-for-word consistent with — the same
+     string already live in the Swift code, rather than hand-written doc
+     prose that can quietly drift from what the real UI says. What
+     doesn't mirror automatically is layout — matching a label to
+     *where* its element actually sits on a real screenshot stays a
+     manual/visual step regardless. Do this one *after* the text rewrite
+     lands, so the screenshot isn't stale before it's even committed.
 
 
 - [ ] **SNMP community strings, the Local Stress Test's confirmation,
@@ -152,54 +184,6 @@ checked off as of that date, full reasoning intact.
   dictionary-shaped default (`[fingerprint: Bool]`), or does it belong
   in a real per-network SwiftData row instead, matching how most other
   per-network state in this app already persists.
-
-- [ ] **User guide: an annotated screenshot explaining every UI
-  element, not yet built.** Raised directly — a real screenshot of the
-  app with callout boxes/arrows pointing at each element (menu bar
-  icon, tiles, footer buttons) and a short label on what it does,
-  rather than (or alongside) `docs/user-guide.md`'s current prose-only
-  "Anatomy of the popover" section. Worth noting before building: that
-  section's own title is already stale — the app is a single-window
-  app now, no popover left at all (see `ContentView+Window.swift`'s
-  doc comment, "no longer a popover/window audience split... just
-  organization") — so a real screenshot pass should fix that language
-  too, not just add callouts on top of it. Mechanically: a real PNG
-  captured from the running app (`screencapture`, or the app's own
-  Screenshot button once it's confirmed to reflect live layout — see
-  `BUGS.md`'s "the capture path never actually exercises the
-  `NSHostingView`/`NSScrollView` layout" finding on that button's own
-  limits) with callout boxes/labels composited on top, saved under
-  `docs/images/` alongside this doc's existing screenshots. Nothing
-  built yet — needs a real pass once the current merged-tile work
-  lands, so the screenshot isn't stale before it's even committed.
-
-  **That merge has now landed, and it added a second layer of
-  staleness on top of the popover one.** README.md and
-  `docs/user-guide.md` both still describe Network Health and Info as
-  two separate tiles ("side by side, each its own bordered box," a
-  dedicated `### Network Health` section, `docs/user-guide.md`'s own
-  `### Network Health` heading and its "full-width copy of Network
-  Health and Info" line) — all written before today's merge into one
-  "Network" tile (see this file's own "Network Health and Info tiles"
-  entry, now marked Built). Confirmed by grepping both docs directly:
-  README.md alone has 7 separate references assuming the old two-tile
-  shape. Whatever screenshot/callout pass happens here needs to catch
-  both staleness layers at once — the popover language and the
-  two-tile language — not just the one that prompted this item
-  originally.
-
-  **Mirror the callout labels from the app's own tooltips, not a
-  parallel set of captions.** Raised directly — a lot of controls
-  already carry `.help(...)`/accessibility-hint text (the reachability
-  dot's tooltip, `rpmThresholdHelp`, every external-link icon's
-  accessibility hint, and more), so a callout's label text should be
-  sourced from — or at least kept word-for-word consistent with — the
-  same string already live in the Swift code, rather than hand-written
-  doc prose that can quietly drift from what the real UI says. One
-  source of truth: update a tooltip, the next screenshot regeneration
-  reflects it. What doesn't mirror automatically is layout — matching a
-  label to *where* its element actually sits on a real screenshot stays
-  a manual/visual step regardless.
 
 - [ ] **Expose NMS's checks to Siri/Apple Intelligence via App Intents.**
   Raised directly, sketched out, not yet built. Checked the real
@@ -1468,16 +1452,6 @@ checked off as of that date, full reasoning intact.
      all beyond color) can't actually be tested or demoed today, only
      the "is something wrong at all" case.
 
-- [ ] **Shrink SNMP Devices' box height.** `SectionLayout.boxHeight(on:)`:
-  `200` → `150` (requested directly, down 25%). That 200 is explicitly
-  taller than its neighbors "because `sysDescr` wraps instead of
-  truncating and needs the extra room" (that type's own comment) —
-  worth a live check that a real wrapped `sysDescr` (the switch's is
-  the longest seen so far, two lines) still reads fully at 150 before
-  landing on it, not just trusting the arithmetic. (The matching
-  Printer Alerts half of this item is moot — that tile was removed
-  entirely; see "Decide whether to keep the printer alerts feature.")
-
 - [ ] **Blocked on the user: GCP OAuth client setup for "Sign in with
   Google" (Personalized Service Health).** Everything else for this
   feature (code, API research — see `DESIGN-NOTES.md`'s "Google Cloud,
@@ -1681,33 +1655,6 @@ from this list. This one remains, since it's an idea, not a defect):
   rather than half-building it, same discipline as the printer's own
   finding.
 
-- [ ] **Estimate and document NMS's system requirements.** Needed now
-  that other people are installing it — "will this bog down my Mac?" is a
-  fair question and there's currently no answer beyond a shrug.
-
-  Measure rather than guess; most of the instrumentation already exists:
-  - **CPU** — idle vs. during a check round vs. during an SNMP sweep
-    (the sweep is the peak: up to 32 concurrent `snmpget`s). Note the
-    round cadence doubles as load: every 30s normally, every 5s while
-    anything is unhealthy. `ConnectivityCheck.systemLoad` already records
-    system load per check, so there's history to read.
-  - **RAM** — resident size at launch and after a long run, watching for
-    growth. The retention story is uneven: `ConnectivityCheckRecord`,
-    `WiFiSampleRecord` and one other table are pruned, but Events, DHCP
-    and SNMP history accumulate indefinitely (see "No retention policy
-    anywhere (measured)" in DESIGN-NOTES.md).
-  - **Disk** — store growth per day. `StoreSizeService` already reports
-    live size in the footer, so this is a matter of sampling it over
-    time rather than new code.
-  - **Network** — near-zero by design, but worth stating: a handful of
-    pings, one DNS probe and one HTTP fetch per round, plus SNMP polls;
-    Speed Test is the only heavy user and only ever runs when asked.
-  - **macOS version and hardware floor** — deployment target is macOS
-    14.0. Both Intel and Apple Silicon are supported (Release archives
-    are universal).
-
-  End result should be a short "System requirements" section in
-  `README.md`, with the measured numbers rather than adjectives.
 
 - [ ] **File the two `swift-frontend` compiler crashes with Apple
   Feedback Assistant.** Two genuinely different crashes, not two copies

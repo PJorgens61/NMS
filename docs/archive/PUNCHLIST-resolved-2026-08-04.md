@@ -7,6 +7,32 @@ is preserved verbatim -- this is an archive, not a summary. See
 the deeper reasoning behind anything non-obvious that these entries
 reference.
 
+- [x] ~~Estimate and document NMS's system requirements.~~ **Built**
+  (`306e009`, found already done while sweeping the open list for
+  partial/already-landed work). `README.md`'s "System requirements"
+  section has exactly what this item asked for: measured (not
+  estimated) CPU (0.9% of one core steady-state), memory (~74 MB
+  resident), disk (~3.6 MB early, ~35 MB projected at 7-day steady
+  state), and network use, plus macOS version/hardware floor — real
+  numbers from the app's own instrumentation
+  (`ConnectivityCheck.systemLoad`, `StoreSizeService`), not adjectives.
+  Never checked off here even though the work landed.
+
+- [x] ~~Shrink SNMP Devices' box height.~~ **Superseded — not built as
+  proposed, and the premise no longer holds.** This item's baseline
+  (`200` → `150`) is stale: `SectionLayout.boxHeight(on:)`'s
+  `.snmpDevices` case is `300` today, not `200` — box height went
+  through its own separate, live-tested saga this session (several
+  explicit height changes while chasing an unrelated `sysDescr`
+  text-truncation bug) and landed at `300`, the opposite direction from
+  this item's request. The truncation bug itself was ultimately fixed a
+  different way — splitting `sysDescr` into fixed single-line `Text`s
+  (`sysDescrLines(_:)`) rather than relying on wrapping inside a taller
+  box — so the box height and the wrap-accommodation reasoning this item
+  cited are no longer connected the way its own text assumed. If
+  shrinking the box is still wanted, it needs a fresh look against the
+  current `300`/line-split reality, not this text.
+
 - [x] ~~Network Health and Info tiles: real content overlap, worth a
   combined design.~~ **Built.** Merged into one "Network" tile
   (`ContentView.connectionHealthSection`) — `infoSection` is gone
