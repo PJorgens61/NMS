@@ -87,13 +87,28 @@ struct ContentView: View {
             }
             .frame(maxHeight: .infinity)
             Divider()
+                // Capped to the tiles' own rendered width (not
+                // scrollableContent's wider 600pt gutter block) so this
+                // line's edges land exactly on the tile edges above it --
+                // confirmed by measuring rendered pixels, since a plain
+                // Divider() has no visible width of its own to eyeball
+                // against otherwise. Uncapped, this would inherit the
+                // outer VStack's full flexible width and stretch
+                // edge-to-edge.
+                .frame(maxWidth: Self.tileContentWidth)
+                .frame(maxWidth: .infinity)
             footerBar
-                .padding(12)
-                // Same cap-then-center as scrollableContent above, so the
-                // footer buttons stay column-aligned with the tiles
-                // instead of stretching to the window's full flexible
-                // width while the tiles stay centered in a narrower one.
-                .frame(maxWidth: 600)
+                // Vertical-only -- a horizontal component here would
+                // inset the button row inside the frame cap below,
+                // pulling Refresh/Quit in from the tile edges they're
+                // meant to align with.
+                .padding(.vertical, 12)
+                // Same tileContentWidth cap-then-center as Divider above,
+                // for the same reason: footerBar's own Spacer() otherwise
+                // fills whatever width it's offered, so this is what
+                // actually pins Refresh/Networks…/Preferences… to the
+                // left tile edge and Quit to the right one.
+                .frame(maxWidth: Self.tileContentWidth)
                 .frame(maxWidth: .infinity)
         }
         .frame(minWidth: 600, maxWidth: .infinity)
@@ -129,13 +144,26 @@ struct ContentView: View {
             // than at the bottom with the other full-width sections,
             // since it's read-at-a-glance current state, not scrollable
             // history like they are.
+            // Below here, every section uses `tile()` -- the same bordered
+            // box Network/Path to Internet/Speed Test/Apple networkQuality/
+            // Local Stress Test above already use. These used to go
+            // through a separate `scrollBox()` helper (a standalone
+            // Divider()+Text(title)+independently-scrolling box), which
+            // turned out not to share tile()'s width behavior: nested
+            // inside this whole VStack's own outer ScrollView, scrollBox's
+            // ScrollView sized to its content's natural width rather than
+            // the constrained width its parent actually offered, letting
+            // long rows push these boxes out past every tile's edge above
+            // them -- confirmed live, and two narrower attempts at fixing
+            // scrollBox() directly (matching tile()'s own
+            // `maxWidth: .infinity`, then capping explicitly to
+            // `tileContentWidth`) both still reproduced it. Switching to
+            // the exact mechanism that was already confirmed correct
+            // sidesteps whatever this is, rather than chasing it further.
             if wifiSSID.currentSSID != nil {
-                Divider()
-
-                Text("Wi-Fi")
-                    .font(.headline)
-
-                wifiSection
+                tile(title: "Wi-Fi", fixedHeight: SectionLayout.wifi.boxHeight) {
+                    wifiSection
+                }
             }
 
             // Ethernet's counterpart to the Wi-Fi section just above —
@@ -146,12 +174,9 @@ struct ContentView: View {
             // `wifiSSID.currentSSID != nil` above — nothing to show while
             // the cable's unplugged either).
             if ethernetLink.currentSpeedMbps != nil {
-                Divider()
-
-                Text("Ethernet")
-                    .font(.headline)
-
-                ethernetLinkSection
+                tile(title: "Ethernet", fixedHeight: SectionLayout.ethernetLink.boxHeight) {
+                    ethernetLinkSection
+                }
             }
 
             // `FeatureFlags.saasMonitoring` is a consent question (this
@@ -160,48 +185,41 @@ struct ContentView: View {
             // sections below — same reasoning: read-at-a-glance current
             // state, not scrollable history.
             if FeatureFlags.saasMonitoring {
-                Divider()
-
-                Text("SaaS Status")
-                    .font(.headline)
-
-                saasMonitoringSection
+                tile(title: "SaaS Status", fixedHeight: SectionLayout.saasMonitoring.boxHeight) {
+                    saasMonitoringSection
+                }
             }
 
-            Divider()
-
-            Text("Events")
-                .font(.headline)
-
-            eventList
+            tile(title: "Events", fixedHeight: SectionLayout.events.boxHeight) {
+                eventList
+            }
 
             // `FeatureFlags.snmpDevices` is a consent question (this is
             // active network probing against whatever LAN the Mac is on,
             // not just a UI section — see that flag's doc comment).
             if FeatureFlags.snmpDevices {
-                Divider()
-
-                HStack {
-                    Text("SNMP Devices")
-                        .font(.headline)
-                    Spacer()
-                    // No longer the only way to populate this list —
-                    // `SNMPViewModel.activate()` now sweeps automatically
-                    // the first time this feature has nothing rehydrated
-                    // from history. This stays for the case that leaves:
-                    // forcing a fresh sweep to find a device added to the
-                    // LAN after that first discovery, which nothing else
-                    // triggers.
-                    Button(snmp.isScanning ? "Scanning…" : "Scan") {
-                        snmp.scan()
+                tile(
+                    title: "SNMP Devices",
+                    fixedHeight: SectionLayout.snmpDevices.boxHeight,
+                    trailing: {
+                        // No longer the only way to populate this list —
+                        // `SNMPViewModel.activate()` now sweeps
+                        // automatically the first time this feature has
+                        // nothing rehydrated from history. This stays for
+                        // the case that leaves: forcing a fresh sweep to
+                        // find a device added to the LAN after that first
+                        // discovery, which nothing else triggers.
+                        Button(snmp.isScanning ? "Scanning…" : "Scan") {
+                            snmp.scan()
+                        }
+                        .disabled(snmp.isScanning || !snmp.isAvailable)
+                        .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
+                        .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
+                        .accessibilityIdentifier("snmpDevices.scan")
                     }
-                    .disabled(snmp.isScanning || !snmp.isAvailable)
-                    .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
-                    .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
-                    .accessibilityIdentifier("snmpDevices.scan")
+                ) {
+                    infrastructureList
                 }
-
-                infrastructureList
             }
 
             // LAN Devices has no section of its own — the popover was too
@@ -214,12 +232,9 @@ struct ContentView: View {
             // (nothing called its `scan()`) and, even if it had been,
             // found nothing SNMP's own subnet sweep didn't already cover.
 
-            Divider()
-
-            Text("DHCP History")
-                .font(.headline)
-
-            dhcpHistoryList
+            tile(title: "DHCP History", fixedHeight: SectionLayout.dhcpHistory.boxHeight) {
+                dhcpHistoryList
+            }
     }
 
     /// Refresh/Networks…/Preferences…/Quit, the build-hash/store-size
@@ -364,6 +379,16 @@ struct ContentView: View {
     /// solves it.
     static let tileHeight: CGFloat = 210
 
+    /// Every tile's actual rendered width once centered in the window --
+    /// window's 600pt floor minus scrollableContent's 32pt gutter on each
+    /// side (600 - 64 = 536). `Divider()` and `footerBar` cap themselves
+    /// to this same number (see `body`) so their edges land exactly on
+    /// the tiles' own edges instead of on the wider 600pt block that
+    /// includes the gutter -- confirmed by measuring rendered pixels
+    /// directly (a `Divider()` or a button row has no natural width of
+    /// its own to eyeball against, unlike a tile's visible border).
+    static let tileContentWidth: CGFloat = 536
+
     /// A bordered box with a header row (title, plus an optional trailing
     /// accessory like "Trace Now") — the visual unit tiles in the grid
     /// above are built from. A plain `Divider()` no longer reads as a
@@ -465,6 +490,7 @@ struct ContentView: View {
         // `effectiveHeight` is `nil` (including during a capture) is
         // still "no height constraint at all, size to content."
         .frame(maxWidth: .infinity, minHeight: effectiveHeight, maxHeight: effectiveHeight, alignment: .topLeading)
+        .reportFrameForFieldTest("tile.\(title)")
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.secondary.opacity(0.25))
@@ -477,26 +503,6 @@ struct ContentView: View {
     /// screenshot shows exactly how much of `tileHeight` the header
     /// actually consumes.
     private static let tileHeaderOverhead: CGFloat = 45
-
-    /// The one place a fixed-height, independently-scrolling history box
-    /// gets built — Events, SNMP Devices, DHCP History, Wi-Fi, Ethernet,
-    /// and SaaS Status all route through here.
-    // Not `private` — called from every list builder in
-    // `ContentView+Window.swift`.
-    @ViewBuilder
-    func scrollBox(
-        _ section: SectionLayout,
-        spacing: CGFloat = 2,
-        @ViewBuilder content: () -> some View
-    ) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: spacing) {
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: section.boxHeight)
-    }
 
     /// One summary row for however many hostnames are configured — not
     /// one row per hostname, to keep this from growing the tile

@@ -1,15 +1,18 @@
 import CoreGraphics
 
-/// Every `ContentView` section with its own fixed-height, independently-
-/// scrolling box — declared here so the height lives in one place rather
-/// than scattered across `scrollBox` call sites.
+/// Every `ContentView` section with its own fixed-height `tile()` box —
+/// declared here so the height lives in one place rather than scattered
+/// across `tile(fixedHeight:)` call sites.
 ///
-/// **Not every section is listed.** Network Health, Info, Path to
-/// Internet, Speed Test, and Apple networkQuality are all unconditional
-/// tiles sharing `ContentView.tileHeight` directly via
-/// `tile(fixedHeight:)` — nothing to declare here. Only sections that get
-/// their own independently-scrolling box via `ContentView.scrollBox`
-/// appear in this enum.
+/// **Not every section is listed.** Network, Path to Internet, Speed
+/// Test, and Apple networkQuality are all unconditional tiles sharing
+/// `ContentView.tileHeight` directly — nothing to declare here. These six
+/// used to get their own box via a separate `scrollBox()` helper (removed
+/// — its width behavior diverged from `tile()`'s in a way that let
+/// content overflow past every other tile's edge, confirmed live; see
+/// `ContentView.scrollableContent`'s doc comment for the full story) and
+/// now go through `tile(fixedHeight:)` too, just each with its own height
+/// from here instead of the shared constant.
 enum SectionLayout: String, CaseIterable, Sendable {
     case events
     case snmpDevices

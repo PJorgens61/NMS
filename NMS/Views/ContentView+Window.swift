@@ -687,38 +687,36 @@ extension ContentView {
     /// `saasMonitoringSection` stopped being the two exceptions.
     @ViewBuilder
     var wifiSection: some View {
-        scrollBox(.wifi) {
-            // Moved from Info — see that section's call site for the
-            // discoverability tradeoff. Shown first, before Signal: it
-            // identifies *which* access point, which is the natural thing to
-            // read before that AP's own signal/link characteristics below —
-            // same ordering Info used to have (right after Network).
-            if let bssid = wifiSSID.currentBSSID {
-                row("BSSID", bssid)
+        // Moved from Info — see that section's call site for the
+        // discoverability tradeoff. Shown first, before Signal: it
+        // identifies *which* access point, which is the natural thing to
+        // read before that AP's own signal/link characteristics below —
+        // same ordering Info used to have (right after Network).
+        if let bssid = wifiSSID.currentBSSID {
+            row("BSSID", bssid)
+        }
+        // Not the plain `row(_:_:)` helper, so the sparkline can sit
+        // inline between label and value — same layout Network Health's
+        // per-layer rows already use for their own sparklines.
+        HStack {
+            Text("Signal")
+                .foregroundStyle(.secondary)
+            Spacer()
+            if wifiSSID.recentSamples.count > 1 {
+                Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
             }
-            // Not the plain `row(_:_:)` helper, so the sparkline can sit
-            // inline between label and value — same layout Network Health's
-            // per-layer rows already use for their own sparklines.
-            HStack {
-                Text("Signal")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if wifiSSID.recentSamples.count > 1 {
-                    Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
-                }
-                Text(wifiSignalDetail)
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.system(size: 12))
-            row("Channel", wifiChannelDetail)
-            if let rate = wifiSSID.currentPHYRateMbps {
-                row("PHY Rate", "\(Int(rate)) Mbps")
-            }
-            if let security = wifiSSID.currentSecurity {
-                row("Security", security)
-            }
+            Text(wifiSignalDetail)
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .font(.system(size: 12))
+        row("Channel", wifiChannelDetail)
+        if let rate = wifiSSID.currentPHYRateMbps {
+            row("PHY Rate", "\(Int(rate)) Mbps")
+        }
+        if let security = wifiSSID.currentSecurity {
+            row("Security", security)
         }
     }
 
@@ -741,18 +739,16 @@ extension ContentView {
     }
 
     /// Ethernet's counterpart to `wifiSection` — window-only, boxed the
-    /// same way via `scrollBox`. Just two rows: no signal to chart, no
+    /// same way via `tile()`. Just two rows: no signal to chart, no
     /// BSSID/channel/security the way a Wi-Fi radio has, since a wired
     /// link has none of those concepts.
     @ViewBuilder
     var ethernetLinkSection: some View {
-        scrollBox(.ethernetLink) {
-            if let speed = ethernetLink.currentSpeedMbps {
-                row("Speed", "\(Int(speed)) Mbps")
-            }
-            if let duplex = ethernetLink.currentDuplex {
-                row("Duplex", duplex)
-            }
+        if let speed = ethernetLink.currentSpeedMbps {
+            row("Speed", "\(Int(speed)) Mbps")
+        }
+        if let duplex = ethernetLink.currentDuplex {
+            row("Duplex", duplex)
         }
     }
 
@@ -772,14 +768,8 @@ extension ContentView {
             Text("No events yet — everything's healthy. Entries appear here when something changes (an outage or a recovery).")
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
-                // Holds the same height the populated list would occupy,
-                // so a first event appearing doesn't make the whole
-                // window jump.
-                .frame(height: SectionLayout.events.boxHeight, alignment: .top)
         } else {
-            scrollBox(.events) {
-                eventRows
-            }
+            eventRows
         }
     }
 
@@ -861,9 +851,7 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
         } else {
-            scrollBox(.snmpDevices) {
-                infrastructureRows
-            }
+            infrastructureRows
         }
 
         if let error = snmp.lastError {
@@ -1120,9 +1108,10 @@ extension ContentView {
                 .foregroundStyle(.secondary)
                 .font(.system(size: 12))
         } else {
-            scrollBox(.dhcpHistory, spacing: 4) {
-                dhcpHistoryRows
-            }
+            // Row spacing tightens from scrollBox's old 4pt to tile()'s
+            // fixed 2pt (not configurable) -- acceptable, and now
+            // consistent with every other tile's row spacing too.
+            dhcpHistoryRows
         }
     }
 
@@ -1165,26 +1154,24 @@ extension ContentView {
     // Not `private` — called from `ContentView.swift`'s `scrollableContent`.
     @ViewBuilder
     var saasMonitoringSection: some View {
-        scrollBox(.saasMonitoring) {
-            ForEach(saasMonitoring.statuses) { status in
+        ForEach(saasMonitoring.statuses) { status in
+            saasStatusRow(status)
+        }
+        // Deliberately a separate group with its own small label, not
+        // interleaved into the list above — a plain reachability
+        // check to a user's own site is a genuinely weaker signal
+        // than a real vendor status page (see `SaaSMonitoringViewModel
+        // .checkUserAddedSites`'s doc comment), and showing it
+        // identically would overstate that confidence. Absent
+        // entirely when the user hasn't added anything, same as
+        // every other conditional section in this app.
+        if !saasMonitoring.userAddedStatuses.isEmpty {
+            Text("Your Own Sites")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+            ForEach(saasMonitoring.userAddedStatuses) { status in
                 saasStatusRow(status)
-            }
-            // Deliberately a separate group with its own small label, not
-            // interleaved into the list above — a plain reachability
-            // check to a user's own site is a genuinely weaker signal
-            // than a real vendor status page (see `SaaSMonitoringViewModel
-            // .checkUserAddedSites`'s doc comment), and showing it
-            // identically would overstate that confidence. Absent
-            // entirely when the user hasn't added anything, same as
-            // every other conditional section in this app.
-            if !saasMonitoring.userAddedStatuses.isEmpty {
-                Text("Your Own Sites")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
-                ForEach(saasMonitoring.userAddedStatuses) { status in
-                    saasStatusRow(status)
-                }
             }
         }
     }
