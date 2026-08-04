@@ -27,22 +27,40 @@ import AppKit
 /// same reason -- not trusting this process's notion of "the temp
 /// directory" to resolve to the same place the invoking shell's does.
 ///
-/// **Scope, confirmed empirically, not assumed:** works for a
-/// self-contained view (a bare `Text`, a hand-built tile-shaped box with
-/// padding/fixed-height/`.overlay`). Crashes the test-host process for
-/// `ContentView`'s full `body` *and* for `scrollableContent` alone
-/// (i.e. even with `body`'s own `ScrollView`/`.coordinateSpace(name:
-/// "nmsWindow")` removed) — narrowed that far and stopped there; the
-/// exact trigger inside `scrollableContent`'s real tiles/view-model
-/// graph (a specific `Grid`, `Sparkline`, or side-effecting view model)
-/// isn't identified. See `PUNCHLIST.md`'s "ImageRenderer-based preview
-/// capture" entry for that and the other deferred options.
+/// **Scope, confirmed empirically, not assumed -- and it's a race, not
+/// a single trigger.** Bisected step by step (2026-08-04): a bare
+/// `Text` works; a hand-built tile-shaped box (padding/fixed-height/
+/// `.overlay`) works; a bare `Grid` works; a `.task` that mutates
+/// `@State` on appear works. But `ContentView`'s full `body`,
+/// `scrollableContent` alone, and even the Network tile alone (via a
+/// real `ContentView` instance from `ContentViewPreviewSupport
+/// .makeContentView()`) all crashed the test-host process --
+/// and then, rendering that same *known-safe* tile-shaped box while
+/// simply keeping that real instance alive in scope (nothing of its
+/// content rendered), the run crashed once and then succeeded
+/// identically on xctest's automatic retry.
+///
+/// That's the tell: `ContentViewPreviewSupport.makeContentView()`
+/// constructs all 17 real view models with their real side effects
+/// (background timers, subprocess spawns -- see that function's own
+/// doc comment), and `ImageRenderer` expects to snapshot a static tree
+/// synchronously. If one of those background effects fires mid-render
+/// and touches `@Published`/`@State`, it crashes; if not, it doesn't.
+/// Longer/heavier renders (the real `ContentView`) reliably lose that
+/// race; short, simple ones usually win it, which is why the isolated
+/// examples above read as "safe" until one wasn't. There's no single
+/// line to fix -- see `PUNCHLIST.md`'s "ImageRenderer-based preview
+/// capture" entry for what a real fix would need (most likely: a way
+/// to render against inert/stub view models with no live side effects,
+/// rather than the real object graph this reuses from Xcode's own
+/// canvas preview).
 ///
 /// **What this means in practice**: edit `viewToCapture` below to
 /// whatever specific, self-contained view needs a look right now --
-/// one real tile's content, a hand-built reproduction of a layout
-/// question, etc. Not a "render any tile by name" system; a starting
-/// point for that specific render, adjusted each time it's used.
+/// something with no dependency on the real, side-effecting view-model
+/// graph. Not a "render any real tile with real data" system; a
+/// starting point for a specific, isolated render, adjusted each time
+/// it's used.
 @Suite("Preview capture (manual only, see script/capture-preview.sh)")
 struct PreviewCaptureTests {
     private struct Request: Decodable {
@@ -54,12 +72,10 @@ struct PreviewCaptureTests {
     private static let requestURL = URL(fileURLWithPath: "/tmp/nms-capture-request.json")
 
     /// Edit this to whatever needs rendering right now. Left as the
-    /// confirmed-working example (a hand-built tile-shaped box) rather
-    /// than a real `ContentView` tile, since none of `ContentView`'s
-    /// real tiles are reachable in isolation today — they're
-    /// constructed inline in `scrollableContent`, not as separately
-    /// named properties, and `scrollableContent` itself is one of the
-    /// two confirmed-crashing cases above.
+    /// confirmed-working example (a hand-built tile-shaped box) --
+    /// deliberately not touching `ContentViewPreviewSupport
+    /// .makeContentView()` or any real view model, see this file's own
+    /// doc comment for why.
     @MainActor
     @ViewBuilder
     private static var viewToCapture: some View {
