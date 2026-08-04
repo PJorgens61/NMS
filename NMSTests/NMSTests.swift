@@ -1409,6 +1409,45 @@ struct ISPIdentityServiceTests {
         #expect(service.statusPageURL(forOrganization: "Sonic.net, LLC") == "https://sonicstatus.com/")
         #expect(service.statusPageURL(forOrganization: "Astound Broadband LLC") == nil)
     }
+
+    @Test("shortName: a curated match wins even when generic-word-stripping alone would give a different (wrong) answer")
+    func shortNameCuratedWins() {
+        #expect(ISPIdentityService.shortName(for: "Comcast Cable Communications, LLC") == "Comcast")
+        // Confirmed live (2026-08-04): the same ISP's RDAP name varies by
+        // address block -- this is the second real variant seen that
+        // night, and it must resolve to the same short name as the first.
+        #expect(ISPIdentityService.shortName(for: "Comcast IP Services, L.L.C.") == "Comcast")
+    }
+
+    @Test("shortName: Spectrum/Cox/Optimum/WOW! curated entries added from desk research, not yet live-RDAP-verified")
+    func shortNameNewlyAddedCuratedEntries() {
+        #expect(ISPIdentityService.shortName(for: "Charter Communications LLC") == "Spectrum")
+        #expect(ISPIdentityService.shortName(for: "Cox Communications, Inc.") == "Cox")
+        // Both the old and new (post-Nov-2025-rename) legal names should
+        // resolve to the current brand name.
+        #expect(ISPIdentityService.shortName(for: "Altice USA, Inc.") == "Optimum")
+        #expect(ISPIdentityService.shortName(for: "Optimum Communications, Inc.") == "Optimum")
+        #expect(ISPIdentityService.shortName(for: "WideOpenWest, Inc.") == "WOW!")
+    }
+
+    @Test("shortName: an ISP not in the curated table falls back to generic-word-stripping instead of the raw legal name")
+    func shortNameUncuratedFallback() {
+        #expect(ISPIdentityService.shortName(for: "Astound Broadband LLC") == "Astound")
+        #expect(ISPIdentityService.shortName(for: "RCN Corporation") == "RCN")
+        #expect(ISPIdentityService.shortName(for: "Frontier Communications Corp") == "Frontier")
+    }
+
+    @Test("stripGenericWords: a suffix ending in a period at the very end of the string still gets removed")
+    func stripGenericWordsTrailingPeriodSuffix() {
+        // Regression pin: a plain `\b...\b` regex fails here specifically
+        // -- `\b` needs an actual word/non-word transition, and both "a
+        // period" and "end of string" count as non-word, so no boundary
+        // exists right after a trailing "L.L.C." with nothing following.
+        // Caught by direct testing before shipping, not assumed.
+        #expect(ISPIdentityService.stripGenericWords("Comcast IP Services, L.L.C.") == "Comcast IP")
+        #expect(ISPIdentityService.stripGenericWords("Some ISP Inc.") == "Some ISP")
+        #expect(ISPIdentityService.stripGenericWords("Some ISP Incorporated") == "Some ISP Incorporated")
+    }
 }
 
 // MARK: - Persistent-store fallback detection

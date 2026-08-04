@@ -128,11 +128,73 @@ struct ISPIdentityService {
         ("Comcast", "Comcast"),
         ("AT&T", "AT&T"),
         ("Sonic.net", "Sonic"),
-        ("MonkeyBrains", "MonkeyBrains")
+        ("MonkeyBrains", "MonkeyBrains"),
+        // Added from desk research (Google search, not live RDAP-verified
+        // against a real customer on each ISP) -- see
+        // isp-shortname-quick-research.md. A brand-mismatch case each,
+        // same reason Comcast/AT&T are here: generic-word-stripping alone
+        // can't get from the legal name to the name customers recognize.
+        ("Charter", "Spectrum"),
+        ("Cox", "Cox"),
+        // Altice USA renamed to Optimum Communications, Inc. in Nov 2025;
+        // matching both catches RDAP records still under the old name.
+        ("Altice", "Optimum"),
+        ("Optimum", "Optimum"),
+        ("WideOpenWest", "WOW!")
     ]
 
+    /// Generic corporate words stripped from an RDAP name that doesn't
+    /// match anything in `shortNames` above — a cheap, general fallback
+    /// so an *unrecognized* ISP still displays reasonably cleaned up
+    /// ("XYZ Broadband Communications, LLC" → "XYZ") rather than the
+    /// full raw legal string, without needing a curated entry for every
+    /// ISP that exists. Deliberately doesn't replace the curated table
+    /// and never overrides it: stripping generic words can't fix a
+    /// genuine brand mismatch (stripping "Charter Communications LLC"
+    /// down to "Charter" still isn't "Spectrum," the name customers
+    /// actually recognize) — only a real curated entry can, so
+    /// `shortName(for:)` always checks `shortNames` first.
+    private static let genericWords = [
+        "Telecommunications", "Communications", "Broadband", "Network",
+        "Networks", "Cable", "Services", "Holdings", "Corporation",
+        "Corp.", "Corp", "Inc.", "Inc", "LLC", "L.L.C.", "Ltd.", "Ltd"
+    ]
+
+    /// Word-boundary removal, not a raw substring strip — "Inc" inside
+    /// "Incorporated" shouldn't be touched, only "Inc" as its own word.
+    /// Lookarounds (`(?<!\w)`/`(?!\w)`), not `\b`: a plain `\b` fails at
+    /// the very end of the string right after a suffix ending in a
+    /// period ("...L.L.C." with nothing following) — `\b` needs an
+    /// actual word/non-word *transition*, and both "the period" and
+    /// "end of string" count as non-word, so no transition exists there.
+    /// Confirmed by direct testing against "Comcast IP Services,
+    /// L.L.C." before shipping this, not assumed. The lookaround form
+    /// only asks "is a word character adjacent," which end-of-string
+    /// trivially satisfies as "no," fixing exactly this case.
+    /// Leftover punctuation/whitespace the removals leave behind (a
+    /// dangling comma, a trailing period, doubled spaces) gets cleaned
+    /// up after.
+    static func stripGenericWords(_ name: String) -> String {
+        var result = name
+        for word in genericWords {
+            result = result.replacingOccurrences(
+                of: "(?<!\\w)\(NSRegularExpression.escapedPattern(for: word))(?!\\w)",
+                with: "",
+                options: .regularExpression
+            )
+        }
+        result = result.replacingOccurrences(of: #"\s*,\s*"#, with: " ", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return result.trimmingCharacters(in: .whitespaces)
+    }
+
     static func shortName(for organizationName: String) -> String {
-        shortNames.first { organizationName.contains($0.match) }?.short ?? organizationName
+        if let curated = shortNames.first(where: { organizationName.contains($0.match) })?.short {
+            return curated
+        }
+        let stripped = stripGenericWords(organizationName)
+        return stripped.isEmpty ? organizationName : stripped
     }
 
     /// Routed through `shortName(for:)`, not a direct `statusPages`
