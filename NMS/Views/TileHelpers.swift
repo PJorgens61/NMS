@@ -187,3 +187,15 @@ extension View {
         }
     }
 }
+
+/// Composes a tooltip from an always-shown plain explanation and an
+/// optional mechanism-level clause, appended only when
+/// `FeatureFlags.tooltipTechnicalDetail` is on — one adaptive string, not
+/// two independent copies of the same fact that could quietly drift
+/// apart (same "one source of truth" reasoning `rpmThresholdHelp`
+/// already established). See PUNCHLIST.md's "expert mode and a calmer
+/// mode" entry for the bigger, not-yet-decided version of this same
+/// split.
+func tooltip(_ base: String, technical: String) -> String {
+    FeatureFlags.tooltipTechnicalDetail ? "\(base) \(technical)" : base
+}

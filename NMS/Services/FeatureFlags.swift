@@ -39,6 +39,7 @@ enum FeatureFlags {
     static let ddnsCheckIntervalKey = "FeatureDDNSCheckInterval"
     static let autoBaselineNetworkQualityKey = "FeatureAutoBaselineNetworkQuality"
     static let tooltipHighlightsKey = "FeatureTooltipHighlights"
+    static let tooltipTechnicalDetailKey = "FeatureTooltipTechnicalDetail"
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by
@@ -96,6 +97,22 @@ enum FeatureFlags {
     static var tooltipHighlights: Bool {
         guard defaults.object(forKey: tooltipHighlightsKey) != nil else { return true }
         return defaults.bool(forKey: tooltipHighlightsKey)
+    }
+
+    /// Whether tooltips include the extra mechanism-level clause on top
+    /// of their plain explanation (`scutil --renew`, `dig` against a
+    /// named resolver, subnet-scoping specifics) — raised directly
+    /// ("since we are still targeting expert users we can add some
+    /// technical details... Not too much though"), then made toggleable
+    /// on request rather than unconditional, per the same "Concise" vs.
+    /// "Technical" split proposed for a future expert/calmer-mode
+    /// boundary (see PUNCHLIST.md). **A third deliberate on-by-default
+    /// exception**, same shape as `saasMonitoring`/`tooltipHighlights`
+    /// above: this app's current stated audience is expert users, so
+    /// technical detail is the default fit, not something to hide.
+    static var tooltipTechnicalDetail: Bool {
+        guard defaults.object(forKey: tooltipTechnicalDetailKey) != nil else { return true }
+        return defaults.bool(forKey: tooltipTechnicalDetailKey)
     }
 
     /// Which of `SaaSStatusService.monitoredServices` are actually

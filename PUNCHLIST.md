@@ -2224,6 +2224,13 @@ from this list. This one remains, since it's an idea, not a defect):
      "resolves" means (a fixed timeout? enough samples collected? a
      confidence threshold?).
 
+     **A visual precedent worth knowing about, seen live in a dedicated
+     Wi-Fi status tool**: its own signal-history view is a continuous
+     filled-area chart, not a dot-trail — a real, different option from
+     the dot-history style this item started from. Worth weighing
+     against dots before committing, not just defaulting to dots because
+     that's what `networkQuality`'s own sparkline does.
+
   7. **DNS-unreachable should be visually distinct from other
      connectivity failures, not just red like everything else.**
      Raised directly after observing a real DNS-unreachable state in
@@ -2499,6 +2506,170 @@ from this list. This one remains, since it's an idea, not a defect):
   that a fast PHY Rate/idle-latency number gives no hint of. Inherits
   the same discoverability problem as every other tooltip in the app —
   see the item directly above.
+
+- [ ] **An expert mode and a second, calmer mode — not yet named,
+  deliberately not "beginner" (raised directly: don't call it that).**
+  Ties directly into the already-established plan (see this file's
+  archived "docs/user-guide.md" item and DESIGN-NOTES.md): focus stays
+  on the single technical window for now, a simplified UI for
+  non-technical users is a real but later, separate phase — this
+  extends that same eventual split to tooltips specifically, prompted
+  by today's tooltip work going noticeably more technical (`scutil
+  --renew`, `dig` against a named public resolver, subnet-scoping
+  detail) right after it was raised directly that NMS "still targets
+  expert users."
+
+  **The design question this raised — two tooltip strings per spot, or
+  one that adapts — has a first real answer now, scoped narrowly on
+  purpose.** Built as a `FeatureFlags.tooltipTechnicalDetail` toggle
+  (Preferences → "Tooltip Detail," Concise/Technical segmented picker,
+  on-by-default) plus a `tooltip(_:technical:)` helper composing one
+  adaptive string from an always-shown base and an optional appended
+  clause — not two independent copies, avoiding the drift risk
+  `rpmThresholdHelp`'s own reasoning already flagged. Wired into the
+  five tooltips that had just gained mechanism-level detail (Refresh,
+  DHCP Renew, SNMP Scan, DDNS Add, user-site Add). Deliberately named
+  around what it actually does today (tooltip wording only) rather than
+  "Simple/Expert" — see the naming-collision reasoning below, still
+  intact and still the reason the bigger split isn't this.
+
+  **Still open**: `PHY Rate`'s and `rpmThresholdHelp`'s own tooltips
+  weren't split the same way — their technical content is woven through
+  the explanation rather than appended at the end, so they'd need a
+  rewrite, not just a call-site change, to fit the same `base`/
+  `technical` shape. Worth doing once there's a second real reason to
+  touch either, not a special-cased exception to chase down now.
+
+  Whatever the bigger mode's naming lands on, it's still the same mode
+  boundary as the future "Nominal popover" idea already tracked
+  elsewhere in this file's history, not a second, unrelated toggle —
+  worth deciding both together rather than shipping two separate
+  expert/simple splits over time. This tooltip-detail preference is a
+  deliberately small, reversible first step toward that, not a
+  commitment to the eventual name.
+
+- [ ] **Wi-Fi channel-crowding scan — how many other networks are
+  competing for the current channel, as a clue toward poor Wi-Fi
+  performance.** Raised directly, connecting to the "consumers see a
+  PHY Rate number, not the real crowded-spectrum picture" reasoning
+  already behind `WiFiTile.phyRateHelp` — this would make the crowding
+  concrete and specific to the user's own environment instead of just
+  explaining that it exists in the abstract.
+
+  **Mechanism, not yet verified live**: CoreWLAN's
+  `CWInterface.scanForNetworks(withSSID:)` returns every nearby
+  `CWNetwork`, each with its own `channel`/`rssiValue` — counting how
+  many share (or overlap) the currently-associated channel is the real
+  signal. Two real correctness traps worth designing around from the
+  start, not discovering after building: **2.4GHz channel overlap**
+  (channels 1-11 in the US overlap except 1/6/11, so an exact
+  channel-number match undercounts real interference — needs an
+  overlap-aware count, not a bare equality check) and **weighting by
+  signal strength, not a raw count** (a network at -85dBm barely
+  competes for airtime against one at -50dBm on the same channel; an
+  unweighted "N networks detected" could overstate crowding from
+  distant/weak APs that aren't really the problem).
+
+  **Known constraints from precedent already in this app**: Wi-Fi
+  scanning needs Location Services authorization on modern macOS
+  (`WiFiSSIDViewModel` already has a real, silent-when-denied path for
+  this — same handling would apply here, not a new permission story),
+  and an active scan takes real time and shouldn't run as background
+  polling — on-demand only, same "costly features are on-demand, not
+  always-running" convention Speed Test and Apple networkQuality
+  already follow.
+
+  **Checked against a real reference tool, raised directly: what does a
+  dedicated professional Wi-Fi analyzer do here, that NMS could
+  borrow?** Confirmed from that tool's own vendor blog (not just a
+  generic description): its "Utilization inspector" added an
+  **"Overlapping Networks" column — a raw count of networks overlapping
+  the selected channel**, exactly the overlap-aware metric already identified above
+  as the correctness trap to design around, now with real precedent
+  that it's the right thing to count. Two things this changes about the
+  plan:
+  1. **A professional tool shows this as a plain number in a column,
+     not a color-coded severity dot** — real evidence that "just show
+     the count, let an expert reader interpret it" is a legitimate,
+     established answer, not a cop-out. Strengthens the case for
+     starting numeric-only and deferring color entirely, rather than
+     inventing thresholds to justify a dot that this app's own
+     `statusGridRow` shape would otherwise default to.
+  2. **"Channel Utilization" itself (a %-busy airtime measure, distinct
+     from a network count) is the actual richer metric professional
+     tools use it alongside** — not yet confirmed whether CoreWLAN's
+     public API exposes anything like it (`CWNetwork`/`CWInterface`
+     only surfaced RSSI/channel/BSSID in what's been checked so far);
+     if it doesn't, "Overlapping Networks" is the closest thing NMS can
+     build without deeper/private API access, which is fine as a
+     starting point but worth being honest that it's a proxy, not the
+     same measurement a real spectrum-aware tool reports.
+
+  One thing found in a search but *not* confirmed as that tool's own,
+  and deliberately not adopted here: a "Channel Score" composite
+  weighted-penalty formula (100 minus several named penalty terms)
+  turned up in the same research pass, but the sourcing was ambiguous
+  enough (possibly a different, competing tool blended into the same
+  search results) that it isn't attributed to any specific product or
+  treated as a real precedent — flagged so it doesn't get cited as one
+  later without being re-verified against a first-party source.
+
+  **Revised plan, given the above**: ship the overlap-aware
+  "Overlapping Networks"-style count as a plain number first — no color,
+  no invented thresholds, matching the reference tool's own choice —
+  and treat a color-coded severity dot as a real follow-up only once
+  there's an actual authoritative source for what count is genuinely
+  bad, not a v1 requirement. Also worth a real check on `CWInterface`'s
+  actual surface area before committing to "count only" as the ceiling
+  of what's possible here.
+
+  **Two more things seen live in a real session with that same tool
+  against a real network, not just from the earlier web research**:
+  1. **Channel Width matters for interpreting the count, not just the
+     count itself** — an 80MHz channel occupies substantially more
+     spectrum than a 20MHz one, so it inherently overlaps more of what's
+     nearby. Worth showing alongside whatever overlap count NMS builds,
+     not just the count alone, or a wide-channel network and a
+     narrow-channel one with the same raw count would read as equally
+     crowded when they aren't.
+  2. **A small signal-strength fill-bar next to the dBm/RSSI number** —
+     genuinely simple to build (a `Rectangle` scaled to signal strength,
+     no chart library), and a real, low-effort visual upgrade over a
+     bare number, independent of the crowding-count feature itself.
+
+  **Explicitly out of scope for "simple," seen in the same session**:
+  a real frequency-domain spectrum chart — each nearby network drawn as
+  its own occupied-bandwidth shape across the band, the selected
+  network highlighted so overlaps are visible at a glance. This is
+  genuinely the most useful part of a dedicated analyzer for actually
+  *seeing* crowding, but it's custom chart-drawing code and a real UI
+  undertaking on its own — worth keeping as a distinct, much-later idea,
+  not folded into "add a count to a row."
+
+- [ ] **Log AP-to-AP roaming as a real event — a confirmed gap, not
+  built.** Raised directly while looking at a dedicated Wi-Fi status
+  tool, which notifies on exactly this ("when the computer... moves
+  (roams) to a different access point"). Checked directly, not assumed: `grep`ing
+  `AppEventKind` for anything roaming/BSSID-shaped turns up nothing —
+  NMS shows the *current* BSSID in the Wi-Fi tile, but never logs a
+  transition when it changes while the SSID stays the same (a real,
+  distinct signal from `wifiNetworkChanged`, which is about roaming
+  *between* SSIDs/networks, not APs within one). A multi-AP home or
+  small-office setup — this Mac's own Aruba pair among them — roams
+  silently today; nothing in Events would show it happened at all,
+  let alone when or how often.
+
+  **Directly testable, not just theoretical** — two APs on the same
+  SSID are already available for real roam testing, not a hypothetical
+  scenario to design blind for.
+
+  Shape, not yet designed: a new `AppEventKind` case (`wifiRoamed` or
+  similar), logged from wherever `WiFiSSIDViewModel` already detects a
+  BSSID change, carrying old/new BSSID (and ideally old/new RSSI, to
+  distinguish "roamed to a stronger AP" from "roamed to a weaker one" —
+  the second being the more actionable finding). Same "only a real
+  transition logs anything" convention every other change-event in this
+  app already follows.
 
 ## Deliberately not doing
 

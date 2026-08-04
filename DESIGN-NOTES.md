@@ -72,6 +72,7 @@ friend's actual name).
 - [Testing races: the confirmation gap is systemic, and the real blocker is dependency injection](#testing-races-the-confirmation-gap-is-systemic-and-the-real-blocker-is-dependency-injection)
 - [AI-assisted troubleshooting: an alternative to hand-curated remediation guides](#ai-assisted-troubleshooting-an-alternative-to-hand-curated-remediation-guides)
 - ["All systems Nominal": defining the aggregate status, and validating it against a real scenario](#all-systems-nominal-defining-the-aggregate-status-and-validating-it-against-a-real-scenario)
+- [Product positioning: packet-oriented and higher in the stack, not a Wi-Fi tool](#product-positioning-packet-oriented-and-higher-in-the-stack-not-a-wi-fi-tool)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -5784,3 +5785,42 @@ where "Nominal" already lives — and only after that, (4) the
 capacity+responsiveness pairing for the Zoom/CoD/Netflix scenario
 specifically, which is really a *report* built on top of Speed Test
 and `networkQuality`'s existing data rather than a new measurement.
+
+## Product positioning: packet-oriented and higher in the stack, not a Wi-Fi tool
+
+Raised directly, in the context of a family of dedicated Wi-Fi analysis
+tools from another Mac developer (the one whose work directly inspired
+this project): "[that developer] is focused on Wi-Fi. NMS is packet
+oriented. Higher in the stack." Worth writing down precisely because it
+resolves a real scope question rather than just being a nice turn of
+phrase — it's the actual principle to check any future Wi-Fi-adjacent
+feature idea against, not something to re-derive from scratch each time
+one comes up. Deliberately not naming that developer or their products
+here or anywhere else in this project — the point is the architectural
+distinction, not a comparison against a specific vendor.
+
+**The distinction, stated plainly**: dedicated Wi-Fi tools work at the
+radio/link layer — signal, channel, spectrum, what's happening on the
+air itself. NMS works above that — does a packet actually get where
+it's going, how fast, with how much loss or delay, to which devices,
+over which protocols (ping/traceroute reachability, DNS resolution,
+HTTP reachability, DHCP, SNMP device inventory, SaaS status). The two
+are complementary where they don't overlap (deep spectrum analysis is
+something NMS doesn't do and arguably shouldn't) and genuinely
+overlapping where they do (a lightweight "current connection status at
+a glance" view is the same job NMS's own Wi-Fi tile partly does today).
+
+**What this settles about the Wi-Fi-adjacent ideas already on
+`PUNCHLIST.md`** (channel-crowding scan, AP-to-AP roaming events): both
+sit lower in the stack than NMS's own core identity — genuinely
+Wi-Fi/RF-layer concerns, closer to a dedicated Wi-Fi tool's actual
+territory than to packet-level diagnosis. Not a reason to drop them
+outright (plenty of NMS users won't own a dedicated Wi-Fi tool, and
+"one thing that already tells you everything" is part of the pitch),
+but they should be understood and built as *auxiliary context* for the
+packet-level story — "is bad Wi-Fi why my packets are struggling" — not
+as NMS trying to become a second dedicated Wi-Fi analyzer. Worth
+checking any future Wi-Fi-specific idea against this same question
+before building it: is it explaining a packet-level finding, or is it a
+standalone RF-analysis feature that duplicates a tool this app's own
+author already owns and recommends.

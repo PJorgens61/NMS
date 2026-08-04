@@ -43,7 +43,10 @@ struct SNMPDevicesTile: View {
                 .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
                 .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
                 .accessibilityIdentifier("snmpDevices.scan")
-                .help("Clears the SNMP device list and sweeps the subnet again")
+                .help(tooltip(
+                    "Clears the SNMP device list and sweeps the subnet again.",
+                    technical: "Current subnet only, not off-subnet devices."
+                ))
             }
         ) {
             if !snmp.isAvailable {

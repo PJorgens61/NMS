@@ -35,6 +35,9 @@ struct PreferencesView: View {
     // comment for why this one's also a deliberate on-by-default
     // exception, same shape as `saasMonitoringEnabled` above.
     @AppStorage(FeatureFlags.tooltipHighlightsKey) private var tooltipHighlightsEnabled = true
+    // Default `true`, same on-by-default exception as the two above —
+    // see `FeatureFlags.tooltipTechnicalDetail`'s own doc comment.
+    @AppStorage(FeatureFlags.tooltipTechnicalDetailKey) private var tooltipTechnicalDetailEnabled = true
 
     var body: some View {
         // Content-driven height with no scroll container used to mean the
@@ -100,6 +103,21 @@ struct PreferencesView: View {
                 description: "Colors any row's label blue and underlines it when hovering shows more detail — otherwise a tooltip gives no visual sign it's there at all. Turn off to compare against plain labels.",
                 identifier: "preferences.tooltipHighlights"
             )
+
+            // A Picker, not a `feature(...)` Toggle — "Concise"/"Technical"
+            // doesn't read naturally as on/off the way every other
+            // preference here does. Same segmented-Picker shape
+            // `DDNSHostnamesSection`'s own check-interval preference
+            // already uses.
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Tooltip Detail", selection: $tooltipTechnicalDetailEnabled) {
+                    Text("Concise").tag(false)
+                    Text("Technical").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("preferences.tooltipTechnicalDetail")
+                caption("Whether tooltips include the extra mechanism-level detail (which command runs, which resolver, what's in or out of scope) on top of the plain explanation.")
+            }
 
             // Its own top-level section, not nested under a toggle like
             // `UserAddedSitesSection` is — there's no parent on/off flag

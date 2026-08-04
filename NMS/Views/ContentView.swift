@@ -246,7 +246,10 @@ struct ContentView: View {
                 .accessibilityLabel("Refresh")
                 .accessibilityHint("Re-reads network state, public IP and Wi-Fi network")
                 .accessibilityIdentifier("footer.refresh")
-                .help("Re-reads network state, public IP and Wi-Fi network")
+                .help(tooltip(
+                    "Re-reads network state, public IP and Wi-Fi network.",
+                    technical: "Doesn't re-run Path to Internet or SNMP Devices, which refresh independently."
+                ))
                 Button("Networks…") {
                     openWindowInFront("known-networks")
                 }

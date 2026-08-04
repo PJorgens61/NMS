@@ -60,7 +60,10 @@ struct UserAddedSitesSection: View {
                 Button("Add") { add() }
                     .disabled(!isNewSiteValid)
                     .accessibilityIdentifier("preferences.saas.userSite.add")
-                    .help("Adds this site to your own reachability checks")
+                    .help(tooltip(
+                        "Adds this site to your own reachability checks.",
+                        technical: "A plain HTTP reachability probe, not a real vendor status page, so it can't distinguish \"down\" from \"blocked on this network.\""
+                    ))
             }
             .font(.system(size: 11))
         }

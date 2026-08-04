@@ -49,7 +49,10 @@ struct DDNSHostnamesSection: View {
                 Button("Add") { add() }
                     .disabled(!isNewHostnameValid)
                     .accessibilityIdentifier("preferences.ddns.hostname.add")
-                    .help("Adds this hostname to the DDNS staleness check")
+                    .help(tooltip(
+                        "Adds this hostname to the DDNS staleness check.",
+                        technical: "Resolved via dig against Cloudflare's public resolver (1.1.1.1), bypassing this Mac's local DNS cache."
+                    ))
             }
             .font(.system(size: 11))
 
