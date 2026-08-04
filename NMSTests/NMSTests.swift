@@ -320,14 +320,18 @@ struct WiFiStressTestAggregatorTests {
     }
 }
 
+/// Shared by every `OverallStatus`/`ConnectivityViewModel` suite below
+/// (`OverallStatusTests`, `LocalInterferenceTests`, `CadenceHealthTests`,
+/// `SuppressionGraceperiodTests`, `WasFailingPreviouslyTests`) -- was five
+/// byte-for-byte-identical private copies, one per suite.
+fileprivate func check(_ label: String, success: Bool) -> ConnectivityCheck {
+    ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
+}
+
 // MARK: - OverallStatus
 
 @Suite("OverallStatus")
 struct OverallStatusTests {
-    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
-        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
-    }
-
     @Test("all healthy is normal")
     func normal() {
         let checks = [
@@ -394,10 +398,6 @@ struct OverallStatusTests {
 /// never logged. These pin both directions.
 @Suite("ConnectivityViewModel.isLikelyLocalPingFailure")
 struct LocalInterferenceTests {
-    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
-        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
-    }
-
     /// The signature this exists for: every ICMP probe times out while
     /// DNS/HTTP still work, which is a contradiction — traffic reaching a
     /// remote host proves it traversed the very hops reporting
@@ -487,10 +487,6 @@ struct LocalInterferenceTests {
 
 @Suite("ConnectivityViewModel.hasUnhealthyCriticalCheck")
 struct CadenceHealthTests {
-    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
-        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
-    }
-
     /// The exact regression this exists for. A real switch reboot: at
     /// 18:24:11, DNS and HTTP had genuinely recovered while
     /// Router/Internet/ISP Edge/Public IP were still genuinely down —
@@ -645,10 +641,6 @@ struct SuppressionGraceperiodTests {
 
 @Suite("ConnectivityViewModel.wasFailingPreviously")
 struct WasFailingPreviouslyTests {
-    private func check(_ label: String, success: Bool) -> ConnectivityCheck {
-        ConnectivityCheck(label: label, target: "t", success: success, latencyMs: nil, checkedAt: Date())
-    }
-
     @Test("a matching prior success means it wasn't failing")
     func priorSuccess() {
         let previous = [check("Router", success: true)]
@@ -853,17 +845,28 @@ struct SharedMACMergeTests {
 // MARK: - StoreSizeService
 
 @Suite("StoreSizeService")
-struct StoreSizeServiceTests {
+final class StoreSizeServiceTests {
+    // `final class`, not `struct` -- Swift Testing gives every test
+    // function its own fresh instance either way, but only a class can
+    // declare `deinit`, which is what lets per-test setup (`init`) pair
+    // with per-test teardown instead of each test hand-rolling the same
+    // create-directory-then-defer-cleanup block.
+    private let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("nms-store-size-\(UUID().uuidString)", isDirectory: true)
+
+    init() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     /// WAL-mode SQLite keeps recent writes in a `-wal` sidecar and an
     /// `-shm` index. Reporting only the base file understated real usage
     /// by more than half on the real store, so the sum is the point.
     @Test("sums the base store plus its WAL and shm sidecars")
     func sumsSidecars() throws {
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("nms-store-size-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
         let store = directory.appendingPathComponent("test.store")
         try Data(count: 1000).write(to: store)
         try Data(count: 2000).write(to: URL(fileURLWithPath: store.path + "-wal"))
@@ -874,11 +877,6 @@ struct StoreSizeServiceTests {
 
     @Test("base file alone is reported when no sidecars exist")
     func baseFileAlone() throws {
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("nms-store-size-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
         let store = directory.appendingPathComponent("test.store")
         try Data(count: 1234).write(to: store)
 
@@ -887,6 +885,9 @@ struct StoreSizeServiceTests {
 
     /// `nil`, not `0` — absence and zero mean different things, and the
     /// footer relies on that to show nothing rather than "0 bytes".
+    /// Doesn't touch `directory` at all -- a missing store needs no
+    /// fixture -- but stays in this suite since it's still testing
+    /// `StoreSizeService`, not a reason to special-case it out.
     @Test("a missing store reports nil rather than zero")
     func missingStoreIsNil() {
         let missing = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -957,12 +958,14 @@ struct FormattingTests {
 
 // MARK: - TracerouteHop / TracerouteViewModel
 
+/// Shared by `TracerouteHopTests` and `NATLayerDetectionTests` -- was two
+/// byte-for-byte-identical private copies.
+fileprivate func hop(_ n: Int, _ address: String?) -> TracerouteHop {
+    TracerouteHop(hopNumber: n, address: address, hostname: nil, roundTripMs: address == nil ? nil : 10)
+}
+
 @Suite("TracerouteHop.isLocal")
 struct TracerouteHopTests {
-    private func hop(_ n: Int, _ address: String?) -> TracerouteHop {
-        TracerouteHop(hopNumber: n, address: address, hostname: nil, roundTripMs: address == nil ? nil : 10)
-    }
-
     @Test("a non-responding hop classifies as nil, not local or internet")
     func nonResponding() {
         #expect(hop(1, nil).isLocal == nil)
@@ -979,9 +982,6 @@ struct TracerouteHopTests {
 
 @Suite("TracerouteViewModel.leadingNonInternetHopCount")
 struct NATLayerDetectionTests {
-    private func hop(_ n: Int, _ address: String?) -> TracerouteHop {
-        TracerouteHop(hopNumber: n, address: address, hostname: nil, roundTripMs: address == nil ? nil : 10)
-    }
 
     /// The real trace this feature was built from — a Comcast connection
     /// at a friend's house. Two non-internet hops (the customer's own
@@ -1426,19 +1426,27 @@ private final class FallbackTestModel {
 }
 
 @Suite("NMSApp.openStoreWithFallback")
-struct StoreFallbackTests {
-    private static func scratchURL() -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("NMSTests-\(UUID().uuidString)")
-            .appendingPathComponent("scratch.store")
+final class StoreFallbackTests {
+    // `final class`, not `struct` -- same reasoning as
+    // `StoreSizeServiceTests` above: per-test `init`/`deinit` replaces
+    // each test's own create-directory-then-defer-cleanup block. Each
+    // test function still gets its own fresh instance and fresh scratch
+    // URL either way -- Swift Testing does that regardless of struct vs.
+    // class -- only the teardown hook needed a class.
+    private let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("NMSTests-\(UUID().uuidString)")
+        .appendingPathComponent("scratch.store")
+
+    init() throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     @Test("a valid, openable path reports no fallback reason")
     func validStoreOpensCleanly() throws {
-        let url = Self.scratchURL()
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
         let schema = Schema([FallbackTestModel.self])
         let result = NMSApp.openStoreWithFallback(schema: schema, url: url)
         #expect(result.fallbackReason == nil)
@@ -1455,10 +1463,6 @@ struct StoreFallbackTests {
 
     @Test("a store that fails to open is detected and reported, not silently swallowed")
     func corruptStoreFallsBackAndReports() throws {
-        let url = Self.scratchURL()
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
         // Garbage bytes, not a real SwiftData/SQLite store — guaranteed
         // to fail to open, the same category of failure (store exists
         // on disk but can't be opened as-is) as a genuine migration
