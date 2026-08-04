@@ -93,18 +93,32 @@ final class WiFiSSIDViewModel {
     func refresh(isWiFi: Bool, departingNetworkFingerprint: String? = nil) {
         lastRequestedIsWiFi = isWiFi
         guard isWiFi else {
-            currentSSID = nil
-            currentBSSID = nil
-            currentRSSI = nil
-            currentNoise = nil
-            currentChannelNumber = nil
-            currentChannelBand = nil
-            currentPHYRateMbps = nil
-            currentSecurity = nil
+            clearCurrentState()
             timer?.invalidate()
             timer = nil
             return
         }
+        // Cleared immediately here too, not just on the `isWiFi == false`
+        // branch above -- a topology change *while already on Wi-Fi*
+        // (switching from one network to another) doesn't mean
+        // `sample()` below resolves before the next render. **Bug,
+        // confirmed live (2026-08-04):** switching Wi-Fi networks
+        // (Thistle -> ThistleGuest) left the *previous* network's own
+        // SSID/signal detail showing, reporting as healthy/current, for
+        // as long as the Location-authorization round trip + a fresh
+        // sample took -- a real, visible race, not just cosmetic
+        // staleness: `NetworkTile`'s own status dot reads `.healthy`
+        // off nothing more than `currentSSID != nil`, so it agreed with
+        // the stale name the whole time too. Clearing first means
+        // `WiFiTile` briefly disappears (it's gated on `currentSSID !=
+        // nil`) rather than keep showing a name that's about to change
+        // out from under it — a deliberate trade, matching this
+        // project's own repeated preference for an honest "still
+        // finding out" gap over confidently-wrong stale data. Doesn't
+        // touch `recentSamples`: that's trend history, not a "this is
+        // current right now" claim, so the sparkline keeping its old
+        // trail during the gap is fine.
+        clearCurrentState()
         authService.requestAuthorization { [weak self] in
             // CLLocationManagerDelegate callbacks aren't guaranteed to land
             // on the main thread, so hop back explicitly before touching
@@ -119,6 +133,17 @@ final class WiFiSSIDViewModel {
                 self.startSamplingIfNeeded()
             }
         }
+    }
+
+    private func clearCurrentState() {
+        currentSSID = nil
+        currentBSSID = nil
+        currentRSSI = nil
+        currentNoise = nil
+        currentChannelNumber = nil
+        currentChannelBand = nil
+        currentPHYRateMbps = nil
+        currentSecurity = nil
     }
 
     private func startSamplingIfNeeded() {

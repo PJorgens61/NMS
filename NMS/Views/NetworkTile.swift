@@ -184,19 +184,29 @@ struct NetworkTile: View {
     /// "Ethernet" with no known name yet) instead of separate "Network"/
     /// "Interface" and "Type" rows, to save vertical space.
     ///
-    /// On Wi-Fi, the live SSID wins over a user-assigned `KnownNetwork`
-    /// label — reported directly: `KnownNetwork` is keyed by router MAC
-    /// + subnet, not SSID (see that type's own doc comment), so the same
-    /// physical LAN reached over Ethernet and Wi-Fi shares one label. A
-    /// label set from the Ethernet side was silently overriding the
-    /// genuinely different, accurate live Wi-Fi SSID instead of just
-    /// supplementing it. Off Wi-Fi there's no live-SSID equivalent, so
-    /// the label is still the best available name there.
+    /// On Wi-Fi, the live SSID is the *only* name used — never the
+    /// `KnownNetwork` label, not even as a fallback before the SSID
+    /// resolves. Two reasons stack here. First, reported directly:
+    /// `KnownNetwork` is keyed by router MAC + subnet, not SSID (see
+    /// that type's own doc comment), so the same physical LAN reached
+    /// over Ethernet and Wi-Fi shares one label — a label set from the
+    /// Ethernet side has no business describing the Wi-Fi radio's own
+    /// identity. Second, confirmed live (2026-08-04): network
+    /// *recognition* (which sets the label, via the LAN scan matching
+    /// the router's MAC) can finish before Wi-Fi *SSID sampling* does —
+    /// that one needs Location authorization granted first, then a
+    /// radio query — so falling back to the label produced a real,
+    /// visible flash at launch: the label appeared briefly, then
+    /// flipped to the live SSID moments later once sampling caught up.
+    /// A bare "Wi-Fi" placeholder until the SSID itself resolves reads
+    /// as "still finding out," which is the truth; a label that's about
+    /// to be silently replaced doesn't. Off Wi-Fi there's no live-SSID
+    /// equivalent, so the label is still the best available name there.
     private func networkDisplay(_ info: NetworkInterfaceInfo) -> String {
         let type = info.isWiFi ? "Wi-Fi" : "Ethernet"
         let label = networkIdentity.currentNetwork?.label
         let name: String? = info.isWiFi
-            ? (wifiSSID.currentSSID ?? (label?.isEmpty == false ? label : nil))
+            ? wifiSSID.currentSSID
             : (label?.isEmpty == false ? label : nil)
         guard let name else { return type }
         return "\(name) \(type)"
@@ -229,13 +239,27 @@ struct NetworkTile: View {
         // combined row) for the detail text.
         let networkLayer: ConnectionLayer
         if let info {
-            let hasName = (networkIdentity.currentNetwork?.label?.isEmpty == false) || wifiSSID.currentSSID != nil
-            // On Wi-Fi this row shows a signal-strength sparkline instead
-            // of the network's name (see `sparklineValues(for:)`) — the
-            // name still reads via `networkDisplay(_:)` off Wi-Fi.
-            // Requested directly: "Name" + "Ethernet" (via
-            // `networkDisplay`, unchanged) or a sparkline + "Wi-Fi"
-            // (here), not "Name" + "Wi-Fi" as before.
+            // Only ever consulted below inside `info.isWiFi && !hasName`,
+            // so this only needs to mean "the live SSID has resolved" —
+            // not the `KnownNetwork` label, even if that already has
+            // (see `networkDisplay(_:)`'s own doc comment for why the
+            // label doesn't count as a Wi-Fi name at all anymore). Keeps
+            // the status dot and the detail text agreeing: both read
+            // "not yet known" together, rather than the dot claiming
+            // `.healthy` while the text still shows a bare "Wi-Fi"
+            // placeholder.
+            let hasName = wifiSSID.currentSSID != nil
+            // On Wi-Fi this row *also* shows a signal-strength sparkline
+            // (see `sparklineValues(for:)`), alongside the name via
+            // `networkDisplay(_:)` — not instead of it. **Bug, confirmed
+            // live (2026-08-04): this used to hardcode the literal
+            // string "Wi-Fi" for the Wi-Fi case instead of calling
+            // `networkDisplay(info)`, so the SSID never actually
+            // rendered anywhere in this row** — the sparkline occupies a
+            // separate `Grid` column from the detail text, it doesn't
+            // stand in for the name textually. Fixed to call
+            // `networkDisplay(info)` unconditionally, matching what its
+            // own doc comment already claimed happened.
             //
             // This Mac's own IP and the known-network recognition count
             // (formerly Info's separate "IP Address" row and
@@ -248,7 +272,7 @@ struct NetworkTile: View {
             let knownNetworkSuffix = networkIdentity.currentNetwork.map { network in
                 " · \(networkIdentity.isNewNetwork ? "new" : "seen \(network.timesSeen)×")"
             } ?? ""
-            let detail = (info.isWiFi ? "Wi-Fi" : networkDisplay(info)) + " · \(ipAddressDisplay(info))" + knownNetworkSuffix
+            let detail = networkDisplay(info) + " · \(ipAddressDisplay(info))" + knownNetworkSuffix
             if info.isWiFi && !hasName {
                 // Not a connectivity failure — just missing information
                 // (e.g. Location permission not granted yet) — so this is
