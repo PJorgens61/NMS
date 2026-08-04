@@ -2064,6 +2064,74 @@ from this list. This one remains, since it's an idea, not a defect):
      for anything unrecognized) — probably lives near
      `ISPIdentityService`/`ISPIdentityViewModel`.
 
+     **A cheaper alternative, raised directly: just take the first word
+     of the RDAP name, no curated table at all.** Works cleanly on a
+     real fraction of cases seen this session — "Comcast Cable
+     Communications, LLC" → "Comcast", "Sonic.net, LLC" → "Sonic.net"
+     (close enough), "RCN Corporation" → "RCN". Breaks on others
+     already documented elsewhere in this file: "Time Warner Cable"
+     (part of the Charter/Astound history in the short-name/brand
+     mapping item below) would give "Time," and bare "RCN" vs. "RCN
+     Corporation" vs. "Astound Broadband LLC" — the same real entity,
+     per that item's own findings — would show three different short
+     names for one brand instead of converging on one. A first-word
+     heuristic is a real, much cheaper starting point for the *display*
+     problem specifically, but doesn't help the *comparison* problem the
+     fuller mapping item below also solves (recognizing two legal names
+     as the same brand when walking RDAP org changes) — worth building
+     as a fallback under a small curated table rather than a full
+     replacement for it, so the common short/clean cases (the majority,
+     going by this session's own real ISP names) need no table entry at
+     all, and only the genuinely messy ones (Time Warner, the
+     Astound/RCN family) need curating.
+
+     **Checked against the top ~20 US ISPs by subscriber count, not just
+     the two data points above — roughly half work cleanly, and the
+     failures cluster in one recognizable pattern rather than being
+     random noise.** Confidence varies per row: Comcast and the
+     Astound/RCN family are this project's own live-verified RDAP
+     findings; Verizon's is web-sourced (below); the rest are inferred
+     from each company's known public/legal corporate name, not
+     RDAP-queried live — worth a real `rdap.org` check per ISP before
+     trusting this table the way the rest of this file's findings are
+     trusted.
+
+     | ISP | Legal/RDAP org name | First word | Works? |
+     |---|---|---|---|
+     | Comcast | "Comcast Cable Communications, LLC" (verified live) | Comcast | yes |
+     | Charter/Spectrum | "Charter Communications, Inc." | Charter | yes |
+     | AT&T | "AT&T Services, Inc." | AT&T | yes |
+     | **Verizon** | **"MCI Communications Services, Inc. d/b/a Verizon Business"** — legacy UUNET/MCI naming still live on AS701 ([source](https://whoisrequest.com/ip/AS701)) | **MCI** | **no** |
+     | T-Mobile | "T-Mobile USA, Inc." | T-Mobile | yes |
+     | Cox | "Cox Communications, Inc." | Cox | yes |
+     | Lumen/Quantum Fiber | legacy "CenturyLink..."/"Qwest Communications..." blocks | CenturyLink / Qwest | mixed — outdated brand |
+     | Altice/Optimum | legacy "Cablevision Systems Corp." vs. "Altice USA" | Cablevision / Altice | mixed — outdated brand |
+     | Frontier | "Frontier Communications Corporation" (merging into Verizon as of Jan 2026) | Frontier | yes, but transitional |
+     | Windstream | "Windstream Communications, LLC" | Windstream | yes |
+     | Mediacom | "Mediacom Communications Corporation" | Mediacom | yes |
+     | **Cable One**/Sparklight | "Cable One, Inc." | **Cable** | **no — meaningless alone** |
+     | **Astound**/RCN/Grande/Wave | **"Astound Broadband LLC" / "RCN Corporation" / "RCN"** (verified live) | Astound / RCN / RCN | **no — 3 results, 1 brand** |
+     | WOW! | "WideOpenWest Finance, LLC" | WideOpenWest | mixed — loses "WOW!" branding |
+     | Google Fiber | "Google Fiber Inc." / under Google LLC | Google | mixed — conflates with the search company |
+     | Ziply Fiber | "Ziply Fiber LLC" | Ziply | yes |
+     | **Consolidated Communications** | "Consolidated Communications, Inc." | **Consolidated** | **no — meaningless alone** |
+     | **TDS Telecom** | **"Telephone and Data Systems, Inc."** — their actual legal/SEC name | **Telephone** | **no — doesn't even contain "TDS"** |
+     | Metronet | "Metronet Inc." | Metronet | yes |
+     | Breezeline | legacy "Atlantic Broadband Finance, LLC" (pre-2022 rebrand) | Atlantic | likely no — stale pre-rebrand name |
+
+     **The failure pattern is the useful finding, not just the count.**
+     Every failure above is either a legacy/M&A-holdover legal name
+     surviving in ARIN records after a rebrand or acquisition (Verizon/
+     MCI, Optimum/Cablevision, Breezeline/Atlantic, Astound/RCN) or a
+     holding-company legal name that never matched the consumer brand at
+     all (TDS/Telephone, Consolidated, Cable One/Cable) — not random
+     noise, and notably it hits Verizon, one of the 3-4 biggest ISPs in
+     the country. Confirms the recommendation above: first-word as the
+     default (a real majority, including several of the largest
+     providers), with a small curated override table for this specific,
+     recognizable failure class (~6-8 entries from this table alone),
+     rather than either a full curated table or first-word alone.
+
   2. ~~**Preferences window sizing bug.**~~ **Fixed in `99b0eb5`,
      closes #9.** Reported directly: too tall for a MacBook Air's
      screen and couldn't be resized by dragging at all. Root cause:
