@@ -5909,6 +5909,38 @@ it's not just identifying a device, it's identifying it *persistently,
 across contexts*, which is exactly what privacy extension addresses
 exist to prevent in the first place.
 
+**Traceroute, RDAP, and reverse-DNS all carry over to IPv6, and the
+public/no-NAT goal makes them more useful, not less.** `traceroute6`
+(a distinct binary alongside `/usr/sbin/traceroute` on macOS/BSD) uses
+ICMPv6 Time Exceeded against the Hop Limit field, the direct analogue
+of IPv4 TTL-based traceroute — `TracerouteService.swift` currently
+shells out to `/usr/sbin/traceroute` unconditionally and would need to
+invoke `traceroute6` for an IPv6 target, a small, concrete, not-yet-
+verified-live gap. RDAP is address-family-agnostic — `rdap.org`'s
+bootstrap redirect and the regional registries hold IPv6 allocations
+the same way (typically a /32 or /48 to an ISP, vs. something like a
+/24 for IPv4), so `ISPIdentityService.identify(ip:)`'s existing query
+mechanism should work against an IPv6 address unmodified, the exact
+technique that identified Comcast tonight. Reverse DNS works the same
+way in principle (`ip6.arpa`, a nibble-reversed 128-bit address instead
+of `in-addr.arpa`'s reversed octets) but has a real-world lower hit
+rate than IPv4 — address scarcity is *why* every allocated IPv4 address
+usually gets a PTR record, and IPv6's vastly larger space means a lot
+of infrastructure simply isn't named. (A client's own RFC 4941 privacy-
+extension address typically has no PTR record at all, but that's a
+source-end concern, not a router-hop one — routers use stable,
+admin-assigned addresses.)
+
+The genuinely useful part for *this specific goal*: on a normal IPv4
+trace, hop 1 (the customer's own router) is uninteresting — private,
+unregistered, nothing to look up, and the real story only starts once
+the trace crosses into the ISP's public network. On a properly public,
+no-NAT IPv6 path, there's no such "boring private phase" at all — every
+hop starting from hop 1 could be a real, RDAP/rDNS-queryable address.
+The same live-verification toolkit used throughout tonight's field test
+(traceroute + RDAP + reverse-DNS) applies to the *entire* path under
+this architecture, not just the ISP-side portion the way it does today.
+
 **Not yet scoped into concrete PUNCHLIST items** — this section exists
 to hold the reasoning in one place first, since it came together across
 several separate conversations the same day. The concrete follow-ups
