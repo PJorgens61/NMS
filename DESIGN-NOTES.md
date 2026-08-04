@@ -73,6 +73,7 @@ friend's actual name).
 - [AI-assisted troubleshooting: an alternative to hand-curated remediation guides](#ai-assisted-troubleshooting-an-alternative-to-hand-curated-remediation-guides)
 - ["All systems Nominal": defining the aggregate status, and validating it against a real scenario](#all-systems-nominal-defining-the-aggregate-status-and-validating-it-against-a-real-scenario)
 - [Product positioning: packet-oriented and higher in the stack, not a Wi-Fi tool](#product-positioning-packet-oriented-and-higher-in-the-stack-not-a-wi-fi-tool)
+- [IPv6 support, with public (no-NAT) addressing as the stated goal](#ipv6-support-with-public-no-nat-addressing-as-the-stated-goal)
 
 ## DNS testing: is `dig` an alternative to `getaddrinfo`?
 
@@ -5824,3 +5825,95 @@ checking any future Wi-Fi-specific idea against this same question
 before building it: is it explaining a packet-level finding, or is it a
 standalone RF-analysis feature that duplicates a tool this app's own
 author already owns and recommends.
+
+## IPv6 support, with public (no-NAT) addressing as the stated goal
+
+Stated directly (2026-08-04): NMS should support IPv6 with genuinely
+public, non-NAT'd per-device addresses — not IPv6 as an afterthought
+bolted onto an IPv4-shaped model. Everything below is planning/
+reasoning from that goal, pulled together from several separate
+conversations the same day once the goal itself was made explicit —
+**nothing here is built yet.**
+
+**The core inversion this goal runs into.** IPv4 address exhaustion is
+*why* NAT is universal today, and NAT's side effect is that a LAN
+device is invisible from the internet by default — which is the
+premise this app's entire NAT-layer/CGNAT detection is built on (see
+"Double-NAT/CGNAT detection" above). IPv6 has enough address space that
+an ISP commonly hands a whole prefix straight to the customer's router,
+and every device on the LAN can get its own real, globally-routable
+address with no NAT involved at all. A stateful firewall at the router
+usually still blocks unsolicited inbound (replicating NAT's protective
+side effect on purpose), but the *addresses themselves* stop being
+inherently local-only artifacts the way `192.168.x.x` is. For a project
+whose explicit goal is "public IPv6 addresses, no NAT," this isn't an
+edge case to handle — it's the normal, intended state.
+
+**What "no NAT" flips about the existing detection logic's own
+framing.** `TracerouteHop.isLocal`, `leadingNonInternetHopCount`, and
+`IPClassifier.isCGNAT` are all IPv4-specific today (RFC 1918 ranges,
+the `100.64.0.0/10` CGNAT range) — confirmed via direct code reading,
+not assumed. On IPv6 with this project's own target architecture
+working correctly, there generally *shouldn't be* a private-looking
+leading hop at all — no NAT layer is expected in the first place. That
+means the interesting IPv6-native signal is arguably the mirror image
+of the IPv4 one: on IPv4, finding *one* leading private hop is the
+normal case (a home router) and *more than one* is the anomaly worth
+flagging; on IPv6, finding *any* non-public leading hop at all could
+itself be the anomaly worth flagging — evidence the ISP is doing some
+kind of NAT66/legacy-style translation on a connection that was
+supposed to be genuinely public end-to-end. Same underlying signal
+(private-looking hop before reaching the internet), opposite baseline
+expectation.
+
+**The backbone-addressing insight from earlier the same day applies
+here too, via a different range.** An ISP can legitimately number
+router-to-router backbone links privately without breaking the
+"service" (the customer's own public prefix is still carried correctly
+via BGP) — for IPv4 that's plain RFC 1918 or the CGNAT range; the IPv6
+equivalent is ULA (Unique Local Addresses, `fc00::/7`, RFC 4193). A ULA
+address appearing mid-trace, after the customer's own leading hops,
+would be the IPv6-native version of the exact false-positive already
+fixed today in `includesConfirmedCGNAT` (see "Double-NAT/CGNAT
+detection" above and its commit `725bf44`) — any IPv6-aware version of
+this detection should scope to leading hops only from the start,
+learning from that bug rather than re-discovering it.
+
+**"Public IP" as a single value doesn't survive contact with IPv6.**
+`PublicIPViewModel.currentIP` and everything downstream of it
+(`ISPIdentityViewModel.identify(ip:)`, the DDNS comparison, the RDAP
+lookups from tonight's field test) all assume one stable address. A Mac
+on IPv6 typically holds *several* simultaneous addresses at once: a
+stable one (traditionally derived from the interface's MAC address via
+SLAAC/EUI-64) plus one or more short-lived, randomized "privacy
+extension" addresses (RFC 4941, on by default on macOS/iOS) used for
+outbound connections specifically so the stable, hardware-derived
+address isn't handed to every site and service it talks to. Any real
+IPv6 support needs to decide, deliberately, which address a given
+feature should read: something like DDNS comparison probably wants the
+*stable* address (it's what a DNS record would actually point at);
+outbound-connection-oriented checks should probably prefer whatever the
+OS is already using for that purpose rather than re-deriving one.
+
+**The privacy angle this raises for any future export/share feature**
+(see `PUNCHLIST.md`'s Share-button idea and its redaction tiering) is
+sharper for IPv6 than anything IPv4 addressing could produce alone: the
+stable, MAC-derived IPv6 address is a single fact that's persistent and
+cross-network-correlatable on its own — the same device presents the
+same stable address-derived identifier on every network it joins,
+unlike a meaningless-outside-its-own-network IPv4 LAN address. If a
+diagnostic export ever includes IPv6 addresses, the stable one belongs
+in whatever redaction tier ends up being the most cautious one, above
+even the DHCP-hostname/SNMP-inventory concerns already identified —
+it's not just identifying a device, it's identifying it *persistently,
+across contexts*, which is exactly what privacy extension addresses
+exist to prevent in the first place.
+
+**Not yet scoped into concrete PUNCHLIST items** — this section exists
+to hold the reasoning in one place first, since it came together across
+several separate conversations the same day. The concrete follow-ups
+once this gets prioritized: an IPv6-aware `isLocal`/leading-hop check
+(ULA-aware, inverted baseline expectation), a real answer for "which of
+several simultaneous addresses is *the* public IP" per feature, and
+folding the stable-address sensitivity into the Share-button redaction
+tiering when that gets built.
