@@ -1,20 +1,8 @@
 import SwiftUI
-import AppKit
 import SwiftData
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // .regular = a traditional app: Dock icon, app switcher entry,
-        // standard app menu bar. NMS used to be .accessory (menu bar only,
-        // no Dock icon) when its whole UI was a MenuBarExtra popover; see
-        // DESIGN-NOTES.md for why that was dropped in favor of one
-        // resizable window.
-        NSApp.setActivationPolicy(.regular)
-    }
-}
 @main
 struct NMSApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var networkMonitor: NetworkMonitorViewModel
     @StateObject private var lanDiscovery: LANDiscoveryViewModel
     @StateObject private var connectivity: ConnectivityViewModel

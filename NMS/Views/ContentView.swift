@@ -1202,9 +1202,13 @@ struct ContentView: View {
     /// attempt — a bare `NSApp.activate` immediately after `openWindow` —
     /// worked often enough to look fixed, then didn't:
     ///
-    /// 1. NMS runs as `.accessory` (no Dock icon, no app-switcher entry;
-    ///    see `AppDelegate`), so macOS won't activate it just because one
-    ///    of its windows opened. That needs an explicit `activate`.
+    /// 1. At the time this was written, NMS ran as `.accessory` (no Dock
+    ///    icon, no app-switcher entry), so macOS wouldn't activate it just
+    ///    because one of its windows opened — that needed an explicit
+    ///    `activate`. NMS is `.regular` now (no code needed for that; it's
+    ///    the OS default and the old `AppDelegate` override was removed as
+    ///    dead weight), but point 4 below found a second, policy-independent
+    ///    reason `activate` stays necessary regardless.
     /// 2. Both calls used to run synchronously inside the button action,
     ///    while the `MenuBarExtra` popover is still dismissing — the
     ///    window may not exist yet to raise, and the dismissal takes
