@@ -12,6 +12,14 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Add tooltips to Known Networks and Preferences windows.** Raised
+  live (2026-08-04). The app-wide tooltip-discoverability push earlier
+  this session covered the main popover/window's tiles and buttons, but
+  these two separate windows weren't audited as part of that pass. Not
+  built — needs its own pass through both windows' controls (rename
+  field, home-network button, review/forget buttons in Known Networks;
+  every toggle in Preferences) the same way the main window already got.
+
 - [ ] **Idea: visualize the Network tile's rows as a dependency chain —
   and explain the concept itself in the user guide and on the website,
   not just in the app.** Raised live (2026-08-04): "network tile shows
