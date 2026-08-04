@@ -3005,20 +3005,31 @@ from this list. This one remains, since it's an idea, not a defect):
      vendors rather than the whole registry, bundled as a static
      resource rather than fetched live.
 
-  5. **Can NMS read more from macOS's own DHCP client, and could it
-     trigger a renewal to help itself?** Two distinct questions raised
-     together: (a) does macOS expose more DHCP lease detail than NMS
-     currently gathers (`ipconfig getpacket <if>` is the likely lead —
-     not yet checked), and (b) could NMS trigger a DHCP renew/inform
-     itself (`ipconfig set <if> DHCP` or similar) rather than only
-     observing. **(b) is a real, disruptive action — explicitly flagged
-     as such directly ("this is disruptive so the user needs to be
-     informed")**, so it needs the same "generates a real effect,
-     needs explicit consent" treatment the Local Stress Test's
-     confirmation alert already established, not a silent
-     auto-trigger. Research needed before any design: what `ipconfig`
-     (or `SystemConfiguration` framework) actually exposes and
-     supports on macOS, not yet investigated.
+  5. ~~**Can NMS read more from macOS's own DHCP client, and could it
+     trigger a renewal to help itself?**~~ **Fixed in `f034aa2` (#12).**
+     Two distinct questions raised together: (a) does macOS expose more
+     DHCP lease detail than NMS currently gathers, and (b) could NMS
+     trigger a DHCP renew itself rather than only observing.
+     **(a)**: comparing `ipconfig getpacket`'s raw output against
+     `DHCPLeaseService.parse`, only one field had real diagnostic value
+     and wasn't captured — `chaddr`, the MAC address the lease was
+     granted to (everything else uncaptured is BOOTP protocol
+     boilerplate). Added to `DHCPLeaseInfo`/`DHCPLeaseRecord`.
+     **(b)**: `ipconfig set <if> DHCP` requires root outright, a much
+     bigger commitment than a confirmation dialog — rejected. `scutil
+     --renew <if>` (the same mechanism System Settings' own "Renew DHCP
+     Lease" button uses) doesn't require root, though it still surfaces
+     macOS's own administrator-authorization dialog on a standard
+     (non-admin) account — confirmed live on this Mac. Two calls a few
+     minutes apart only triggered one prompt, confirming macOS's normal
+     authorization-caching applies, so this isn't "every click." Shipped
+     as a "Renew" button on the DHCP History tile with a one-time
+     confirmation alert, matching the Local Stress Test tile's own
+     pattern exactly — honest about both the brief disruption and the
+     possible admin-password prompt, not a silent auto-trigger.
+     Verified: full test suite green, and live — clicked through the
+     confirmation, watched a real new DHCP History entry appear with a
+     fresh transaction ID.
 
   6. **Wi-Fi signal strength/speed history on the Network tile,
      dot-history style like `networkQuality`'s sparkline, with a
