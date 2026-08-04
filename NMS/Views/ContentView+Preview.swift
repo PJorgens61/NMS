@@ -32,7 +32,12 @@ import SwiftData
 /// actually run into — same spirit `script/scenarios.sh` seeds a scratch
 /// copy of the real store for its own live-scenario tests, just for
 /// canvas iteration instead of test assertions.
-private enum ContentViewPreviewSupport {
+// Not `private` — also called from `NMSTests/PreviewCapture.swift` (via
+// `@testable import NMS`) to render this same real, fixture-seeded view
+// straight to a PNG for headless layout iteration. See that file's own
+// doc comment for why: a full build→launch→AppleScript→screenshot round
+// trip was slow and took over the whole screen for the duration.
+enum ContentViewPreviewSupport {
     @MainActor
     static func makeContentView() -> ContentView {
         let schema = Schema([

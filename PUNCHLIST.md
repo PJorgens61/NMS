@@ -3119,6 +3119,42 @@ from this list. This one remains, since it's an idea, not a defect):
   benefit once #2 has already separated the hierarchy into real
   types.
 
+- [ ] **`ImageRenderer`-based preview capture (`NMSTests/PreviewCapture
+  .swift`, `script/capture-preview.sh`, 2026-08-04) — the working
+  version is scoped to one self-contained view at a time; two follow-
+  ups deferred, not pursued tonight.** Built after trying `Iron-Ham/
+  XcodePreviews` (iOS-Simulator-based, doesn't apply — NMS is macOS-
+  only) as a way to see layout changes without a full build→launch→
+  AppleScript→screenshot round trip. Confirmed working for a bare
+  `Text` and a hand-built tile-shaped box; confirmed **crashing** the
+  test-host process for both `ContentView`'s full `body` and for
+  `scrollableContent` alone (i.e. even with `body`'s own `ScrollView`/
+  `.coordinateSpace(name: "nmsWindow")` removed) — so the crash trigger
+  is inside `scrollableContent`'s real tiles/view-model graph itself
+  (a specific `Grid`, `Sparkline`, or side-effecting view model), not
+  the outer wrapping originally suspected.
+
+  1. **Narrow the exact crash trigger inside `scrollableContent`.**
+     Bisect by rendering progressively more of it (one real tile at a
+     time, in the order `scrollableContent` builds them) until the
+     crash reappears — would tell you exactly which tile/mechanism is
+     the actual cause, rather than "somewhere in there."
+
+  2. **Refactor `ContentView` to expose individual tiles as separately-
+     reachable properties**, so a real tile (with real view-model data,
+     not a hand-built reproduction) could be rendered in isolation —
+     today none of `ContentView`'s real tiles are reachable that way;
+     they're all constructed inline inside `scrollableContent`. Useful
+     independent of #1: even once the crash is understood, isolating
+     one real tile for a render still needs *something* to hold onto
+     besides the whole (crashing) `scrollableContent`.
+
+  Current tool (`viewToCapture` in `PreviewCaptureTests`) is a
+  starting point edited each time it's used, not a "render any tile by
+  name" system — good enough for the layout questions that came up
+  tonight, but both of the above would make it meaningfully more
+  useful without much additional risk.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they

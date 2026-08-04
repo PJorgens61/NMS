@@ -124,7 +124,10 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var scrollableContent: some View {
+    // Not `private` — also rendered directly (bypassing `body`'s own
+    // ScrollView/named coordinate space) by NMSTests/PreviewCapture.swift
+    // via `@testable import NMS`. See that file's own doc comment.
+    var scrollableContent: some View {
             // Network Health and Info merged into one "Network" tile —
             // real content overlap (Router/Network/DNS/Public IP/ISP
             // each showed up in both, just as two different facets of
