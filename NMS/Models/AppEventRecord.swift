@@ -153,7 +153,8 @@ enum AppEventKind: String, Codable {
     /// Recoveries render as positive (green), bad states as negative (red);
     /// a public IP change, an interface failover, or an SNMP device's
     /// software changing is neither — it's just information, not a problem
-    /// or a fix — so those render neutral. See `ContentView.eventColor`.
+    /// or a fix — so those render neutral. See `EventsTile.color(for:)`
+    /// (also `NetworkReviewView.eventColor`).
     var polarity: Polarity {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
@@ -194,8 +195,8 @@ final class AppEventRecord {
     /// `.saasServiceDown` (see `SaaSMonitoringViewModel.apply`). Plain
     /// optional, same no-migration-risk shape as `SNMPDeviceRecord.webURL`.
     /// Added after direct feedback: the URL used to be baked into
-    /// `message` as trailing "(https://...)" text, which `eventRows`
-    /// truncates to one line — unreadable, let alone clickable. A real
+    /// `message` as trailing "(https://...)" text, which the event list's
+    /// row truncates to one line — unreadable, let alone clickable. A real
     /// field lets the UI render it as an actual link instead of asking
     /// someone to select-and-copy truncated text.
     var url: String?

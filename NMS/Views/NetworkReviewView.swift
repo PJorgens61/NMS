@@ -160,7 +160,7 @@ struct NetworkReviewView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     // 2, not 1 -- see the identical row in
-                    // ContentView+Window.swift's dhcpHistoryRows for why.
+                    // DHCPHistoryTile.swift's historyRows for why.
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .help(DHCPLeaseRecord.transactionHelpText)

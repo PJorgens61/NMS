@@ -3093,13 +3093,30 @@ from this list. This one remains, since it's an idea, not a defect):
      different `@MainActor`/`Equatable` requirements per
      `swiftui-specialist`'s own `references/dataflow.md`).
 
-  2. **`ContentView` fan-in: 17 `@ObservedObject` properties on one
-     struct** (`ContentView.swift:4-19`, confirmed by direct count)
-     **whose `body` spans 2,637 lines across `ContentView.swift` +
-     `ContentView+Window.swift`** (confirmed: 1393 + 1244). Combined
-     with #1 above, a change to any one of the 17 view models
-     re-evaluates the entire hierarchy, not just the section that
-     actually depends on it.
+  2. **`ContentView` fan-in — done (2026-08-04).** All ten window
+     tiles pulled out of `ContentView.swift`/`ContentView+Window.swift`
+     into their own `View` types, each holding only the
+     `@ObservedObject`(s) it actually reads instead of the original
+     17-property struct: `EthernetTile`, `WiFiTile`, `SaaSStatusTile`,
+     `EventsTile`, `SNMPDevicesTile`, `DHCPHistoryTile`,
+     `PathToInternetTile`, `SpeedTestTile`, `AppleNetworkQualityTile`,
+     `LocalStressTestTile`, and `NetworkTile` (the merged Network
+     Health/Info tile — the largest, nine `@ObservedObject`s, since it
+     genuinely synthesizes that much of the app's state). Shared
+     plumbing (`tile()`/`row()`/`externalLinkIcon`/`.help(optional:)`)
+     moved to `TileHelpers.swift`; the RPM color/tooltip logic shared
+     between `NetworkTile` and `AppleNetworkQualityTile` moved to
+     `QuickCheckDisplay.swift`; speed-test formatting moved onto
+     `NetworkQualityRecord` as computed properties. Combined
+     `ContentView.swift` + `ContentView+Window.swift`: 2,637 → 507
+     lines. Verified with a full build, `test-quick.sh` after each
+     tile, and `test-max.sh` (NMSTests + NMSUITests + live scenarios)
+     at the end — all passed. `ContentView` itself still declares all
+     17 `@ObservedObject`s (it has to, to construct the view-model
+     graph and pass pieces down), but a change to any *one* of them no
+     longer re-evaluates tiles that don't read it — only `ContentView
+     .body` itself and whichever extracted tile(s) actually depend on
+     that view model do.
 
   3. **View structure/factoring: ~40 computed `some View` properties,
      only a handful of real `View` structs.** `swiftui-specialist`'s
@@ -3107,17 +3124,19 @@ from this list. This one remains, since it's an idea, not a defect):
      be separate `View` types, not computed properties, for
      invalidation scoping — a computed property re-evaluates as part
      of its parent, a separate `View` type can be skipped
-     independently by SwiftUI's diffing.
+     independently by SwiftUI's diffing. Item #2 above already did
+     this for every top-level tile; what's left is the same treatment
+     for the smaller computed properties *within* those tiles and
+     within `ContentView` itself (e.g. `footerBar`).
 
-  4. **Soft-deprecated API sweep** — flagged as "cheap, mechanical,
-     independent of the others," i.e. the one item here that doesn't
-     need to wait on the bigger three. Not yet run.
+  4. **Soft-deprecated API sweep — done.** See `a512f7b`
+     (`.coordinateSpace(name:)` → `.coordinateSpace(_:)`), the one
+     confirmed finding from the sweep.
 
-  Suggested order from the skill, not yet acted on: fan-in (#2) →
-  Observation migration (#1) → view structure (#3), since #2 is the
-  most self-contained of the three and #1/#3 compound each other's
-  benefit once #2 has already separated the hierarchy into real
-  types.
+  Suggested order from the skill: fan-in (#2, done) → Observation
+  migration (#1) → view structure (#3), since #2 was the most
+  self-contained of the three and #1/#3 compound each other's benefit
+  now that #2 has already separated the hierarchy into real types.
 
 - [ ] **`ImageRenderer`-based preview capture (`NMSTests/PreviewCapture
   .swift`, `script/capture-preview.sh`, 2026-08-04) — the crash is a

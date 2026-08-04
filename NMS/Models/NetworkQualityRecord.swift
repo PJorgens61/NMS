@@ -63,3 +63,38 @@ final class NetworkQualityRecord {
         self.networkFingerprint = networkFingerprint
     }
 }
+
+extension NetworkQualityRecord {
+    /// "750 Mbps down, 550 Mbps up" — only ever called on `cloudflareRuns`/
+    /// `appleRuns` (both filtered to a specific `source`, never
+    /// `.quickCheck`), so `downloadMbps`/`uploadMbps` being `nil` here
+    /// would mean that invariant broke, not a real case to render text
+    /// for. The fallback is defensive, not expected to show live.
+    /// Spelled-out "down"/"up" rather than ↓/↑ arrows — an arrow glyph
+    /// asks a reader to decide what it means (direction of data flow? a
+    /// trend, like a stock ticker?) where a plain word doesn't, for the
+    /// same non-technical-user audience this app's other tooltips are
+    /// written for.
+    var throughputText: String {
+        guard let downloadMbps, let uploadMbps else { return "—" }
+        return String(format: "%.0f Mbps down, %.0f Mbps up", downloadMbps, uploadMbps)
+    }
+
+    /// Real data used, not an estimate — `downloadBytesTransferred`/
+    /// `uploadBytesTransferred`'s own doc comment for why this is exact
+    /// for both sources. Lets someone judge whether to run the test again
+    /// on a metered or limited connection, rather than guessing from a
+    /// fixed per-tile estimate that doesn't reflect what any specific run
+    /// actually cost. `nil` only for a row persisted before these fields
+    /// existed — matches this type's own safe-migration shape, not
+    /// expected for any run going forward.
+    var dataUsedText: String? {
+        guard let down = downloadBytesTransferred, let up = uploadBytesTransferred else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        let downText = formatter.string(fromByteCount: Int64(down))
+        let upText = formatter.string(fromByteCount: Int64(up))
+        return "\(downText) down, \(upText) up"
+    }
+}
