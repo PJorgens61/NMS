@@ -23,6 +23,10 @@ struct DHCPLeaseInfo: Equatable, Codable {
     /// is what lets the app tell "still the same lease" from "renewed"
     /// without an absolute grant timestamp from the protocol itself.
     let transactionID: String
+    /// The client hardware (MAC) address the lease was granted to
+    /// (`chaddr`) — lets a reader confirm the lease actually matches this
+    /// interface's own MAC, rather than trusting the association silently.
+    let clientHardwareAddress: String?
     let checkedAt: Date
 
     /// Shared by the popover's DHCP History rows and

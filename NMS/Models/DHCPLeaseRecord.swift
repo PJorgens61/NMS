@@ -23,6 +23,7 @@ final class DHCPLeaseRecord {
     var t1Seconds: Int
     var t2Seconds: Int
     var transactionID: String
+    var clientHardwareAddress: String?
     var observedAt: Date
     var firstObservedAt: Date
     /// See `AppEventRecord.networkFingerprint` — same scoping, same `nil`
@@ -43,6 +44,7 @@ final class DHCPLeaseRecord {
         t1Seconds = info.t1Seconds
         t2Seconds = info.t2Seconds
         transactionID = info.transactionID
+        clientHardwareAddress = info.clientHardwareAddress
         observedAt = info.checkedAt
         self.firstObservedAt = firstObservedAt
     }
@@ -71,6 +73,10 @@ final class DHCPLeaseRecord {
         parts.append("lease \(DHCPLeaseInfo.durationText(leaseSeconds))")
         parts.append("T1 \(DHCPLeaseInfo.durationText(t1Seconds))")
         parts.append("T2 \(DHCPLeaseInfo.durationText(t2Seconds))")
+        // Before transactionID, not after -- transactionHelpText below
+        // specifically describes "the trailing hex value" as the
+        // transaction ID, so it needs to stay last.
+        if let clientHardwareAddress { parts.append(clientHardwareAddress) }
         parts.append(transactionID)
         return parts.joined(separator: " · ")
     }
@@ -101,6 +107,7 @@ final class DHCPLeaseRecord {
             t1Seconds: t1Seconds,
             t2Seconds: t2Seconds,
             transactionID: transactionID,
+            clientHardwareAddress: clientHardwareAddress,
             checkedAt: observedAt
         )
     }

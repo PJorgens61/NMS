@@ -1130,7 +1130,14 @@ extension ContentView {
                 Text(record.secondaryDetail)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    // 2, not 1 -- with clientHardwareAddress added
+                    // alongside the transaction ID, this line got long
+                    // enough to truncate mid-word (e.g. "lease 24h"
+                    // clipped to "l...4h") on a real, populated row.
+                    // Letting it wrap to a second line instead reads
+                    // cleanly; truncation is still the fallback if even
+                    // two lines isn't enough.
+                    .lineLimit(2)
                     .truncationMode(.middle)
                     // The densest jargon in the app, and the reason
                     // tooltips were built at all. Explains only the

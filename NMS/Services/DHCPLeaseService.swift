@@ -56,6 +56,7 @@ struct DHCPLeaseService {
     static func parse(_ output: String, interface: String, checkedAt: Date) -> DHCPLeaseInfo? {
         var xid: String?
         var yiaddr: String?
+        var chaddr: String?
         var options: [String: String] = [:]
 
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -64,6 +65,8 @@ struct DHCPLeaseService {
                 xid = String(trimmed.dropFirst("xid = ".count))
             } else if trimmed.hasPrefix("yiaddr = ") {
                 yiaddr = String(trimmed.dropFirst("yiaddr = ".count))
+            } else if trimmed.hasPrefix("chaddr = ") {
+                chaddr = String(trimmed.dropFirst("chaddr = ".count))
             } else if let parenStart = trimmed.firstIndex(of: "("), let colonEnd = trimmed.range(of: "): ") {
                 let key = String(trimmed[..<parenStart]).trimmingCharacters(in: .whitespaces)
                 // Capped here, at the parsing boundary, so every option
@@ -101,8 +104,50 @@ struct DHCPLeaseService {
             t1Seconds: t1Seconds,
             t2Seconds: t2Seconds,
             transactionID: xid,
+            clientHardwareAddress: chaddr,
             checkedAt: checkedAt
         )
+    }
+
+    /// Forces a fresh DHCP negotiation on `interface`, the same mechanism
+    /// System Settings' own "Renew DHCP Lease" button uses (confirmed by
+    /// testing live: two calls a few minutes apart on this Mac only
+    /// triggered one macOS administrator-authorization prompt, and the
+    /// resulting lease's `xid` changed, confirming a real renewal rather
+    /// than a no-op).
+    ///
+    /// **Disruptive, unlike `currentLease` above** — this briefly tears
+    /// down and re-establishes the interface's network configuration, and
+    /// (for anything but a fully local admin session) surfaces macOS's own
+    /// system authorization dialog. Callers must get explicit user
+    /// confirmation first; this makes no attempt to gate that itself. See
+    /// `PUNCHLIST.md`'s DHCP renew entry for the full research trail —
+    /// `ipconfig set <if> DHCP` was the first candidate and was rejected:
+    /// it flatly requires `sudo`/root, with no equivalent to the caching
+    /// behavior confirmed here.
+    ///
+    /// Returns whether the `scutil` process itself exited cleanly — not
+    /// proof the renewal succeeded (a denied authorization prompt or a
+    /// server that's since gone away both still exit 0, since `scutil`
+    /// only *requests* the re-evaluation). Callers should re-check the
+    /// lease afterward (a fresh `xid`) to confirm it actually changed.
+    func renew(interface: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/scutil")
+        process.arguments = ["--renew", interface]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        let trace = SubprocessTracer.begin(process.executableURL!.path, process.arguments ?? [])
+        do {
+            try process.run()
+        } catch {
+            SubprocessTracer.end(trace, exitCode: nil, byteCount: 0)
+            return false
+        }
+        process.waitUntilExit()
+        SubprocessTracer.end(trace, exitCode: process.terminationStatus, byteCount: 0)
+        return process.terminationStatus == 0
     }
 
     private static func hexUInt(_ value: String?) -> Int? {

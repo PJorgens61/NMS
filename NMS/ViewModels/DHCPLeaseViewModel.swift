@@ -27,6 +27,20 @@ final class DHCPLeaseViewModel: ObservableObject {
     /// state already existed for `.dhcpRenewalOverdue`/`.dhcpRenewalRecovered`
     /// event logging, it just wasn't readable by the UI before now.
     @Published private(set) var isRenewalOverdue = false
+    /// True while a user-triggered `renew()` is in flight — separate from
+    /// `isChecking`, which fires on every routine poll and would otherwise
+    /// make the Renew button flicker disabled during ordinary background
+    /// activity that has nothing to do with the button being pressed.
+    @Published private(set) var isRenewing = false
+
+    /// One-time "this briefly disrupts the connection and may prompt for
+    /// an administrator password" acknowledgment — same shape as
+    /// `WiFiStressTestViewModel.hasConfirmedBefore`: a plain
+    /// view-model-owned `UserDefaults` key, confirmed once, ever, not a
+    /// `FeatureFlags` entry (this isn't an on/off feature to gate).
+    private static let hasConfirmedRenewKey = "DHCPRenewHasConfirmed"
+    var hasConfirmedRenewBefore: Bool { UserDefaults.standard.bool(forKey: Self.hasConfirmedRenewKey) }
+    func markRenewConfirmed() { UserDefaults.standard.set(true, forKey: Self.hasConfirmedRenewKey) }
 
     private let service = DHCPLeaseService()
     private let snapshotStore: SnapshotStore
@@ -95,6 +109,35 @@ final class DHCPLeaseViewModel: ObservableObject {
             let lease = service.currentLease(interface: interfaceName)
             Task { @MainActor [weak self] in
                 self?.apply(lease, currentIPAddress: ipAddress)
+            }
+        }
+    }
+
+    /// User-triggered only — never called from the poll timer. Forces a
+    /// fresh DHCP negotiation via `DHCPLeaseService.renew`, which briefly
+    /// disrupts the connection and (for anything but a fully local admin
+    /// session) surfaces macOS's own administrator-authorization dialog.
+    /// Callers are responsible for getting explicit confirmation first —
+    /// see `hasConfirmedRenewBefore`/`markRenewConfirmed` above — this
+    /// makes no attempt to gate that itself.
+    ///
+    /// No separate event-log entry for the renewal itself: a genuinely
+    /// new lease always gets a fresh transaction ID, which
+    /// `SnapshotStore.recordDHCPLeaseIfChanged` already turns into a new
+    /// `DHCPLeaseRecord` row on its own (see that type's doc comment), so
+    /// the renewal is already visible in DHCP History without a second,
+    /// redundant announcement.
+    func renew() {
+        guard !isRenewing else { return }
+        guard let interface = networkMonitor?.currentInterface else { return }
+        isRenewing = true
+        let interfaceName = interface.interfaceName
+        let service = self.service
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            _ = service.renew(interface: interfaceName)
+            Task { @MainActor [weak self] in
+                self?.isRenewing = false
+                self?.check()
             }
         }
     }

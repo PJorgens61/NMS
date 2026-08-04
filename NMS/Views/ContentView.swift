@@ -42,6 +42,10 @@ struct ContentView: View {
     /// see `wifiStressTestSection`/the tile in `ContentView+Window.swift`.
     /// Not `private`, same cross-file reason as `communityDraft` above.
     @State var isShowingWiFiStressTestConfirmation = false
+    /// Backs the DHCP History tile's one-time confirmation alert — same
+    /// shape as `isShowingWiFiStressTestConfirmation` above, for the
+    /// "Renew" button in `scrollableContent` below.
+    @State private var isShowingDHCPRenewConfirmation = false
     /// Keyed by `ConnectionLayer.id`. Populated by the Network Health
     /// section's `.task`; empty until then, which simply renders no
     /// sparklines rather than empty boxes.
@@ -232,7 +236,35 @@ struct ContentView: View {
             // (nothing called its `scan()`) and, even if it had been,
             // found nothing SNMP's own subnet sweep didn't already cover.
 
-            tile(title: "DHCP History", fixedHeight: SectionLayout.dhcpHistory.boxHeight) {
+            tile(
+                title: "DHCP History",
+                fixedHeight: SectionLayout.dhcpHistory.boxHeight,
+                trailing: {
+                    Button(dhcpLease.isRenewing ? "Renewing…" : "Renew") {
+                        if dhcpLease.hasConfirmedRenewBefore {
+                            dhcpLease.renew()
+                        } else {
+                            isShowingDHCPRenewConfirmation = true
+                        }
+                    }
+                    .disabled(dhcpLease.isRenewing || !DHCPLeaseService.isAvailable)
+                    .accessibilityLabel(dhcpLease.isRenewing ? "Renewing" : "Renew DHCP Lease")
+                    .accessibilityHint("Forces a fresh DHCP negotiation on this Mac's active interface. Briefly disrupts the connection and may prompt for an administrator password.")
+                    .accessibilityIdentifier("dhcpHistory.renew")
+                    // Attached directly to the button, same established
+                    // local-attachment pattern the Local Stress Test tile's
+                    // own confirmation alert uses.
+                    .alert("Renew DHCP Lease?", isPresented: $isShowingDHCPRenewConfirmation) {
+                        Button("Continue") {
+                            dhcpLease.markRenewConfirmed()
+                            dhcpLease.renew()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This forces a fresh DHCP negotiation on this Mac's active interface, briefly disrupting the connection, and may prompt for an administrator password — continue?")
+                    }
+                }
+            ) {
                 dhcpHistoryList
             }
     }

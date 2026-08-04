@@ -159,7 +159,9 @@ struct NetworkReviewView: View {
                 Text(record.secondaryDetail)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    // 2, not 1 -- see the identical row in
+                    // ContentView+Window.swift's dhcpHistoryRows for why.
+                    .lineLimit(2)
                     .truncationMode(.middle)
                     .help(DHCPLeaseRecord.transactionHelpText)
             }

@@ -131,6 +131,7 @@ private enum ContentViewPreviewSupport {
             t1Seconds: 43200,
             t2Seconds: 75600,
             transactionID: "0x1a2b3c4d",
+            clientHardwareAddress: "aa:bb:cc:dd:ee:ff",
             checkedAt: Date()
         )
         context.insert(DHCPLeaseRecord(from: dhcpInfo, firstObservedAt: Date().addingTimeInterval(-3600)))
