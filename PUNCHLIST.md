@@ -2967,25 +2967,34 @@ from this list. This one remains, since it's an idea, not a defect):
      live — opened the window, resized it programmatically via System
      Events (450x700, stuck), visually confirmed on the MacBook.
 
-  3. **Main window's scroll gutter is too narrow, and doesn't grow
-     when the window is widened.** Reported directly: the empty
-     margin meant to catch trackpad/wheel input for the outer
-     `ScrollView` (`ContentView.body`'s `.padding(.horizontal, 32)`)
-     is a fixed 32pt regardless of window width, and widening the
-     window doesn't help — confirmed live: resizing the window from
-     600pt to 900pt left the tile content roughly centered with dead,
-     non-interactive margin on both sides rather than the gutter
-     itself growing. Root cause not yet fully fixed: the outer
-     `VStack` (`ContentView.body`, wrapping both the `ScrollView` and
-     the footer) is pinned to `.frame(width: 600)`, so the *whole*
-     content column stays fixed width and the window's extra space
-     becomes blank area outside the interactive `ScrollView` entirely,
-     not inside it. Likely fix: let the outer container fill available
-     window width (`.frame(maxWidth: .infinity)` or similar) while
-     capping `scrollableContent`'s own tiles at their current
-     effective width and centering them, so the *padding* (not a
-     separate outer margin) is what grows with the window — not yet
-     implemented.
+  3. ~~**Main window's scroll gutter is too narrow, and doesn't grow
+     when the window is widened.**~~ **Fixed in `cde359f` (#10), then
+     extended in `c36e4e2`.** Reported directly: the empty margin
+     meant to catch trackpad/wheel input for the outer `ScrollView`
+     (`ContentView.body`'s `.padding(.horizontal, 32)`) is a fixed
+     32pt regardless of window width, and widening the window doesn't
+     help — confirmed live: resizing the window from 600pt to 900pt
+     left the tile content roughly centered with dead, non-interactive
+     margin on both sides rather than the gutter itself growing.
+     Fix: outer `VStack` changed from `.frame(width: 600)` to
+     `.frame(minWidth: 600, maxWidth: .infinity)`; `scrollableContent`,
+     `Divider()`, and `footerBar` each capped to a new shared
+     `ContentView.tileContentWidth` (536, the tiles' own rendered
+     width) and re-centered, so the *padding* grows with the window
+     instead of a separate dead margin outside the `ScrollView`.
+     **Second bug found applying this**: `scrollBox()` (the separate
+     box mechanism Wi-Fi/Ethernet/SaaS Status/Events/SNMP Devices/DHCP
+     History used) didn't share `tile()`'s width behavior — nested
+     inside the outer `ScrollView`, it sized to its own content's
+     natural width instead of its parent's constrained width, letting
+     long rows push those six boxes out past every tile's edge above
+     them. Two direct fixes to `scrollBox()` itself both still
+     reproduced it live; fixed by switching those six sections to
+     `tile()` outright (the same mechanism already proven correct) and
+     removing `scrollBox()` entirely. Verified: full test suite green
+     both times, and live each time — confirmed by the user who caught
+     the original bug, including the second one surviving the first
+     fix.
 
   4. **A curated list of common Wi-Fi router/AP vendor MAC OUI
      prefixes, to enrich the Wi-Fi display.** E.g. recognizing a
