@@ -43,8 +43,14 @@ enum SectionLayout: String, CaseIterable, Sendable {
         case .wifi: return 130
         // Two rows (Speed, Duplex) — no signal-strength sparkline, no
         // BSSID/channel/security the way Wi-Fi's box has, so it needs
-        // nowhere near as much room.
-        case .ethernetLink: return 60
+        // nowhere near as much room. **Was 60** — never checked against
+        // a real render; `tile()`'s shared header overhead alone is
+        // ~45pt, leaving only ~15pt of content area, not enough for
+        // even one 12pt-font row. Confirmed live: only "Speed" showed,
+        // "Duplex" was clipped out entirely. 80 leaves ~35pt of content
+        // — comfortable room for both rows with a little breathing
+        // room, still clearly smaller than Wi-Fi's 130.
+        case .ethernetLink: return 80
         case .saasMonitoring: return 150
         }
     }
