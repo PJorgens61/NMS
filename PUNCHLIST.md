@@ -2325,23 +2325,88 @@ from this list. This one remains, since it's an idea, not a defect):
      view model do. Combined with #1 above (now also done), that
      narrowing is now genuinely per-property, not just per-tile.
 
-  3. **View structure/factoring: ~40 computed `some View` properties,
-     only a handful of real `View` structs.** `swiftui-specialist`'s
-     own `references/structure.md` is explicit that sections should
-     be separate `View` types, not computed properties, for
-     invalidation scoping — a computed property re-evaluates as part
-     of its parent, a separate `View` type can be skipped
-     independently by SwiftUI's diffing. Item #2 above already did
-     this for every top-level tile; what's left is the same treatment
-     for the smaller computed properties *within* those tiles and
-     within `ContentView` itself (e.g. `footerBar`).
+  3. **View structure/factoring — done for every case with a genuine
+     independent invalidation story (2026-08-04); one item needs a
+     live look before fully trusting it.** Surveyed all ~40 computed
+     `some View` properties left after item #2. Most (row-rendering
+     helpers for a single `ForEach` over one already-narrow tile's own
+     one view model, e.g. `SpeedTestTile.runRows`) are the explicit
+     "still have a place" carve-out in `swiftui-specialist`'s own
+     `references/structure.md` — tiny fragments with no *independent*
+     invalidation story, where extracting a separate `View` type would
+     add indirection without changing what re-runs when. Genuinely
+     factored, each into its own `View` type with narrow inputs:
+
+     - `NetworkTile`'s `Grid` rows — `QuickCheckRow`/
+       `ConnectionLayerRow`/`DHCPStatusRow`/`DDNSRow`
+       (`NetworkHealthRow.swift` holds the shared `statusGridRow`
+       builder + `ConnectionLayerRow`), plus made `ConnectionLayer`/
+       `LayerStatus` `Equatable` so SwiftUI's struct diffing can
+       actually skip an unchanged row. **Not yet visually confirmed —
+       see caveat below.**
+     - `PreferencesView`'s independently-toggleable sections —
+       `SaaSServicePickerSection`/`UserAddedSitesSection`/
+       `DDNSHostnamesSection`, each with its own `@State` moved out of
+       `PreferencesView`. Before this, typing in the DDNS hostname
+       field re-evaluated the unrelated SNMP toggle and SaaS picker
+       too.
+     - `SNMPDevicesTile`'s community-string editor — `CommunityRow`,
+       with its own `@State` moved out; typing a community string no
+       longer re-evaluates the tile's device `ForEach`.
+
+     One case investigated and deliberately left as a computed
+     property, not extracted: `ContentView.footerBar`. Its DEBUG-
+     overrides and store-fallback banners have no `@Observable`
+     property backing them at all — their only "refresh" mechanism is
+     being swept along by `ContentView`'s own frequent re-renders.
+     Extracting it into a `View` type with effectively-static inputs
+     would make SwiftUI skip re-rendering it once its own inputs
+     stopped changing, freezing those banners at whatever they showed
+     on the first render — a real regression, not an improvement. See
+     `ContentView.swift`'s own doc comment on `footerBar` for the full
+     reasoning.
+
+     **`NetworkTile`'s `Grid` alignment — verified structurally, not
+     with the real live tile (2026-08-04).** This `Grid` has a
+     documented three-round history of alignment bugs in this project
+     (see `NetworkTile`'s own doc comment), and custom `View` types
+     whose `body` is a `GridRow` — rather than `GridRow` appearing
+     literally inside `Grid`'s own `@ViewBuilder` — needed real
+     confirmation, not just "it's a documented-valid pattern."
+     Screenshot automation is off by explicit instruction, and the
+     real `NetworkTile` can't safely go through the `ImageRenderer`
+     capture tool — `dhcpLease`/`connectivity`/`traceroute`/`publicIP`
+     all spawn a timer or subprocess in `init`, the exact live-side-
+     effect crash risk `NMSTests/PreviewCapture.swift`'s own doc
+     comment documents.
+     
+     Worked around by rendering the *same* `Grid` structure and the
+     *same* row types (`QuickCheckRow`, `ConnectionLayerRow` ×7, and a
+     direct `statusGridRow` call standing in for `DHCPStatusRow`) fed
+     with fixture `ConnectionLayer` values and one freshly-built
+     `NetworkQualityViewModel` (confirmed side-effect-free at `init`)
+     instead of the real object graph — see `PreviewCapture.swift`'s
+     current `viewToCapture`. Rendered clean on the first try (no
+     crash, no retry): all nine rows' dot/label/icon/chart/detail
+     columns aligned correctly, including the Network row's sparkline,
+     the Router row's external-link icon, correct root-cause-vs-
+     consequence red-dimming on Internet/DNS/HTTP, and the DHCP row's
+     yellow "changed recently" state.
+     
+     What this confirms: the *mechanism* (`GridRow` wrapped in a
+     separate `View` type) genuinely works inside this specific `Grid`.
+     What it doesn't confirm: the real `NetworkTile`, wired to its real
+     nine view models with real data, hasn't been seen live by anyone
+     — worth a look next time the app is run normally, though the
+     structural risk this caveat originally worried about is resolved.
 
   4. **Soft-deprecated API sweep — done.** See `a512f7b`
      (`.coordinateSpace(name:)` → `.coordinateSpace(_:)`), the one
      confirmed finding from the sweep.
 
   Suggested order from the skill: fan-in (#2, done) → Observation
-  migration (#1, done) → view structure (#3, the one item left open).
+  migration (#1, done) → view structure (#3, done pending the
+  `NetworkTile` visual check above).
 
 - [ ] **`ImageRenderer`-based preview capture (`NMSTests/PreviewCapture
   .swift`, `script/capture-preview.sh`, 2026-08-04) — the crash is a

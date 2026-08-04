@@ -213,6 +213,28 @@ struct ContentView: View {
 
     /// Refresh/Networks…/Preferences…/Quit, the build-hash/store-size
     /// line, and the DEBUG-overrides banner.
+    ///
+    /// **Deliberately still a computed property, not its own `View`
+    /// type** — considered directly as part of `PUNCHLIST.md`'s
+    /// view-structure factoring entry, which names this property
+    /// specifically, and rejected: the DEBUG-overrides and store-
+    /// fallback banners below have no `@Observable` property backing
+    /// them at all (`FailureInjector.activeOverridesSummary()`/
+    /// `NMSApp.storeFallbackReason` are plain static reads), so their
+    /// only "refresh" mechanism is being swept along whenever
+    /// `ContentView.body` re-evaluates for an unrelated reason — see
+    /// their own doc comments below for why that's an accepted,
+    /// deliberate trade-off, not an oversight. A separate `View` type
+    /// with narrow inputs would take `buildInfo`/`storeURL` (both
+    /// effectively constant for the process lifetime) and view-model
+    /// references this content never actually *reads* during `body` —
+    /// SwiftUI would find nothing changed on any later re-render and
+    /// skip re-evaluating it, and those two banners would freeze at
+    /// whatever they showed on the very first render instead of staying
+    /// current. This is the "no independent invalidation story" carve-
+    /// out from `swiftui-specialist`'s `references/structure.md`, just
+    /// inverted: not merely *no benefit* to extracting, but a real
+    /// regression from it.
     @ViewBuilder
     private var footerBar: some View {
             HStack(spacing: 4) {

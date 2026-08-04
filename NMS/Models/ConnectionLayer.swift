@@ -5,7 +5,7 @@ import Foundation
 /// below it): interface -> network association -> local router -> ISP
 /// edge router -> DNS -> HTTP. Purely derived from other view models'
 /// already-published state for display — not persisted.
-enum LayerStatus {
+enum LayerStatus: Equatable {
     case healthy
     case unhealthy
     /// Not a failure — just nothing to judge yet (e.g. the ISP router hop
@@ -13,7 +13,13 @@ enum LayerStatus {
     case unknown
 }
 
-struct ConnectionLayer: Identifiable {
+/// `Equatable` so `ConnectionLayerRow` (a plain value input) can be
+/// diffed field-by-field — a layer whose contents didn't actually change
+/// between two `NetworkTile.body` evaluations lets SwiftUI skip
+/// re-rendering that row entirely, rather than the whole `Grid`
+/// re-evaluating just because *some* sibling layer changed. See
+/// `PUNCHLIST.md`'s view-structure factoring entry.
+struct ConnectionLayer: Identifiable, Equatable {
     let id: String
     let label: String
     let detail: String

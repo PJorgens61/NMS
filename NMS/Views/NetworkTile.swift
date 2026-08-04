@@ -19,6 +19,17 @@ import SwiftUI
 /// `ContentView` itself. The latency-history `@State` moved here too —
 /// purely local UI state with no reason to live on `ContentView` once
 /// this section is its own type.
+///
+/// Every `Grid` row is now its own `View` type too (`QuickCheckRow`,
+/// `ConnectionLayerRow`, `DHCPStatusRow`) plus `DDNSRow` below the grid
+/// — see `PUNCHLIST.md`'s view-structure factoring entry. This tile
+/// itself still reruns its whole `body` on any of its nine view models
+/// changing (it has no invalidation boundary of its own beyond what its
+/// children provide), but each row is now a separate value-input `View`
+/// that SwiftUI's own struct diffing can skip re-rendering when its
+/// specific inputs didn't change — narrower than before, where every
+/// row's content lived inline in this type's own body and reran
+/// together regardless of which view model actually changed.
 struct NetworkTile: View {
     var viewModel: NetworkMonitorViewModel
     var connectivity: ConnectivityViewModel
@@ -55,7 +66,7 @@ struct NetworkTile: View {
     @ViewBuilder
     private var connectionHealthSection: some View {
         let layers = connectionLayersLowToHigh
-        // Split so `dhcpGridRow` can sit between Router and Network
+        // Split so `DHCPStatusRow` can sit between Router and Network
         // rather than only ever at the very top or bottom — DHCP
         // supplies the addressing Router/Public IP/etc. depend on, but
         // is itself more fundamental than Network's own Wi-Fi/Ethernet
@@ -68,6 +79,10 @@ struct NetworkTile: View {
         let reversedLayers = Array(layers.reversed())
         let aboveNetwork = reversedLayers.dropLast()
         let networkLayer = reversedLayers.last
+        // Computed once per `body` evaluation and passed down as a plain
+        // value — `ConnectionLayerRow` doesn't need to recompute it (or
+        // depend on `connectionLayersLowToHigh` at all) for every row.
+        let rootCauseLayerID = self.rootCauseLayerID
         VStack(alignment: .leading, spacing: 2) {
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
                 // At the top, not the bottom — the most aggregate,
@@ -76,9 +91,9 @@ struct NetworkTile: View {
                 // item for the full row-ordering reasoning: this Grid
                 // reads top-to-bottom as most-dependent to most-
                 // fundamental, matching `layers.reversed()` below).
-                quickCheckGridRow
+                QuickCheckRow(networkQuality: networkQuality, interfaceName: viewModel.currentInterface?.interfaceName)
                 ForEach(aboveNetwork) { layer in
-                    layerGridRow(layer)
+                    ConnectionLayerRow(layer: layer, rootCauseLayerID: rootCauseLayerID, sparklineValues: sparklineValues(for: layer))
                 }
                 // Between Router and Network, not slotted into
                 // `connectionLayersLowToHigh` itself — DHCP isn't a
@@ -87,11 +102,11 @@ struct NetworkTile: View {
                 // check (normal/changed/abnormal), which `LayerStatus`
                 // has no clean case for (`.unknown` already means "gray,
                 // nothing to judge yet," not "yellow, something changed
-                // recently"). See `dhcpStatusColor`'s own doc comment
-                // for what each color means.
-                dhcpGridRow
+                // recently"). See `DHCPStatusRow`'s own doc comment for
+                // what each color means.
+                DHCPStatusRow(dhcpLease: dhcpLease)
                 if let networkLayer {
-                    layerGridRow(networkLayer)
+                    ConnectionLayerRow(layer: networkLayer, rootCauseLayerID: rootCauseLayerID, sparklineValues: sparklineValues(for: networkLayer))
                 }
             }
             .font(.system(size: 12))
@@ -113,8 +128,8 @@ struct NetworkTile: View {
 
             // Confirms the polling is actually active and shows its
             // current state — absent entirely until a hostname is
-            // configured (see `ddnsRow`).
-            ddnsRow
+            // configured (see `DDNSRow`).
+            DDNSRow(ddns: ddns)
         }
         // Loaded when the section appears rather than kept continuously
         // up to date — the popover is shut almost all the time. Keyed on
@@ -126,299 +141,21 @@ struct NetworkTile: View {
         }
     }
 
-    /// The dot/label/icon/chart/detail shape every status row in
-    /// `connectionHealthSection`'s `Grid` uses — extracted after the
-    /// third near-identical hand-rolled `GridRow` (`layerGridRow`,
-    /// `quickCheckGridRow`, `dhcpGridRow` all built this same five-cell
-    /// shape by hand) so the next tile's rows are a few lines instead of
-    /// copying the whole shape and its column-alignment reasoning again.
-    /// `icon`/`chart` are `@ViewBuilder` slots, not optionals — a caller
-    /// with nothing real for either passes `Color.clear.frame(width: 0,
-    /// height: 0)` explicitly (see that pattern's own reasoning below),
-    /// rather than this helper silently defaulting to `EmptyView()`,
-    /// which doesn't reliably reserve its `Grid` column.
-    @ViewBuilder
-    private func statusGridRow<Icon: View, Chart: View>(
-        color: Color,
-        dotHelp: String? = nil,
-        label: String,
-        detail: String,
-        detailColor: Color = .primary,
-        @ViewBuilder icon: () -> Icon,
-        @ViewBuilder chart: () -> Chart
-    ) -> some View {
-        GridRow {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-                .help(optional: dotHelp)
-            Text(label)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .gridColumnAlignment(.leading)
-            icon()
-            chart()
-            // `minWidth` protects this column specifically — confirmed
-            // necessary again on the second `Grid` attempt: sharing one
-            // column width across every row means a long label ("ISP
-            // Edge Router") squeezes this column on every row, not just
-            // its own. A value truncated in the middle ("Hom...hernet")
-            // is unreadable garble; a label truncated at the tail ("ISP
-            // Edge…") still starts with its most identifying word — so
-            // this column gets the guaranteed room, and the label
-            // column absorbs whatever compression is left. 85pt
-            // comfortably fits the longest real value seen here ("Home
-            // Ethernet"). `maxWidth: .infinity` marks this column
-            // flexible so `Grid` gives it the tile's leftover width
-            // instead of shrink-wrapping the whole grid to its narrowest
-            // fit — without it, a wide window left the grid (and this
-            // "trailing"-aligned column) bunched at the tile's left edge
-            // instead of flush against its real right edge. Confirmed
-            // via user screenshot: looked fine in the narrower popover,
-            // misaligned only in the window.
-            Text(detail)
-                .foregroundStyle(detailColor)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)
-                .gridColumnAlignment(.trailing)
+    /// The values `ConnectionLayerRow` should chart for a given layer —
+    /// `nil` when there's nothing to chart yet. Network's own sparkline
+    /// (Wi-Fi only — Ethernet has no signal strength to chart) uses RSSI
+    /// history from `wifiSSID.recentSamples`, not `latencyHistory`: that
+    /// row isn't a ping-latency check, so `latencyHistory` has no entry
+    /// for it at all. Same values/reversal `WiFiTile`'s own Signal row
+    /// already uses for the identical chart.
+    private func sparklineValues(for layer: ConnectionLayer) -> [Double?]? {
+        if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
+           wifiSSID.recentSamples.count > 1 {
+            return wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) }
+        } else if let samples = latencyHistory[layer.id] {
+            return samples.map(\.latencyMs)
         }
-    }
-
-    /// Extracted from `connectionHealthSection`'s own `Grid` content so
-    /// `dhcpGridRow` can be inserted between two calls to this rather
-    /// than only ever before/after one single `ForEach` over every
-    /// layer. Same row every layer in `connectionLayersLowToHigh` has
-    /// always used — no behavior change, just made callable twice from
-    /// two different slices of `layers.reversed()`.
-    @ViewBuilder
-    private func layerGridRow(_ layer: ConnectionLayer) -> some View {
-        statusGridRow(
-            color: layerColor(for: layer),
-            label: layer.label,
-            detail: layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""),
-            detailColor: layer.status == .unhealthy ? layerColor(for: layer) : .primary
-        ) {
-            // Not `EmptyView()` — confirmed by direct testing that a
-            // literal `EmptyView()` cell doesn't reliably reserve its
-            // `Grid` column, so rows with an empty icon/sparkline
-            // silently collapsed a column relative to rows with real
-            // content there (Router's icon pushed its sparkline right
-            // of every ping row's). `Color.clear` measures as a real
-            // zero-color view and keeps every row's cell count *and*
-            // column position honest.
-            if let url = layer.url {
-                externalLinkIcon(
-                    url: url,
-                    accessibilityLabel: "\(layer.label) admin page",
-                    accessibilityHint: "Opens \(layer.label)'s web interface in your browser"
-                )
-            } else {
-                Color.clear.frame(width: 0, height: 0)
-            }
-        } chart: {
-            // Network's own sparkline (Wi-Fi only — Ethernet has no
-            // signal strength to chart) uses RSSI history from
-            // `wifiSSID.recentSamples`, not `latencyHistory`: this row
-            // isn't a ping-latency check, so `latencyHistory` has no
-            // entry for it at all. Same values/reversal `WiFiTile`'s own
-            // Signal row already uses for the identical chart.
-            if layer.id == "network", viewModel.currentInterface?.isWiFi == true,
-               wifiSSID.recentSamples.count > 1 {
-                Sparkline(values: wifiSSID.recentSamples.reversed().map { $0.rssi.map(Double.init) })
-            } else if let samples = latencyHistory[layer.id] {
-                Sparkline(values: samples.map(\.latencyMs))
-            } else {
-                Color.clear.frame(width: 0, height: 0)
-            }
-        }
-        // `.contain`, not `.combine` — turns this row into one element
-        // whose frame spans its children (what both VoiceOver grouping and
-        // `reportFrameForFieldTest` below need), while keeping the
-        // Router/ISP Edge Router rows' real `externalLinkIcon` link
-        // individually reachable. `.combine` would merge everything into
-        // one opaque element and silently swallow that link.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("networkHealth.row.\(layer.id)")
-        .reportFrameForFieldTest("networkHealth.row.\(layer.id)")
-    }
-
-    /// Same five-cell shape every `GridRow` in `connectionHealthSection`
-    /// uses (dot, label, icon, sparkline, value) — an icon button styled
-    /// identically to `externalLinkIcon`, in the same column position, so
-    /// it aligns with the Router row's link icon by construction. The dot
-    /// stays gray until a result exists — never claims a verdict it
-    /// hasn't earned.
-    private var quickCheckGridRow: some View {
-        statusGridRow(
-            color: quickCheckColor,
-            // Same tooltip the Apple networkQuality tile's own RPM
-            // figures use (`QuickCheckDisplay.rpmThresholdHelp`) —
-            // raised directly, so the two surfaces' colored verdicts
-            // explain themselves the same way.
-            dotHelp: QuickCheckDisplay.rpmThresholdHelp,
-            // "networkQuality" — matches the Apple networkQuality
-            // tile's own name for the full test this is a quick preview
-            // of, reported directly as clearer than "Call Check". Length
-            // is close to the original "Video Call Check" that was
-            // shortened for truncation reasons (see
-            // `quickCheckDetailText`'s trailing column) — re-verify
-            // visually after this rename.
-            label: "networkQuality",
-            detail: quickCheckDetailText
-        ) {
-            Button {
-                networkQuality.runQuickCheck(interfaceName: viewModel.currentInterface?.interfaceName)
-            } label: {
-                Image(systemName: "play.circle")
-                    .imageScale(.small)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .disabled(networkQuality.isRunningQuickCheck || networkQuality.isRunning)
-            .accessibilityLabel("networkQuality")
-            .accessibilityHint("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
-            .accessibilityIdentifier("networkHealth.quickCheck")
-            .help("Runs a quick, about 5 second check of your connection's responsiveness under load, useful before a video call. Uses your data plan.")
-        } chart: {
-            quickCheckHistoryDots
-        }
-    }
-
-    private var quickCheckColor: Color {
-        guard let status = networkQuality.quickCheckStatus else { return .gray }
-        return QuickCheckDisplay.color(forRPM: status.rpm)
-    }
-
-    /// A verdict trail, not a line chart — each quick check is a discrete
-    /// good/fair/poor judgment, not a continuous value, so a sequence of
-    /// colored dots reads more honestly than a `Sparkline` interpolating
-    /// between them. Packed tightly at a fixed gap rather than stretched
-    /// to the same `44pt` width every other row's `Sparkline` occupies —
-    /// tried that first (even `Spacer`-based distribution filling a
-    /// fixed width, 2pt dots) and confirmed live it was the wrong
-    /// trade-off: technically visible, practically unreadable as a
-    /// "trail" rather than dust on the screen, especially with few
-    /// points spread thin across the full width. Larger, close-packed
-    /// dots read clearly; the column simply grows with history instead
-    /// of remaining pinned to the same width as the layer rows' own
-    /// sparklines. Oldest first (leftmost), matching every other row's
-    /// sparkline convention here (`wifiSSID.recentSamples.reversed()`/
-    /// `samples.map(\.latencyMs)` are both already-reversed-to-
-    /// chronological arrays by the time they reach `Sparkline`).
-    @ViewBuilder
-    private var quickCheckHistoryDots: some View {
-        // Filters, doesn't compactMap to just the RPM values -- keeps each
-        // `NetworkQualityRecord` around so ForEach below can use its own
-        // real (SwiftData-provided) identity instead of array offset. Same
-        // pattern already relied on for `dhcpLease.history`/`snmp.devices`
-        // elsewhere in this app.
-        let records = networkQuality.quickCheckHistory.reversed().filter { $0.combinedResponsivenessRPM != nil }
-        if records.isEmpty {
-            // Same "always emit every cell" rule the rest of this Grid
-            // follows — see the `Color.clear` comment on the layer rows'
-            // own sparkline column for why an empty cell still needs a
-            // real, zero-sized view rather than being omitted outright.
-            Color.clear.frame(width: 0, height: 0)
-        } else {
-            HStack(spacing: 2) {
-                ForEach(records) { record in
-                    Circle()
-                        .fill(QuickCheckDisplay.color(forRPM: record.combinedResponsivenessRPM ?? 0))
-                        .frame(width: 5, height: 5)
-                }
-            }
-        }
-    }
-
-    private var quickCheckDetailText: String {
-        if networkQuality.isRunningQuickCheck { return "Checking…" }
-        if let error = networkQuality.quickCheckError { return error }
-        // Shorter than "\(status.label) — \(status.rpm) RPM" (tried
-        // first) — that version truncated in the middle of the RPM
-        // number once the label above was long enough to squeeze it.
-        if let status = networkQuality.quickCheckStatus { return "\(status.label) (\(status.rpm))" }
-        return "Tap to check"
-    }
-
-    /// A DHCP row raised directly for the merged Network tile — "just a
-    /// colored dot to indicate normal/changed/abnormal status." Same
-    /// five-cell shape every other `GridRow` in `connectionHealthSection`
-    /// uses, no sparkline/link icon (`Color.clear` in both slots, same
-    /// "always emit every cell" rule the rest of this Grid follows).
-    private var dhcpGridRow: some View {
-        statusGridRow(
-            color: dhcpStatusColor,
-            label: "DHCP",
-            detail: dhcpDetailText
-        ) {
-            Color.clear.frame(width: 0, height: 0)
-        } chart: {
-            Color.clear.frame(width: 0, height: 0)
-        }
-    }
-
-    /// Three states, not the shared `LayerStatus` every other row here
-    /// uses — deliberately: `.unknown` already means "gray, nothing to
-    /// judge yet" (see `layerColor(for:)`), not "yellow, something
-    /// changed recently," so shoehorning DHCP into that enum would have
-    /// reused a color for two different meanings. Red covers both real
-    /// failure signals `DHCPLeaseViewModel` already tracks — a link-local
-    /// (APIPA) fallback, meaning DHCP failed outright, and a renewal
-    /// that's run past its expected T2 deadline — checked first so an
-    /// abnormal state always wins over a merely-recent change. Yellow is
-    /// "the current lease is new" (within `dhcpRecentChangeWindow` of
-    /// its own `firstObservedAt`), not a separate tracked flag — a real
-    /// lease change already gets its own `AppEventKind` pair
-    /// (`.dhcpLeaseChanged`) for the Events log; this only needs "is that
-    /// recent enough to still matter here."
-    private var dhcpStatusColor: Color {
-        if dhcpLease.isFallenBackToLinkLocal || dhcpLease.isRenewalOverdue { return .red }
-        if let firstObservedAt = dhcpLease.history.first?.firstObservedAt,
-           Date().timeIntervalSince(firstObservedAt) < Self.dhcpRecentChangeWindow {
-            return .yellow
-        }
-        return .green
-    }
-
-    private var dhcpDetailText: String {
-        if dhcpLease.isFallenBackToLinkLocal { return "Link-local fallback" }
-        if dhcpLease.isRenewalOverdue { return "Renewal overdue" }
-        if let firstObservedAt = dhcpLease.history.first?.firstObservedAt,
-           Date().timeIntervalSince(firstObservedAt) < Self.dhcpRecentChangeWindow {
-            return "Changed recently"
-        }
-        // "Nominal," not "Normal" — tried directly, on request, as this
-        // app's one trial of NASA mission-control status language for
-        // an all-expert audience. Only here so far: this row's green
-        // dot supplies the "everything's fine" context the word alone
-        // doesn't carry (real risk flagged before trying it — "nominal"
-        // collides with its much more common everyday meaning, "a
-        // nominal fee," near the opposite of what's meant here), so the
-        // word is flavor on top of an unambiguous signal, not the only
-        // one.
-        return dhcpLease.history.isEmpty ? "Not checked" : "Nominal"
-    }
-
-    /// How long a fresh lease (by `firstObservedAt`) still reads as
-    /// "changed" rather than settling back to "normal" — a few multiples
-    /// of `DHCPLeaseViewModel.checkInterval` (5 minutes), long enough
-    /// that the yellow dot is still there for someone who glances at the
-    /// tile sometime after the actual renewal, not just in the instant
-    /// it happened.
-    private static let dhcpRecentChangeWindow: TimeInterval = 600
-
-    private func layerColor(for layer: ConnectionLayer) -> Color {
-        switch layer.status {
-        case .healthy: return .green
-        case .unknown: return .gray
-        case .unhealthy:
-            // Full red for the actual root cause; a dimmed red for
-            // anything failing above it, which is probably just a
-            // consequence rather than its own separate problem.
-            return layer.id == rootCauseLayerID ? .red : Color.red.opacity(0.4)
-        }
+        return nil
     }
 
     private func checkDetail(for check: ConnectivityCheck) -> String {
@@ -494,11 +231,11 @@ struct NetworkTile: View {
         if let info {
             let hasName = (networkIdentity.currentNetwork?.label?.isEmpty == false) || wifiSSID.currentSSID != nil
             // On Wi-Fi this row shows a signal-strength sparkline instead
-            // of the network's name (see `connectionHealthSection`'s own
-            // per-row rendering) — the name still reads via
-            // `networkDisplay(_:)` off Wi-Fi. Requested directly: "Name" +
-            // "Ethernet" (via `networkDisplay`, unchanged) or a sparkline
-            // + "Wi-Fi" (here), not "Name" + "Wi-Fi" as before.
+            // of the network's name (see `sparklineValues(for:)`) — the
+            // name still reads via `networkDisplay(_:)` off Wi-Fi.
+            // Requested directly: "Name" + "Ethernet" (via
+            // `networkDisplay`, unchanged) or a sparkline + "Wi-Fi"
+            // (here), not "Name" + "Wi-Fi" as before.
             //
             // This Mac's own IP and the known-network recognition count
             // (formerly Info's separate "IP Address" row and
@@ -680,76 +417,5 @@ struct NetworkTile: View {
     /// independent problem, since each layer depends on the ones below it.
     private var rootCauseLayerID: String? {
         connectionLayersLowToHigh.first { $0.status == .unhealthy }?.id
-    }
-
-    /// One summary row for however many hostnames are configured — not
-    /// one row per hostname, to keep this from growing the tile
-    /// unboundedly the way `FeatureFlags.UserAddedSaaSSite` deliberately
-    /// stays out of the curated SaaS table for the same reason. Per-
-    /// hostname detail lives in the tooltip and, for a genuine
-    /// transition, the Events list.
-    @ViewBuilder
-    private var ddnsRow: some View {
-        if !ddns.statuses.isEmpty {
-            HStack {
-                Text("DDNS")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    ddns.checkAll()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .imageScale(.small)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .disabled(ddns.isChecking)
-                .accessibilityLabel("Check DDNS hostnames now")
-                .accessibilityIdentifier("info.ddns.checkNow")
-                .help("Resolves every configured DDNS hostname now, rather than waiting for the next scheduled check.")
-                Circle()
-                    .fill(ddnsSummaryColor)
-                    .frame(width: 8, height: 8)
-                Text(ddnsSummaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.system(size: 12))
-            .help(ddnsTooltipText)
-        }
-    }
-
-    /// Worst state wins — a single red dot for one stale hostname among
-    /// several shouldn't be averaged away by the others being fine.
-    /// `.blockedByCGNAT` renders distinctly from both: not a failure
-    /// (green would be dishonest) and not "something broke" (red would
-    /// overstate it) — a structural fact about this connection, same
-    /// `.orange` tier the "possibly related to a recent network change"
-    /// annotation already uses for "worth noting, not a failure."
-    private var ddnsSummaryColor: Color {
-        let states = ddns.statuses.compactMap(\.syncState)
-        if states.contains(.stale) { return .red }
-        if states.contains(.blockedByCGNAT) { return .orange }
-        if states.count == ddns.statuses.count, states.allSatisfy({ $0 == .current }) { return .green }
-        return .secondary
-    }
-
-    private var ddnsSummaryText: String {
-        let name = ddns.statuses.count == 1 ? ddns.statuses[0].hostname : "\(ddns.statuses.count) hostnames"
-        let minutes = Int(FeatureFlags.ddnsCheckInterval / 60)
-        return "\(name) · every \(minutes)m"
-    }
-
-    private var ddnsTooltipText: String {
-        ddns.statuses.map { status in
-            let state: String
-            switch status.syncState {
-            case .current: state = "in sync"
-            case .stale: state = "stale — check your DDNS client"
-            case .blockedByCGNAT: state = "blocked by CGNAT"
-            case nil: state = status.lastError ?? "checking…"
-            }
-            return "\(status.hostname): \(state)"
-        }.joined(separator: "\n")
     }
 }

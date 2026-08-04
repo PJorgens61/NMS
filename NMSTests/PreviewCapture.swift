@@ -1,6 +1,7 @@
 import Testing
 import SwiftUI
 import AppKit
+import SwiftData
 @testable import NMS
 
 /// Renders a SwiftUI view straight to a PNG via `ImageRenderer` — no app
@@ -71,18 +72,62 @@ struct PreviewCaptureTests {
 
     private static let requestURL = URL(fileURLWithPath: "/tmp/nms-capture-request.json")
 
-    /// Edit this to whatever needs rendering right now. Left as the
-    /// confirmed-working example (a hand-built tile-shaped box) --
-    /// deliberately not touching `ContentViewPreviewSupport
-    /// .makeContentView()` or any real view model, see this file's own
-    /// doc comment for why.
+    /// Edit this to whatever needs rendering right now. Currently checking
+    /// `NetworkTile`'s `Grid` alignment after its rows (`QuickCheckRow`/
+    /// `ConnectionLayerRow`/`DHCPStatusRow`) moved from inline
+    /// `@ViewBuilder` functions into separate `View` types whose own
+    /// `body` is a `GridRow` -- see `PUNCHLIST.md`'s view-structure
+    /// factoring entry for why that's unverified visually. Deliberately
+    /// *not* the real `NetworkTile` or `ContentViewPreviewSupport
+    /// .makeContentView()` -- `dhcpLease`/`connectivity`/`traceroute`/
+    /// `publicIP` all spawn a timer or subprocess in `init`, the exact
+    /// live-side-effect risk this file's own doc comment documents.
+    /// Fixture `ConnectionLayer` values plus one freshly-built
+    /// `NetworkQualityViewModel` (confirmed side-effect-free at `init`
+    /// -- no timer, on-demand only) reproduce the same `Grid` structure
+    /// and the same row types with zero live view-model risk. The DHCP
+    /// row calls `statusGridRow` directly with plain values rather than
+    /// via `DHCPStatusRow`, for the same reason -- `DHCPLeaseViewModel`
+    /// starts a timer and a background check in its own `init`.
     @MainActor
     @ViewBuilder
     private static var viewToCapture: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Diagnostic").font(.headline)
-            Text("Edit PreviewCaptureTests.viewToCapture to render something else.")
-                .font(.system(size: 12))
+        let schema = Schema([
+            NetworkSnapshot.self, DiscoveredDeviceRecord.self, ConnectivityCheckRecord.self,
+            KnownNetwork.self, PublicIPRecord.self, DHCPLeaseRecord.self, NetworkQualityRecord.self,
+            AppEventRecord.self, ProviderEdgeRecord.self, SNMPDeviceRecord.self,
+            WiFiSampleRecord.self, WiFiStressTestRecord.self
+        ])
+        // `try!` -- diagnostic-only code; an in-memory container failing
+        // to initialize means Xcode itself is broken, not something
+        // worth a fallback path for. Same convention
+        // `ContentViewPreviewSupport.makeContentView()` uses.
+        let container = try! ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
+        let networkQuality = NetworkQualityViewModel(snapshotStore: SnapshotStore(context: container.mainContext))
+
+        let layers: [ConnectionLayer] = [
+            ConnectionLayer(id: "network", label: "Network", detail: "Thistle Wi-Fi · 10.0.0.142/24 · seen 12×", status: .healthy),
+            ConnectionLayer(id: "localRouter", label: OverallStatus.routerLabel, detail: "10.0.0.1 · 4 ms", status: .healthy, url: "http://10.0.0.1"),
+            ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "73.1.2.3 · 12 ms", status: .healthy),
+            ConnectionLayer(id: "peRouter", label: OverallStatus.peRouterLabel, detail: "Comcast · Not confirmed", status: .unknown),
+            ConnectionLayer(id: "internet", label: OverallStatus.internetLabel, detail: "unreachable", status: .unhealthy, correlatedWithChange: true),
+            ConnectionLayer(id: "dns", label: OverallStatus.dnsLabel, detail: "unreachable", status: .unhealthy),
+            ConnectionLayer(id: "http", label: OverallStatus.httpLabel, detail: "unreachable", status: .unhealthy)
+        ]
+
+        VStack(alignment: .leading, spacing: 2) {
+            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
+                QuickCheckRow(networkQuality: networkQuality, interfaceName: nil)
+                ForEach(layers) { layer in
+                    ConnectionLayerRow(layer: layer, rootCauseLayerID: "internet", sparklineValues: layer.id == "network" ? [-52, -55, -50, -58, -49] : nil)
+                }
+                statusGridRow(color: .yellow, label: "DHCP", detail: "Changed recently") {
+                    Color.clear.frame(width: 0, height: 0)
+                } chart: {
+                    Color.clear.frame(width: 0, height: 0)
+                }
+            }
+            .font(.system(size: 12))
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 210, maxHeight: 210, alignment: .topLeading)

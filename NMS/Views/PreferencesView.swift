@@ -30,33 +30,6 @@ struct PreferencesView: View {
     // so this and `FeatureFlags.saasMonitoring` agree for every case,
     // including a prior explicit opt-out.
     @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = true
-    /// Plain `@State`, not `@AppStorage` — `[String]` isn't one of
-    /// `@AppStorage`'s supported types, so this is read once at view
-    /// creation and written straight to `UserDefaults` on every change
-    /// instead (see `saasServiceBinding`/`setAllSaaSServices` below).
-    /// Initialized from `FeatureFlags.saasEnabledServices`, defaulting to
-    /// "every service checked" when that preference has never been
-    /// customized — see that property's doc comment for why `nil` means
-    /// that rather than "none."
-    @State private var enabledSaaSServices: Set<String> =
-        FeatureFlags.saasEnabledServices ?? Set(SaaSStatusService.monitoredServices.map(\.name))
-    /// A user's own added sites — separate list, separate interaction
-    /// shape from the checkbox picker above (add/remove new entries
-    /// rather than toggle existing ones). Same plain-`@State`-plus-manual-
-    /// `UserDefaults`-write reasoning as `enabledSaaSServices`.
-    @State private var userAddedSites: [FeatureFlags.UserAddedSaaSSite] = FeatureFlags.userAddedSaaSSites
-    @State private var newSiteNickname = ""
-    @State private var newSiteURLText = ""
-    /// Same plain-`@State`-plus-manual-`UserDefaults`-write reasoning as
-    /// `userAddedSites` — `[Codable]` isn't an `@AppStorage`-supported
-    /// type either.
-    @State private var ddnsHostnames: [FeatureFlags.DDNSHostname] = FeatureFlags.ddnsHostnames
-    @State private var newDDNSHostnameText = ""
-    /// `@AppStorage`, not plain `@State` — a `TimeInterval` (`Double`) is
-    /// one of `@AppStorage`'s supported types, so this can be live the
-    /// same way `snmpDevicesEnabled`/`saasMonitoringEnabled` are, no
-    /// manual `UserDefaults` write needed.
-    @AppStorage(FeatureFlags.ddnsCheckIntervalKey) private var ddnsCheckIntervalSeconds: Double = 300
     @AppStorage(FeatureFlags.autoBaselineNetworkQualityKey) private var autoBaselineNetworkQualityEnabled = false
 
     var body: some View {
@@ -100,10 +73,14 @@ struct PreferencesView: View {
             // Only shown once the feature itself is on — a per-service
             // list for a disabled feature would just be confusing. Not
             // its own `feature(...)` row since it isn't a single on/off
-            // switch — a real sub-preference under the one above.
+            // switch — a real sub-preference under the one above. Each
+            // is its own `View` type with its own `@State` now, so
+            // toggling this flag (or any other preference in this
+            // window) doesn't re-evaluate either section's body — see
+            // `PUNCHLIST.md`'s view-structure factoring entry.
             if saasMonitoringEnabled {
-                saasServicePicker
-                userAddedSitesSection
+                SaaSServicePickerSection()
+                UserAddedSitesSection()
             }
 
             feature(
@@ -114,7 +91,7 @@ struct PreferencesView: View {
             )
 
             // Its own top-level section, not nested under a toggle like
-            // `userAddedSitesSection` is — there's no parent on/off flag
+            // `UserAddedSitesSection` is — there's no parent on/off flag
             // here (see `FeatureFlags.ddnsHostnames`'s doc comment): an
             // empty list is already fully inert, so entering a hostname
             // below is itself the opt-in.
@@ -123,7 +100,7 @@ struct PreferencesView: View {
                     .font(.headline)
                 caption("Watches a hostname you rely on for inbound access (a VPN endpoint, a port-forwarded service) and logs it if it stops matching this Mac's public IP — a sign your DDNS client has stopped updating.")
             }
-            ddnsHostnamesSection
+            DDNSHostnamesSection()
 
             // Both toggles apply live as of `FeatureFlags.snmpDevices`/
             // `.saasMonitoring`/`.saasEnabledServices` observing
@@ -156,251 +133,25 @@ struct PreferencesView: View {
             caption(description)
         }
     }
+}
 
-    /// One checkbox per `SaaSStatusService.monitoredServices` entry, plus
-    /// Select All / Clear All for quickly narrowing to (or clearing) a
-    /// single service — useful when only one or two of the thirteen
-    /// actually matter to you, or when isolating one for testing.
-    /// Indented under the "SaaS Monitoring" toggle above, same visual
-    /// nesting a sub-preference implies without a second `.headline`.
-    ///
-    /// Two columns, not one long list — requested directly once the list
-    /// grew past what fit comfortably in a single glance (13 services as
-    /// of the Discord/Google Cloud/Google Workspace additions, up from
-    /// the original 10). `LazyVGrid` over a plain `HStack` of two
-    /// `VStack`s: a fixed name-based split would need rebalancing by hand
-    /// every time a service is added or removed, where the grid just
-    /// reflows on its own.
-    @ViewBuilder
-    private var saasServicePicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Services to monitor")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
-                Button("Select All") { setAllSaaSServices(enabled: true) }
-                    .font(.system(size: 11))
-                    .accessibilityIdentifier("preferences.saas.selectAll")
-                Button("Clear All") { setAllSaaSServices(enabled: false) }
-                    .font(.system(size: 11))
-                    .accessibilityIdentifier("preferences.saas.clearAll")
-            }
-            LazyVGrid(
-                columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
-                alignment: .leading,
-                spacing: 4
-            ) {
-                ForEach(SaaSStatusService.monitoredServices, id: \.name) { service in
-                    Toggle(service.name, isOn: saasServiceBinding(for: service.name))
-                        .font(.system(size: 11))
-                        // Truncate rather than wrap — "Jira/Confluence" and
-                        // "Google Workspace" are the longest names, and at
-                        // half the pane's already-fixed 380pt width, a wrap
-                        // would misalign the checkbox column between rows.
-                        .lineLimit(1)
-                        .accessibilityIdentifier("preferences.saas.service.\(service.name)")
-                }
-            }
-        }
-        .padding(.leading, 16)
-    }
-
-    private func saasServiceBinding(for name: String) -> Binding<Bool> {
-        Binding(
-            get: { enabledSaaSServices.contains(name) },
-            set: { isOn in
-                if isOn {
-                    enabledSaaSServices.insert(name)
-                } else {
-                    enabledSaaSServices.remove(name)
-                }
-                persistSaaSServices()
-            }
-        )
-    }
-
-    private func setAllSaaSServices(enabled: Bool) {
-        enabledSaaSServices = enabled ? Set(SaaSStatusService.monitoredServices.map(\.name)) : []
-        persistSaaSServices()
-    }
-
-    /// `UserDefaults.set(_:forKey:)`, not `@AppStorage`, since `[String]`
-    /// isn't a type `@AppStorage` supports directly — see
-    /// `enabledSaaSServices`'s own doc comment.
-    private func persistSaaSServices() {
-        UserDefaults.standard.set(Array(enabledSaaSServices), forKey: FeatureFlags.saasEnabledServicesKey)
-    }
-
-    /// A user's own sites, checked for plain reachability rather than a
-    /// real status page — see `SaaSMonitoringViewModel
-    /// .checkUserAddedSites`'s doc comment for why these are reported
-    /// separately in the live UI, not folded into the curated list above:
-    /// this is a weaker, network-dependent signal ("is this domain
-    /// answering right now"), not a real vendor incident, and showing it
-    /// identically to the curated table would overstate its confidence.
-    /// Indented under "SaaS Monitoring" the same way the curated picker
-    /// is, since it's a sub-preference of the same toggle, not a separate
-    /// feature.
-    @ViewBuilder
-    private var userAddedSitesSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Your own sites")
-                .font(.system(size: 11, weight: .semibold))
-            caption("Checked for plain reachability only — not a real status page, just \"did it answer.\"")
-
-            ForEach(userAddedSites) { site in
-                HStack {
-                    Text(site.nickname)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(site.url)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button {
-                        removeUserAddedSite(site)
-                    } label: {
-                        Image(systemName: "minus.circle")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove \(site.nickname)")
-                    .accessibilityIdentifier("preferences.saas.userSite.remove.\(site.id)")
-                }
-                .font(.system(size: 11))
-            }
-
-            HStack {
-                TextField("Nickname", text: $newSiteNickname)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("preferences.saas.userSite.nickname")
-                TextField("https://example.com", text: $newSiteURLText)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("preferences.saas.userSite.url")
-                Button("Add") { addUserAddedSite() }
-                    .disabled(!isNewSiteValid)
-                    .accessibilityIdentifier("preferences.saas.userSite.add")
-            }
-            .font(.system(size: 11))
-        }
-        .padding(.leading, 16)
-    }
-
-    /// A real `http`/`https` URL specifically — `URL(string:)` alone
-    /// accepts far more than that (a bare word with no scheme parses
-    /// successfully as a relative reference), which would silently save
-    /// something `URLSession` can't actually fetch.
-    private var isNewSiteValid: Bool {
-        !newSiteNickname.trimmingCharacters(in: .whitespaces).isEmpty
-            && URL(string: newSiteURLText)?.scheme.map { $0 == "http" || $0 == "https" } == true
-    }
-
-    private func addUserAddedSite() {
-        guard isNewSiteValid else { return }
-        userAddedSites.append(
-            FeatureFlags.UserAddedSaaSSite(
-                url: newSiteURLText.trimmingCharacters(in: .whitespaces),
-                nickname: newSiteNickname.trimmingCharacters(in: .whitespaces)
-            )
-        )
-        newSiteNickname = ""
-        newSiteURLText = ""
-        persistUserAddedSites()
-    }
-
-    private func removeUserAddedSite(_ site: FeatureFlags.UserAddedSaaSSite) {
-        userAddedSites.removeAll { $0.id == site.id }
-        persistUserAddedSites()
-    }
-
-    private func persistUserAddedSites() {
-        FeatureFlags.setUserAddedSaaSSites(userAddedSites)
-    }
-
-    /// Mirrors `userAddedSitesSection` almost exactly — same add/remove
-    /// list shape, just one `TextField` (a bare hostname, not a
-    /// nickname+URL pair) instead of two. The check-interval picker only
-    /// appears once a hostname is actually configured — same "only shown
-    /// once relevant" pattern `saasServicePicker` uses for its own
-    /// sub-preference.
-    @ViewBuilder
-    private var ddnsHostnamesSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(ddnsHostnames) { entry in
-                HStack {
-                    Text(entry.hostname)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button {
-                        removeDDNSHostname(entry)
-                    } label: {
-                        Image(systemName: "minus.circle")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove \(entry.hostname)")
-                    .accessibilityIdentifier("preferences.ddns.hostname.remove.\(entry.id)")
-                }
-                .font(.system(size: 11))
-            }
-
-            HStack {
-                TextField("myhome.example.com", text: $newDDNSHostnameText)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("preferences.ddns.hostname.text")
-                Button("Add") { addDDNSHostname() }
-                    .disabled(!isNewDDNSHostnameValid)
-                    .accessibilityIdentifier("preferences.ddns.hostname.add")
-            }
-            .font(.system(size: 11))
-
-            if !ddnsHostnames.isEmpty {
-                Picker("Check every", selection: $ddnsCheckIntervalSeconds) {
-                    Text("1 minute").tag(60.0)
-                    Text("5 minutes").tag(300.0)
-                }
-                .pickerStyle(.segmented)
-                .font(.system(size: 11))
-                .accessibilityIdentifier("preferences.ddns.checkInterval")
-            }
-        }
-    }
-
-    /// A bare hostname, not a URL — no scheme, no path. Just non-empty
-    /// after trimming, same minimal bar `isNewSiteValid` sets for its own
-    /// nickname field.
-    private var isNewDDNSHostnameValid: Bool {
-        !newDDNSHostnameText.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private func addDDNSHostname() {
-        guard isNewDDNSHostnameValid else { return }
-        ddnsHostnames.append(FeatureFlags.DDNSHostname(hostname: newDDNSHostnameText.trimmingCharacters(in: .whitespaces)))
-        newDDNSHostnameText = ""
-        persistDDNSHostnames()
-    }
-
-    private func removeDDNSHostname(_ entry: FeatureFlags.DDNSHostname) {
-        ddnsHostnames.removeAll { $0.id == entry.id }
-        persistDDNSHostnames()
-    }
-
-    private func persistDDNSHostnames() {
-        FeatureFlags.setDDNSHostnames(ddnsHostnames)
-    }
-
-    /// `.fixedSize(horizontal: false, vertical: true)` is the load-bearing
-    /// part, not styling. Without it these truncated mid-sentence with an
-    /// ellipsis — wrapping to one line where three were needed — because
-    /// in a fixed-height stack containing a `Spacer`, SwiftUI hands the
-    /// slack to the spacer and gives each `Text` only its *ideal* height.
-    /// This forces a `Text` to claim the full height its wrapped content
-    /// needs, and is what makes the content-sized window measure
-    /// correctly.
-    private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
+/// `.fixedSize(horizontal: false, vertical: true)` is the load-bearing
+/// part, not styling. Without it these truncated mid-sentence with an
+/// ellipsis — wrapping to one line where three were needed — because
+/// in a fixed-height stack containing a `Spacer`, SwiftUI hands the
+/// slack to the spacer and gives each `Text` only its *ideal* height.
+/// This forces a `Text` to claim the full height its wrapped content
+/// needs, and is what makes the content-sized window measure correctly.
+///
+/// A free function, not a method — shared by `PreferencesView` and the
+/// section types it composes (`SaaSServicePickerSection`,
+/// `UserAddedSitesSection`, `DDNSHostnamesSection`), which have no
+/// common enclosing type to attach it to since each is now its own
+/// `View` with its own `@State` — see `PUNCHLIST.md`'s view-structure
+/// factoring entry.
+func caption(_ text: String) -> some View {
+    Text(text)
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
 }

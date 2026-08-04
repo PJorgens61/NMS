@@ -16,16 +16,13 @@ import SwiftUI
 /// list itself, `viewModel`/`connectivity` only for
 /// `deviceReachability`'s router-label lookup), narrower than
 /// `ContentView`'s original seventeen but not down to one the way the
-/// simpler tiles managed. The community-string inline editor's `@State`
-/// moved here too — purely local UI state with no reason to live on
-/// `ContentView` once this section is its own type.
+/// simpler tiles managed. The community-string inline editor is its own
+/// `View` type now too (`CommunityRow`), with its own `@State` — see
+/// `PUNCHLIST.md`'s view-structure factoring entry.
 struct SNMPDevicesTile: View {
     var snmp: SNMPViewModel
     var viewModel: NetworkMonitorViewModel
     var connectivity: ConnectivityViewModel
-
-    @State private var communityDraft: String = ""
-    @State private var isEditingCommunity = false
 
     var body: some View {
         tile(
@@ -66,7 +63,7 @@ struct SNMPDevicesTile: View {
                     .foregroundStyle(.red)
             }
 
-            communityRow
+            CommunityRow(snmp: snmp)
         }
     }
 
@@ -192,53 +189,4 @@ struct SNMPDevicesTile: View {
         }
     }
 
-    /// Community strings are shared read-only passwords, not per-user
-    /// secrets, and "public" is the near-universal default — so they're
-    /// editable inline rather than hidden behind a settings window this
-    /// app doesn't have. Comma-separated, and the order shown is the
-    /// order they're tried in.
-    @ViewBuilder
-    private var communityRow: some View {
-        if isEditingCommunity {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    TextField("public, private", text: $communityDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 11))
-                        .onSubmit { commitCommunity() }
-                    Button("Set") { commitCommunity() }
-                        .accessibilityLabel("Set community strings")
-                        .accessibilityIdentifier("snmpDevices.setCommunity")
-                        .font(.system(size: 11))
-                }
-                Text("Comma-separated, tried in order — put the most common first.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-        } else if snmp.isAvailable {
-            HStack {
-                Text("Community: \(snmp.communities.joined(separator: ", "))")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                Button("Change") {
-                    communityDraft = snmp.communities.joined(separator: ", ")
-                    isEditingCommunity = true
-                }
-                .font(.system(size: 10))
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Change community strings")
-                .accessibilityHint("Edits the SNMP community strings used for discovery")
-                .accessibilityIdentifier("snmpDevices.changeCommunity")
-            }
-        }
-    }
-
-    private func commitCommunity() {
-        snmp.setCommunities(communityDraft)
-        isEditingCommunity = false
-    }
 }
