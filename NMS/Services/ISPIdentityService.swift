@@ -105,7 +105,26 @@ struct ISPIdentityService {
         "Sonic": "https://sonicstatus.com/",
         "AT&T": "https://www.att.com/outages/",
         "Comcast": "https://www.xfinity.com/support/statusmap",
-        "MonkeyBrains": "https://www.monkeybrains.net/map/"
+        "MonkeyBrains": "https://www.monkeybrains.net/map/",
+        // Both live-verified 2026-08-04 (real browser navigation, not just
+        // search snippets): loads with no login, shows real live data.
+        "Spectrum": "https://www.spectrum.net/outage-map",
+        // Confirmed real and live (timestamped "LAST UPDATED..." on load,
+        // no sign-in), but it's specifically Cox *Voice* outages, not
+        // labeled Internet, and California-specific -- the general
+        // /outages.html page requires an address or sign-in and fails
+        // this table's public-unauthenticated bar. Kept anyway: an
+        // outage large enough to hit 100+ Voice customers in a zip code
+        // almost always means the same zip's Cox Internet is affected
+        // too, not a phone-only signal.
+        "Cox": "https://www.cox.com/residential/support/outages/ca-outage-map.html"
+        // Optimum and WOW! checked live the same day but NOT added:
+        // Optimum's page (optimum.com/outage-map) loads but shows no
+        // outage content and fires no data request, sitting behind a
+        // Cloudflare bot-challenge; WOW!'s check was interrupted by a
+        // tooling failure before it could be confirmed either way. Both
+        // still have real curated short-name entries above -- this is
+        // only about the status-page link.
     ]
 
     /// Maps a *substring* of an RDAP registrant name to a short,
