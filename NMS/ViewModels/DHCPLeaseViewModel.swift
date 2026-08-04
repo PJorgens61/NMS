@@ -108,7 +108,7 @@ final class DHCPLeaseViewModel: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let lease = service.currentLease(interface: interfaceName)
             Task { @MainActor [weak self] in
-                self?.apply(lease, currentIPAddress: ipAddress)
+                self?.apply(lease, checkedInterfaceName: interfaceName, currentIPAddress: ipAddress)
             }
         }
     }
@@ -142,9 +142,29 @@ final class DHCPLeaseViewModel: ObservableObject {
         }
     }
 
-    private func apply(_ lease: DHCPLeaseInfo?, currentIPAddress: String?) {
+    private func apply(_ lease: DHCPLeaseInfo?, checkedInterfaceName: String, currentIPAddress: String?) {
         isChecking = false
         checkLinkLocalFallback(currentIPAddress: currentIPAddress)
+
+        // The interface can change while a check is still in flight —
+        // `check()` runs off the main thread, and `ipconfig getpacket`,
+        // while normally fast, is still a real subprocess round-trip.
+        // Confirmed live: switching from Ethernet to Wi-Fi produced a
+        // completed check for the now-departed `en0` 40ms *after*
+        // `currentInterface` had already moved on to `en1`. Harmless on
+        // a single clean transition (a fresh check for the new interface
+        // fires right after and lands normally), but on a genuinely
+        // flaky network with rapid repeated flaps — confirmed to happen
+        // in the field, see BUGS.md's NAT-layer flapping bug from the
+        // same field-testing session — every check could plausibly keep
+        // racing against an interface that's already stale by the time
+        // it lands, with none of them ever catching up to report the
+        // *current* one. That's a real candidate for "Not checked"
+        // persisting for minutes with no single failure to point at.
+        // Retriggering immediately here, rather than waiting out
+        // whatever's left of the 300s timer, is the actual fix for that.
+        let isStale = checkedInterfaceName != networkMonitor?.currentInterface?.interfaceName
+        defer { if isStale { check() } }
 
         // `nil` covers every "not applicable" case (static config, no
         // lease, interface gone) alike — nothing to persist or compare,
@@ -155,7 +175,8 @@ final class DHCPLeaseViewModel: ObservableObject {
             // `DHCPLeaseService.currentLease` already logs *why* the
             // subprocess-level read came back empty; this adds the
             // surrounding app-level state at that same moment (is a
-            // network even recognized yet?) -- together, enough to
+            // network even recognized yet? was this check even for the
+            // interface that's still current?) -- together, enough to
             // reconstruct a real occurrence from `ui-state.log` instead
             // of guessing, the same way the NAT-layer flapping bug in
             // BUGS.md was diagnosed. Added after "Not checked" was
@@ -163,7 +184,7 @@ final class DHCPLeaseViewModel: ObservableObject {
             // networks with no prior instrumentation to explain why.
             UIStateLogger.log(
                 "DHCPLeaseViewModel.apply",
-                "no lease; currentNetworkFingerprint=\(snapshotStore.currentNetworkFingerprint ?? "nil") interface=\(networkMonitor?.currentInterface?.interfaceName ?? "nil")"
+                "no lease; currentNetworkFingerprint=\(snapshotStore.currentNetworkFingerprint ?? "nil") checkedInterface=\(checkedInterfaceName) currentInterface=\(networkMonitor?.currentInterface?.interfaceName ?? "nil") stale=\(isStale)"
             )
             return
         }
