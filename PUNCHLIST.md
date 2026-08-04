@@ -447,6 +447,19 @@ checked off as of that date, full reasoning intact.
   first proves the server mechanism but not that harness's own
   app-matching mockup CSS, which would still be its own follow-on step.
 
+  **The recommended first step above is now built** — `LocalDiagnosticServer.swift`,
+  a debug-only "Diagnostic Log…" footer button opening a local,
+  loopback-only, ephemeral-port, token-gated page listing recent Events,
+  color-coded to match `EventsTile`'s own polarity logic. Verified live:
+  built, tests pass (119/119), clicked through the real button, real
+  page loaded in the browser. The server plumbing (`NWListener`,
+  on-demand lifecycle, no third-party dependency) is proven working —
+  the other two use cases (Apple networkQuality formatting, the Mermaid
+  diagram privacy fix) can build their own content generators on this
+  same mechanism whenever they're taken up. The UI-experiment mockup
+  harness's own app-matching CSS is still a separate, not-yet-built
+  follow-on, per the note directly above.
+
 - [ ] **TCP/UDP stress-test ideas for testing further out than the
   local hop** — separate from the local Wi-Fi ping stress test above
   (now built), and less developed. TCP/UDP echo (RFC 862/863) is

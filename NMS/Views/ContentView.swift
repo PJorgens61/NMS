@@ -34,6 +34,14 @@ struct ContentView: View {
     /// (see `NMSApp`).
     @Environment(\.openWindow) private var openWindow
 
+    // Debug-only tooling (see `LocalDiagnosticServer`'s own doc comment)
+    // -- owned here via `@State` since it's purely a UI-triggered
+    // convenience, not something any view model needs. `#if DEBUG`
+    // because the type itself only exists in debug builds.
+    #if DEBUG
+    @State private var diagnosticServer = LocalDiagnosticServer()
+    #endif
+
     var body: some View {
         // Footer pinned outside the scrollable region — the window's
         // content (SNMP Devices, DHCP History) can run tall enough that
@@ -264,6 +272,23 @@ struct ContentView: View {
                 .accessibilityHint("Opens toggles for experimental features")
                 .accessibilityIdentifier("footer.preferences")
                 .help("Opens toggles for experimental features")
+                #if DEBUG
+                // Debug-only, deliberately not shown in Release builds —
+                // see `LocalDiagnosticServer`'s own doc comment for the
+                // full "why a button, why loopback-only, why on-demand"
+                // reasoning.
+                Button("Diagnostic Log…") {
+                    Task {
+                        if let url = await diagnosticServer.start(events: eventLog.events) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                .accessibilityLabel("Diagnostic Log")
+                .accessibilityHint("Opens a local web page listing recent events, for reviewing a field-testing session")
+                .accessibilityIdentifier("footer.diagnosticLog")
+                .help("Opens a local web page listing recent events, for reviewing a field-testing session. Debug builds only, loopback-only, stops itself after 10 minutes idle.")
+                #endif
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
