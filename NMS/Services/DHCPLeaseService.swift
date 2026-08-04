@@ -36,15 +36,42 @@ struct DHCPLeaseService {
             try process.run()
         } catch {
             SubprocessTracer.end(trace, exitCode: nil, byteCount: 0)
+            UIStateLogger.log("DHCPLeaseService.currentLease", "\(interface): process failed to launch — \(error)")
             return nil
         }
 
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         SubprocessTracer.end(trace, exitCode: process.terminationStatus, byteCount: data.count)
-        guard process.terminationStatus == 0 else { return nil }
+        guard process.terminationStatus == 0 else {
+            // The common, uninteresting case per this function's own doc
+            // comment (static config, no lease, interface doesn't exist)
+            // — logged anyway, tersely, so a run of these is
+            // distinguishable in `ui-state.log` from the genuinely
+            // unusual "exited 0 but couldn't parse" case below, without
+            // needing the raw output every time.
+            UIStateLogger.log("DHCPLeaseService.currentLease", "\(interface): exit \(process.terminationStatus) (not applicable)")
+            return nil
+        }
 
-        return Self.parse(String(data: data, encoding: .utf8) ?? "", interface: interface, checkedAt: Date())
+        let output = String(data: data, encoding: .utf8) ?? ""
+        guard let lease = Self.parse(output, interface: interface, checkedAt: Date()) else {
+            // Genuinely unusual: the process succeeded (a real packet came
+            // back) but parsing still failed to find every required
+            // field. Logged with the full raw output — capped, since it's
+            // server-supplied text off a network we don't control — since
+            // this is exactly the kind of thing that needs a real
+            // `ui-state.log` excerpt to diagnose, not a guess. Raised
+            // directly: "Not checked" persisting for minutes on real
+            // networks in the field (a coffee shop, a Whole Foods), with
+            // no prior instrumentation to say why.
+            UIStateLogger.log(
+                "DHCPLeaseService.currentLease",
+                "\(interface): exit 0 but parse failed — raw output: \(UntrustedText.capped(output))"
+            )
+            return nil
+        }
+        return lease
     }
 
     /// Parses `ipconfig getpacket`'s two-section text dump: a flat

@@ -151,7 +151,22 @@ final class DHCPLeaseViewModel: ObservableObject {
         // and the last known lease is left displayed rather than cleared,
         // matching how `PublicIPViewModel` keeps showing the last known
         // address through a transient interface hiccup.
-        guard let lease else { return }
+        guard let lease else {
+            // `DHCPLeaseService.currentLease` already logs *why* the
+            // subprocess-level read came back empty; this adds the
+            // surrounding app-level state at that same moment (is a
+            // network even recognized yet?) -- together, enough to
+            // reconstruct a real occurrence from `ui-state.log` instead
+            // of guessing, the same way the NAT-layer flapping bug in
+            // BUGS.md was diagnosed. Added after "Not checked" was
+            // reported persisting for minutes on real field-tested
+            // networks with no prior instrumentation to explain why.
+            UIStateLogger.log(
+                "DHCPLeaseViewModel.apply",
+                "no lease; currentNetworkFingerprint=\(snapshotStore.currentNetworkFingerprint ?? "nil") interface=\(networkMonitor?.currentInterface?.interfaceName ?? "nil")"
+            )
+            return
+        }
 
         // Captured before the insert below, so it's the lease this poll is
         // being compared *against* — `recordDHCPLeaseIfChanged` would
