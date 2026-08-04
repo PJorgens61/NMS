@@ -370,7 +370,7 @@ struct NetworkTile: View {
         // for an ISP not in the curated status-page table (e.g.
         // Astound — checked live, no public status page exists), same
         // as Info's own row: the name still shows, just with no link.
-        let ispPrefix = ispIdentity.organizationName.map { "\($0) · " } ?? ""
+        let ispPrefix = ispIdentity.shortOrganizationName.map { "\($0) · " } ?? ""
         let peRouterLayer: ConnectionLayer
         if info == nil {
             // Same reasoning as Network/Local Router/Public IP above: no
@@ -390,7 +390,11 @@ struct NetworkTile: View {
                 label: OverallStatus.peRouterLabel,
                 detail: ispPrefix + "Not confirmed",
                 status: .unknown,
-                url: ispIdentity.statusPageURL
+                url: ispIdentity.statusPageURL,
+                help: tooltip(
+                    "You haven't confirmed which traceroute hop is your ISP's edge router yet, so it isn't being actively monitored.",
+                    technical: "Open Path to Internet and click the star next to the suggested hop to confirm it."
+                )
             )
         } else {
             let peRouterCheck = connectivity.checks.first { $0.label == OverallStatus.peRouterLabel }

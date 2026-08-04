@@ -21,6 +21,18 @@ final class ISPIdentityViewModel {
     }
     private(set) var statusPageURL: String?
 
+    /// The short, user-facing form of `organizationName` (e.g. "Comcast"
+    /// instead of "Comcast Cable Communications, LLC") — see
+    /// `ISPIdentityService.shortName(for:)`. `organizationName` itself
+    /// stays the full RDAP name unchanged: it's what `.ispOrganizationChanged`
+    /// compares against, and a change in RDAP block-naming without a real
+    /// ISP change (the exact case `shortName` exists to paper over for
+    /// display) shouldn't stop being logged just because the *display*
+    /// didn't change.
+    var shortOrganizationName: String? {
+        organizationName.map { ISPIdentityService.shortName(for: $0) }
+    }
+
     private let service = ISPIdentityService()
     private let snapshotStore: SnapshotStore
 

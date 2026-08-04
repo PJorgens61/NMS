@@ -103,6 +103,7 @@ struct ConnectionLayerRow: View {
     var body: some View {
         statusGridRow(
             color: color,
+            dotHelp: layer.help,
             label: layer.label,
             detail: layer.detail + (layer.status == .unhealthy && layer.correlatedWithChange ? " *" : ""),
             detailColor: layer.status == .unhealthy ? color : .primary

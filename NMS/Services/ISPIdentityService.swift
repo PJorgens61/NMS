@@ -102,13 +102,45 @@ struct ISPIdentityService {
     /// it just gets no link icon, which is the correct behavior here,
     /// not a gap to fill later.
     static let statusPages: [String: String] = [
-        "Sonic.net, LLC": "https://sonicstatus.com/",
-        "AT&T Services, Inc.": "https://www.att.com/outages/",
-        "Comcast Cable Communications, LLC": "https://www.xfinity.com/support/statusmap",
+        "Sonic": "https://sonicstatus.com/",
+        "AT&T": "https://www.att.com/outages/",
+        "Comcast": "https://www.xfinity.com/support/statusmap",
         "MonkeyBrains": "https://www.monkeybrains.net/map/"
     ]
 
+    /// Maps a *substring* of an RDAP registrant name to a short,
+    /// user-facing ISP brand name — checked in order, first match wins.
+    /// Substring rather than exact match: confirmed live (2026-08-04)
+    /// that the same ISP's RDAP registrant name varies by address block
+    /// — "Comcast Cable Communications, LLC" for one block, "Comcast IP
+    /// Services, L.L.C." for another (the first public hop past a home
+    /// router vs. the Mac's own public IP, on the very same network),
+    /// both really Comcast/Xfinity. An exact-match table would need a
+    /// separate entry per block-naming variant and silently miss any not
+    /// yet observed — exactly the "legal entity vs. brand vs. reseller"
+    /// inconsistency this file's own `statusPages` doc comment already
+    /// flagged as a real risk for AT&T/Xfinity/MonkeyBrains, now
+    /// confirmed directly rather than just anticipated. Falls back to the
+    /// full RDAP name verbatim when nothing matches, same as before this
+    /// table existed — an unrecognized organization still displays
+    /// correctly, just unshortened.
+    static let shortNames: [(match: String, short: String)] = [
+        ("Comcast", "Comcast"),
+        ("AT&T", "AT&T"),
+        ("Sonic.net", "Sonic"),
+        ("MonkeyBrains", "MonkeyBrains")
+    ]
+
+    static func shortName(for organizationName: String) -> String {
+        shortNames.first { organizationName.contains($0.match) }?.short ?? organizationName
+    }
+
+    /// Routed through `shortName(for:)`, not a direct `statusPages`
+    /// lookup — see `shortNames`'s doc comment for why an exact match on
+    /// the raw RDAP name is too brittle to rely on here specifically:
+    /// this is the one place a missed match silently drops a real,
+    /// working status-page link rather than just showing a longer name.
     func statusPageURL(forOrganization name: String) -> String? {
-        Self.statusPages[name]
+        Self.statusPages[Self.shortName(for: name)]
     }
 }

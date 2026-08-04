@@ -165,6 +165,13 @@ final class NetworkIdentityViewModel {
         refreshKnownNetworks()
     }
 
+    /// See `SnapshotStore.setHome` — a singleton designation, so marking
+    /// one network home un-marks whichever one previously held it.
+    func setHome(_ isHome: Bool, for network: KnownNetwork) {
+        snapshotStore.setHome(isHome, for: network)
+        refreshKnownNetworks()
+    }
+
     func refreshKnownNetworks() {
         knownNetworks = snapshotStore.fetchKnownNetworks()
     }

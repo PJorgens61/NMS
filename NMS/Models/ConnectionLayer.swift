@@ -33,13 +33,20 @@ struct ConnectionLayer: Identifiable, Equatable {
     /// known. Same "only some layers have something real to say" shape
     /// `correlatedWithChange` already established, not a new pattern.
     let url: String?
+    /// A tooltip explaining this layer's current `detail` text, when it
+    /// isn't self-explanatory — `nil` for most layers. Same "only some
+    /// layers have something real to say" shape as `url`/
+    /// `correlatedWithChange`. Threaded through to `statusGridRow`'s own
+    /// `dotHelp:` parameter by `ConnectionLayerRow`.
+    let help: String?
 
-    init(id: String, label: String, detail: String, status: LayerStatus, correlatedWithChange: Bool = false, url: String? = nil) {
+    init(id: String, label: String, detail: String, status: LayerStatus, correlatedWithChange: Bool = false, url: String? = nil, help: String? = nil) {
         self.id = id
         self.label = label
         self.detail = detail
         self.status = status
         self.correlatedWithChange = correlatedWithChange
         self.url = url
+        self.help = help
     }
 }

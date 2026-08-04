@@ -415,6 +415,39 @@ final class SnapshotStore {
         try? context.save()
     }
 
+    /// Whether the current network is the one marked home — `false` while
+    /// unrecognized, same as every other per-network read in this file.
+    /// `DDNSViewModel.checkAll()` gates on this directly: confirmed live
+    /// (2026-08-04, off-site) that without a gate, DDNS hostname checking
+    /// keeps comparing a home hostname against whatever network's public
+    /// IP happens to be current, displaying the home network's own setup
+    /// while connected somewhere else entirely.
+    func isCurrentNetworkHome() -> Bool {
+        guard let fingerprint = currentNetworkFingerprint else { return false }
+        var descriptor = FetchDescriptor<KnownNetwork>(
+            predicate: #Predicate { $0.fingerprint == fingerprint }
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first?.isHome ?? false
+    }
+
+    /// Marks `network` as home, or clears it. A singleton designation —
+    /// setting `true` clears every other network's flag first, so at most
+    /// one is ever marked, matching `isCurrentNetworkHome()`'s assumption
+    /// of a single unambiguous "home."
+    func setHome(_ isHome: Bool, for network: KnownNetwork) {
+        if isHome {
+            let othersDescriptor = FetchDescriptor<KnownNetwork>(
+                predicate: #Predicate { $0.isHome == true }
+            )
+            for other in (try? context.fetch(othersDescriptor)) ?? [] where other.fingerprint != network.fingerprint {
+                other.isHome = false
+            }
+        }
+        network.isHome = isHome
+        try? context.save()
+    }
+
     /// Forgets a network entirely: every `AppEventRecord`, `DHCPLeaseRecord`
     /// and `SNMPDeviceRecord` tagged with its fingerprint, plus the
     /// `KnownNetwork` row itself. A deliberate, real cleanup — not just

@@ -46,6 +46,19 @@ final class KnownNetwork {
     /// ZISPUBLICFORCAPTURE = 1 WHERE ZFINGERPRINT = '<fingerprint>';"`.
     var isPublicForCapture: Bool = false
 
+    /// Which single network `DDNSViewModel` treats as home — DDNS
+    /// hostname checking only runs while `currentNetworkFingerprint`
+    /// matches whichever network has this set, and stays empty everywhere
+    /// else. At most one network is ever `true`: `SnapshotStore.setHome`
+    /// clears every other row first. Same migration-safe shape as
+    /// `isPublicForCapture` above (a real, non-optional `Bool` with a
+    /// default, not optional-for-migration — "unset" and "not home" mean
+    /// the same thing, so there's no missing-value case worth
+    /// preserving). Set via a button in `KnownNetworksView`, unlike
+    /// `isPublicForCapture`: marking your own home network is an
+    /// everyday action, not a rare debug flag.
+    var isHome: Bool = false
+
     init(routerMAC: String, subnet: String, firstSeenAt: Date) {
         self.fingerprint = Self.makeFingerprint(routerMAC: routerMAC, subnet: subnet)
         self.label = nil
@@ -54,6 +67,7 @@ final class KnownNetwork {
         self.timesSeen = 1
         self.confirmedEdgeHopNumber = nil
         self.isPublicForCapture = false
+        self.isHome = false
     }
 
     static let fingerprintSeparator: Character = "|"

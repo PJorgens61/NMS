@@ -10,8 +10,16 @@ import Foundation
 /// `DDNSResolutionService` for why resolution goes through `dig` against
 /// an explicit resolver rather than `getaddrinfo`.
 ///
-/// Deliberately no feature-flag gate beyond the hostname list itself
-/// being non-empty — see `FeatureFlags.ddnsHostnames`'s own doc comment.
+/// Gated on more than just the hostname list being non-empty: checking
+/// only runs while the current network is the one marked home (a button
+/// in `KnownNetworksView`; see `SnapshotStore.isCurrentNetworkHome`).
+/// Confirmed live (2026-08-04, off-site): without this, a hostname
+/// configured for a home DDNS record reads `.stale` on every other
+/// network it's checked from — technically correct (the record really
+/// doesn't match a non-home network's public IP) but reads as a false
+/// alarm, and worse, keeps displaying the home network's own DDNS setup
+/// while connected somewhere else entirely. Away from home, `statuses`
+/// just goes empty instead of comparing against the wrong network.
 @MainActor
 @Observable
 final class DDNSViewModel {
@@ -155,6 +163,12 @@ final class DDNSViewModel {
         guard !isChecking else { return }
         let hostnames = FeatureFlags.ddnsHostnames
         guard !hostnames.isEmpty else {
+            statuses = []
+            return
+        }
+        // See this class's own doc comment for why: DDNS is otherwise the
+        // one check in this app not scoped to the current network at all.
+        guard snapshotStore.isCurrentNetworkHome() else {
             statuses = []
             return
         }

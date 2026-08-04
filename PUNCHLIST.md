@@ -12,6 +12,172 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: visualize the Network tile's rows as a dependency chain —
+  and explain the concept itself in the user guide and on the website,
+  not just in the app.** Raised live (2026-08-04): "network tile shows
+  a dependency graph (?). each layer is dependent on the layers below
+  it." Checked what already exists first: the dependency model is
+  already real, just not drawn as one — `ConnectionLayer`'s own doc
+  comment already describes the exact chain (interface → network →
+  local router → ISP edge router → DNS → HTTP, low to high), and
+  `rootCauseLayerID` already dims a failure's downstream consequences
+  (lighter red) vs. the actual root cause (full red). My read, given
+  live: a full node/edge graph is a bigger lift for what a flat list
+  mostly already conveys, since the chain is strictly linear, not
+  branching — no layer depends on two others in a way the list can't
+  express. A cheaper middle ground worth considering instead: a plain
+  connecting line down through the row dots (Interface→Network→
+  Router→...→HTTP), which gets most of the visual "this depends on
+  that" clarity without full graph-layout complexity. Not decided,
+  not built.
+  Second half of the same message: **the underlying concept (why a
+  router failure shows DNS/HTTP as also unhealthy, and how to read
+  "full red vs. dimmed red" as root-cause vs. consequence) should be
+  explained somewhere a user actually reads it** — the user guide
+  (`docs/user-guide.md`) and the NMS-website-v2 site, not just left
+  implicit in the app's own coloring. Related to, but distinct from,
+  this file's existing "`docs/user-guide.md` (and README.md) need a
+  real pass" item further below — that one's about general staleness; this is
+  specifically about a concept that may never have been written down
+  anywhere at all, in-app or out.
+
+- [ ] **Idea: detect cable modem/ONT failure via the router's own SNMP
+  WAN-interface status, as a faster complement to Path to Internet —
+  not a replacement.** Raised live (2026-08-04): Path to Internet's real
+  diagnostic value is catching classic access-circuit and modem/ONT
+  failures. If the router runs SNMP, polling its outbound/WAN
+  interface's operational status (standard MIB-II `ifOperStatus`) would
+  generally show the same failure faster and more directly — that
+  interface drops the moment the modem/ONT stops passing link.
+  Real caveat, from the same message, and the reason this can't just
+  replace Path to Internet: this only works when the router is directly
+  attached to the modem/ONT. **If a switch sits between them, the
+  router's own interface stays up** (link to the switch, which is fine)
+  even after the modem/ONT itself fails upstream of that switch — so
+  SNMP interface status alone would miss exactly that topology, and only
+  a real reachability test past that point (what Path to Internet/
+  traceroute already does) still catches it.
+  Not built. Checked first: nothing in the codebase currently polls
+  router SNMP for WAN interface status (`ifOperStatus`/`ifAdminStatus`)
+  — confirmed via grep, not assumed. Worth scoping as a second, earlier-
+  warning signal alongside Path to Internet where SNMP + simple topology
+  make it reliable, not as a replacement for the harder-but-universal
+  reachability check.
+
+  **Clarified in a follow-up message, same day:** Path to Internet's
+  reachability testing actually covers two distinct "sides," and SNMP
+  can only ever stand in for one of them. The **local router's own
+  outbound/WAN interface** (near-side) is something this Mac could
+  plausibly poll directly via SNMP, per the caveat above — it's the
+  user's own device. The **ISP's PE router** (far-side, the confirmed/
+  suggested hop in Path to Internet) is never SNMP-pollable — it's the
+  ISP's equipment, not reachable or authorized for that kind of query —
+  so reachability testing (ping/traceroute) is the *only* tool that
+  works there, not just the more-general one. Any future SNMP-based
+  near-side signal would be strictly additive to the local-router half
+  of what Path to Internet already covers, never a substitute for the
+  PE-router half.
+
+- [ ] **A manual way to switch to a scratch datastore and back, for
+  poking around live during testing without touching the real store.**
+  Raised live (2026-08-04): "do we need dedicated datastores for
+  testing? then we can test with a fresh or archive network state and
+  then restore the real datastore afterwards."
+  Checked what already exists before assuming a gap: this is already
+  fully built, just script-only. `NMSApp.storeURL()`
+  ([NMSApp.swift:681](../NMS/NMSApp.swift:681), `#if DEBUG`) reads a
+  `NMSStorePath` UserDefaults override before falling back to the real
+  on-disk store; `script/scenarios.sh` already does exactly this
+  workflow — copies the real store to a scratch path, points the app at
+  the copy via `defaults write Thistle.NMS.plist NMSStorePath <path>`,
+  runs its assertions against the copy, then clears the override and
+  relaunches against the real store, leaving nothing behind.
+  The real gap: no interactive way to do this by hand mid-session — only
+  as a scripted, assertion-driven run. Not built: a small debug-menu
+  affordance wrapping the same `NMSStorePath` mechanism (e.g. "Use
+  Scratch Store…" to pick fresh-vs-copy-of-real, and "Restore Real
+  Store" to clear the override and relaunch) rather than a new datastore
+  concept.
+
+- [ ] **Reverse-traceroute / router alias-resolution idea — needs the
+  user's own account, not built tonight.** Raised live during the
+  Martha's Coffee session (2026-08-04), while investigating whether the
+  first public traceroute hop (found to be the ISP PE candidate — see
+  `script/diagnostic-exports/field-test-notes-20260804-marthas-coffee.md`
+  for the full reasoning) shows a "near-side" address rather than
+  confirming anything about its far side.
+  A **reverse traceroute** — run from a remote vantage point back toward
+  this Mac's own public IP, rather than outbound from here — would
+  directly show the return-direction path traceroute alone can't
+  capture, and would be a legitimate unicast target (the public IP,
+  unlike `1.1.1.1`, isn't anycast). Tried live: a public looking glass
+  (`lg.he.net`) was in progress when the ask shifted to RIPE Atlas
+  specifically; confirmed via RIPE Atlas's own docs that creating any
+  on-demand measurement — even a single one-off traceroute — requires a
+  logged-in account with a credit balance, so it couldn't be completed
+  anonymously in this session.
+  Bigger idea raised in the same thread: seeing *all* interfaces of a
+  single ISP router (not just whichever one answered one probe) is a
+  real, named technique — **alias resolution** (Ally, MIDAR, kapar;
+  used by CAIDA's Ark project) — correlating addresses observed from
+  many diverse vantage points to prove they're the same physical device.
+  Real research-grade technique, not a quick win.
+  Not built — needs either the user's own RIPE Atlas account/API key
+  handed to a session, or falling back to a no-login public looking
+  glass (`lg.he.net` or similar from `traceroute.org`'s directory) for a
+  less rigorous single-vantage-point version.
+
+- [ ] **Field-test session notes — Martha's Coffee, Church St, 2026-08-04.**
+  Raised live, mid-session, to act on later rather than interrupt testing.
+
+  1. **DDNS tile reads as wrong/stale while away from home — not a caching
+     bug, a framing gap.** Confirmed via `DDNSViewModel.swift`: DDNS
+     checking is deliberately *not* scoped to `currentNetworkFingerprint`
+     (unlike DHCP/NetworkQuality/Traceroute/WiFiStressTest/SNMP, which all
+     already reset cleanly on a topology change via
+     `NetworkIdentityViewModel.reset()` nilling the fingerprint before
+     re-recognition — so "clear all network displays until confirmed" is
+     largely already true app-wide for anything fingerprint-scoped). DDNS
+     is intentionally global: the whole point is catching a home DDNS
+     client silently failing, checked from *anywhere*, including away from
+     home — see the view model's own doc comment. So it keeps resolving
+     and comparing the configured home hostname against whatever network
+     you're currently on, which will read `.stale` on every non-home
+     network by design, not just this one.
+     Real gap: nothing in the UI signals "this is checking a specific
+     hostname regardless of your current network" vs. every other tile's
+     implicit "this is about your current network" convention — so a
+     `.stale` reading away from home looks like a bug rather than the
+     expected always-checking-home behavior. Possible fix direction (not
+     built): either a persistent label on the DDNS section clarifying
+     it tracks configured hostname(s) independent of current network, or
+     suppressing the stale event-log entry (not the display) specifically
+     when the current network doesn't match whichever `KnownNetwork` the
+     user has labeled as home — no such "this one is home" designation
+     exists yet, would need adding to `KnownNetwork` or inferring from a
+     label match.
+
+  2. **Network Summary tile — one-glance "is this network basically
+     working" view, aimed at Concise mode.** Requested live: basic
+     connection state, SSID, and any specific problems already detected
+     elsewhere in the app, rolled up into one line/tile answering "is the
+     network basically connected and functional?" without requiring a
+     scan across every other tile. Open question raised in the same
+     breath: should it fold in a one-line SaaS-monitoring rollup too (with
+     full per-service detail staying in the existing `SaaSStatusTile`,
+     this tile only surfacing something like "2 services degraded"), or
+     leave SaaS out of the summary entirely since it's a different concern
+     (third-party service health vs. this network's own connectivity)?
+     Also requested live: a basic Wi-Fi quality indicator in the same
+     rollup (e.g. reusing `WiFiTile`'s existing signal/PHY-rate reads
+     reduced to one good/fair/poor-style badge, not the full tile's
+     detail) — same "roll up, don't duplicate" shape as the SaaS
+     question above, same open question of whether it belongs in this
+     tile at all vs. staying in `WiFiTile` alone.
+     Not built — needs scoping (which existing view models it reads from,
+     what counts as a "problem" worth surfacing here vs. staying buried in
+     its own tile, whether it's Concise-mode-only or shown always).
+
 - [ ] **Brief in-tile explanatory text for each test feature — "I keep
   forgetting how each test works."** Raised directly. Checked what
   already exists before assuming a gap: three of the four dedicated

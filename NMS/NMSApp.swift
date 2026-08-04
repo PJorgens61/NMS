@@ -220,7 +220,8 @@ struct NMSApp: App {
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
-            traceroute: traceroute
+            traceroute: traceroute,
+            ddns: ddns
         )
         wireDerivedStateDependencies(
             networkMonitor: networkMonitor,
@@ -268,7 +269,8 @@ struct NMSApp: App {
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
         ethernetLink: EthernetLinkViewModel,
-        traceroute: TracerouteViewModel
+        traceroute: TracerouteViewModel,
+        ddns: DDNSViewModel
     ) {
         // `[weak networkMonitor]` because this closure is stored *on*
         // `networkMonitor` and also reads it (for `currentInterface`
@@ -301,6 +303,13 @@ struct NMSApp: App {
             // below, re-populates it for whichever network this change
             // actually lands on.
             traceroute.reloadMonitoredHop()
+            // Same immediate-clear need as the two calls above: reads back
+            // "not home" the instant the fingerprint is nil'd, which is
+            // what actually fixes DDNS displaying the home network's setup
+            // while connected elsewhere — see `DDNSViewModel`'s doc
+            // comment. `onNetworkRecognized` below re-runs this for real
+            // once the new network is known.
+            ddns.checkAll()
             // Re-populate immediately with whatever `publicIP.currentIP`
             // already holds, the same direct-call pattern `init()` uses
             // for the equivalent launch-time case (see its own comment
@@ -533,6 +542,12 @@ struct NMSApp: App {
             networkQuality.reloadHistory()
             wifiStressTest.reloadHistory()
             traceroute.reloadMonitoredHop()
+            // Real check, not just a reload: unlike the history reloads
+            // above, DDNS has no persisted per-network history to re-read
+            // — this is what actually re-populates it once the newly
+            // recognized network turns out to be home, rather than
+            // waiting out `FeatureFlags.ddnsCheckInterval`.
+            ddns.checkAll()
             // Opt-in only (`FeatureFlags.autoBaselineNetworkQuality`'s own
             // doc comment has the why) — never on the very first time
             // this Mac has ever seen a network (`isNewNetwork`), so a

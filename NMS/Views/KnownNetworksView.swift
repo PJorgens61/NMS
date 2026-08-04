@@ -112,6 +112,20 @@ struct KnownNetworksView: View {
                     .foregroundStyle(.secondary)
             }
             Button {
+                networkIdentity.setHome(!network.isHome, for: network)
+            } label: {
+                Image(systemName: network.isHome ? "house.fill" : "house")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(network.isHome ? Color.accentColor : Color.secondary)
+            .accessibilityLabel(network.isHome ? "Home network" : "Mark as home network")
+            .accessibilityHint("DDNS hostname checks (Preferences → DDNS Hostnames) only run and report while connected to whichever network is marked home")
+            .accessibilityIdentifier("knownNetworks.home.\(network.fingerprint)")
+            .help(tooltip(
+                network.isHome ? "This is your home network." : "Mark as your home network.",
+                technical: "DDNS hostname checks only run while connected to whichever network is marked home — elsewhere the DDNS section stays empty instead of comparing a home hostname against the wrong network's public IP."
+            ))
+            Button {
                 reviewingNetwork = network
             } label: {
                 Image(systemName: "doc.text.magnifyingglass")
