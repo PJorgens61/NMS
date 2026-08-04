@@ -410,6 +410,27 @@ checked off as of that date, full reasoning intact.
   implementations — worth deciding once the diagram feature is
   actually being built, not speculatively now.
 
+  **A third use case, raised directly: reviewing field-test diagnostic
+  output is easier as a generated local web page than as new SwiftUI
+  added to the shipped app.** Lower-stakes than the two above, worth
+  being precise about the difference: Apple networkQuality formatting
+  and the Mermaid diagram privacy fix are real, shipped end-user
+  features; this is dev/testing tooling, the same category as
+  `FailureInjector`/`UIStateLogger` — worth scoping as debug-only rather
+  than assuming it needs the same bar as a shipped feature. Same
+  loopback-only/no-dependencies/on-demand constraints still apply
+  regardless of which tier it ships in.
+
+  **Scope, refined directly to something leaner than a data/screenshot
+  dashboard: a simple chronological log of test activity and
+  results** — what ran, when, what it found — rather than a richer
+  side-by-side viewer. Closer to a plain HTML rendering of
+  `script/export-diagnostic.sh`'s own output plus each field-test
+  screenshot (see the "Run Field Test" button item elsewhere in this
+  file) inserted at the point it was taken, than a dashboard with its
+  own separate layout/navigation to design and maintain. A real, much
+  smaller first version to build than the dashboard framing implied.
+
 - [ ] **TCP/UDP stress-test ideas for testing further out than the
   local hop** — separate from the local Wi-Fi ping stress test above
   (now built), and less developed. TCP/UDP echo (RFC 862/863) is
@@ -2670,6 +2691,68 @@ from this list. This one remains, since it's an idea, not a defect):
   the second being the more actionable finding). Same "only a real
   transition logs anything" convention every other change-event in this
   app already follows.
+
+- [ ] **An automated "Run Field Test" button — sequences the safe
+  checks, captures the result as data and a real screenshot, and gives
+  a summary verdict.** Raised directly, building on
+  `script/export-diagnostic.sh` (confirmed still working this session)
+  and the field-testing workflow it exists for. Three real design
+  questions this surfaced, not just "add a button":
+
+  1. **A collision with deliberate consent gates already in this exact
+     codebase — the central design tension, not a detail.** SNMP
+     scanning is off by default specifically because "a friend testing
+     on their own network hasn't necessarily reviewed or approved NMS
+     probing their devices" (`FeatureFlags.snmpDevices`'s own doc
+     comment) — precisely the field-testing scenario this button is
+     for. Local Stress Test has its own one-time confirmation dialog
+     because it generates real disruptive traffic; Apple networkQuality
+     can use 1+ GB per run. A single button that fires all of these
+     automatically either silently bypasses safeguards that exist for
+     good reason, or has to stop and ask mid-sequence anyway, which
+     defeats the point of automating it. **Resolved shape**: scope the
+     automated button to only the already-safe, already-unconsented
+     checks (traceroute, the quick ~5s networkQuality check) by
+     default; the expensive/consent-gated ones (SNMP scan, Local
+     Stress Test, full Apple networkQuality, Speed Test) stay separate,
+     still-manual, still-deliberate actions run alongside it, not
+     folded into the automated sequence.
+
+  2. **Screenshot, but not via the existing Screenshot/Bug Report
+     mechanism — that path has a known, real fidelity gap that would
+     undermine the exact cross-referencing this is for.** The existing
+     capture (`ImageRenderer` with `isCapturingScreenshot = true`,
+     see `BUGS.md`) deliberately renders differently than the live
+     window — it unclips scrollable sections so `ImageRenderer` has
+     something to draw — which already caused a real bug: a captured
+     screenshot showed text wrapping correctly while the live window
+     was actually truncating it. Using that same path to check "does
+     the display match the data" wouldn't reliably show what was
+     actually on screen. The reliable alternative, already proven
+     working throughout this project's own verification workflow this
+     session: `/usr/sbin/screencapture -l<windowID>` — real on-screen
+     pixels, not a separate re-render. Needs Screen Recording
+     permission, a new permission dialog this app doesn't currently
+     trigger anywhere — worth knowing going in, not discovering after
+     shipping. (A more correct but bigger fix — replacing
+     `ImageRenderer` with `NSView.cacheDisplay`-style capture of the
+     real live view — would resolve the underlying gap for Screenshot/
+     Bug Report too, not just add a third capture mechanism alongside
+     two existing ones. Worth doing eventually; not required to unblock
+     this item.)
+
+  3. **A result summary has a real, dormant home already designed for
+     it — `OverallStatus.compute`, written up in `DESIGN-NOTES.md`'s
+     "All systems Nominal" section but never wired into any UI since
+     the single-window rebuild removed the menu bar icon that used to
+     show it.** A field-test verdict is exactly the kind of concrete
+     trigger that could justify reviving it, rather than inventing a
+     second, separate "test result" concept that would need its own
+     aggregation logic.
+
+  Not yet built — this is the scoping pass (what's safe to automate,
+  which capture mechanism is trustworthy, where the verdict comes
+  from), not a decision to start coding.
 
 ## Deliberately not doing
 
