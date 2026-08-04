@@ -431,6 +431,22 @@ checked off as of that date, full reasoning intact.
   own separate layout/navigation to design and maintain. A real, much
   smaller first version to build than the dashboard framing implied.
 
+  **Recommended build order, raised directly: start here, not with
+  either shipped-feature use case above.** This is the simplest of the
+  three (no Mermaid-JS-bundling, no parsing Apple's verbose report
+  format) and has standalone value from its first real use — the next
+  field-testing trip — rather than needing repeated use to justify the
+  work. Proves the actual server plumbing (`NWListener`, loopback-only,
+  on-demand lifecycle) end-to-end on a low-stakes debug-only target
+  before the other two use cases build more complex content generators
+  on top of the same mechanism. One thing this *doesn't* deliver as a
+  side effect, worth being precise about: the separate "UI experiment
+  mockup harness" idea elsewhere in this file wants CSS that visually
+  matches the real app (native fonts, colors, tile borders) — a log
+  page doesn't need or benefit from that same styling, so building this
+  first proves the server mechanism but not that harness's own
+  app-matching mockup CSS, which would still be its own follow-on step.
+
 - [ ] **TCP/UDP stress-test ideas for testing further out than the
   local hop** — separate from the local Wi-Fi ping stress test above
   (now built), and less developed. TCP/UDP echo (RFC 862/863) is
@@ -2753,6 +2769,53 @@ from this list. This one remains, since it's an idea, not a defect):
   Not yet built — this is the scoping pass (what's safe to automate,
   which capture mechanism is trustworthy, where the verdict comes
   from), not a decision to start coding.
+
+- [ ] **An HTML/CSS mockup harness for UI experiments, styled to match
+  the real native app, not the marketing website.** Raised directly,
+  after reflecting on how many rounds of UI iteration this session
+  actually needed (dot sizing, row-highlight placement, box heights,
+  tooltip styling) — each one a real build-relaunch-screenshot cycle
+  for a change where the underlying logic was trivial and the visual
+  feel was the only thing actually being decided.
+
+  **The real, checked reason this would help, not just a hunch**: web
+  content exposes a queryable structure (`get_page_text`, `read_page`,
+  raw JavaScript against the DOM) that's precise and reliable; native
+  macOS introspection only goes through the Accessibility API via
+  `osascript`/System Events, which this project's own `CLAUDE.md`
+  already documents as unreliable here (button lookup by name failing,
+  sheets missing from the expected accessibility tree) — hit again this
+  session as an empty result querying the networkQuality status text.
+  Not "screenshots work better on the web" (they don't — the Browser
+  pane had its own blank/stale-screenshot flakiness this session, same
+  as native) — the actual advantage is a real introspection API on one
+  side and mostly-guessed crop coordinates on the other. There's also
+  an NMS-specific complication a mockup sidesteps entirely: the live
+  app mixes real, sensitive network data into every screenshot, which
+  cost real effort (and a few deleted files) avoiding this session — a
+  mockup with fixture data has zero risk there.
+
+  **What doesn't exist yet and would need building first**: a base
+  harness that actually matches the real app's look (native fonts,
+  colors, tile borders, row spacing) — not the marketing website's
+  bright SaaS styling, a different visual language entirely. Once that
+  exists, the workflow for a UI experiment becomes: iterate on the
+  mockup live (instant reload, no privacy risk, precise JS-based
+  verification) until the design feels right, then port the settled
+  result into the real SwiftUI view — the translation step is
+  unavoidable either way, but the exploration phase before it gets much
+  faster.
+
+  **Real, explicit limits, not oversold**: only helps for pure visual/
+  layout experiments where the point is deciding how something should
+  look. Doesn't help for anything where real behavior matters (state
+  changes, real data, actual `Grid`/AppKit interop) — those still need
+  the real app regardless, and the mockup can't catch the
+  native-framework-specific rendering bugs that actually caused several
+  real bugs in this app (the `Grid`/`NoBounceScrollView` interop issues
+  were AppKit/SwiftUI-specific, invisible to any HTML version). Worth
+  it for a non-trivial visual experiment; not worth it for a one-line
+  tooltip change.
 
 ## Deliberately not doing
 
