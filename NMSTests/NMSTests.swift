@@ -23,22 +23,32 @@ struct SubnetCalculatorTests {
         #expect(SubnetCalculator.dottedQuad(0xFFFFFFFF) == "255.255.255.255")
     }
 
-    @Test("rejects malformed addresses rather than guessing")
-    func rejectsMalformed() {
-        #expect(SubnetCalculator.packedIPv4("10.0.0") == nil)          // too few octets
-        #expect(SubnetCalculator.packedIPv4("10.0.0.1.5") == nil)      // too many
-        #expect(SubnetCalculator.packedIPv4("10.0.0.256") == nil)      // octet out of range
-        #expect(SubnetCalculator.packedIPv4("10.0.0.x") == nil)        // non-numeric
-        #expect(SubnetCalculator.packedIPv4("") == nil)
+    @Test(
+        "rejects malformed addresses rather than guessing",
+        arguments: [
+            "10.0.0",          // too few octets
+            "10.0.0.1.5",      // too many
+            "10.0.0.256",      // octet out of range
+            "10.0.0.x",        // non-numeric
+            ""
+        ]
+    )
+    func rejectsMalformed(_ address: String) {
+        #expect(SubnetCalculator.packedIPv4(address) == nil)
     }
 
-    @Test("prefix length counts mask bits")
-    func prefixLength() {
-        #expect(SubnetCalculator.prefixLength(subnetMask: "255.255.255.0") == 24)
-        #expect(SubnetCalculator.prefixLength(subnetMask: "255.255.254.0") == 23)
-        #expect(SubnetCalculator.prefixLength(subnetMask: "255.255.0.0") == 16)
-        #expect(SubnetCalculator.prefixLength(subnetMask: "255.255.255.255") == 32)
-        #expect(SubnetCalculator.prefixLength(subnetMask: "nonsense") == nil)
+    @Test(
+        "prefix length counts mask bits",
+        arguments: [
+            ("255.255.255.0", 24),
+            ("255.255.254.0", 23),
+            ("255.255.0.0", 16),
+            ("255.255.255.255", 32),
+            ("nonsense", nil)
+        ] as [(String, Int?)]
+    )
+    func prefixLength(mask: String, expected: Int?) {
+        #expect(SubnetCalculator.prefixLength(subnetMask: mask) == expected)
     }
 
     @Test("/24 enumerates 254 hosts minus ourselves, excluding network and broadcast")
@@ -350,18 +360,13 @@ struct OverallStatusTests {
         #expect(OverallStatus.compute(interfaceIsDown: true, checks: checks) == .critical)
     }
 
-    @Test("each critical label failing alone is critical")
-    func criticalLabels() {
-        for label in OverallStatus.criticalLabels {
-            let checks = [
-                check(label, success: false),
-                check("Switch", success: true)
-            ]
-            #expect(
-                OverallStatus.compute(interfaceIsDown: false, checks: checks) == .critical,
-                "\(label) failing should be critical"
-            )
-        }
+    @Test("each critical label failing alone is critical", arguments: OverallStatus.criticalLabels)
+    func criticalLabels(_ label: String) {
+        let checks = [
+            check(label, success: false),
+            check("Switch", success: true)
+        ]
+        #expect(OverallStatus.compute(interfaceIsDown: false, checks: checks) == .critical)
     }
 
     /// A monitored switch/AP going quiet is worth noticing but isn't the
@@ -901,26 +906,21 @@ final class StoreSizeServiceTests {
 
 @Suite("Value-type formatting")
 struct FormattingTests {
-    @Test("SNMP uptime renders coarsely, largest unit first")
-    func uptimeDescription() {
-        // uptimeTicks are hundredths of a second.
-        let twoDays = SNMPDevice(
+    // uptimeTicks are hundredths of a second.
+    @Test(
+        "SNMP uptime renders coarsely, largest unit first",
+        arguments: [
+            (2 * 86_400 * 100, "up 2d 0h"),
+            (3 * 3600 * 100, "up 3h 0m"),
+            (5 * 60 * 100, "up 5m")
+        ]
+    )
+    func uptimeDescription(ticks: Int, expected: String) {
+        let device = SNMPDevice(
             ipAddress: "10.0.0.1", sysDescr: "d", sysName: "n",
-            uptimeTicks: 2 * 86_400 * 100, community: "public", polledAt: Date()
+            uptimeTicks: ticks, community: "public", polledAt: Date()
         )
-        #expect(twoDays.uptimeDescription == "up 2d 0h")
-
-        let threeHours = SNMPDevice(
-            ipAddress: "10.0.0.1", sysDescr: "d", sysName: "n",
-            uptimeTicks: 3 * 3600 * 100, community: "public", polledAt: Date()
-        )
-        #expect(threeHours.uptimeDescription == "up 3h 0m")
-
-        let fiveMinutes = SNMPDevice(
-            ipAddress: "10.0.0.1", sysDescr: "d", sysName: "n",
-            uptimeTicks: 5 * 60 * 100, community: "public", polledAt: Date()
-        )
-        #expect(fiveMinutes.uptimeDescription == "up 5m")
+        #expect(device.uptimeDescription == expected)
     }
 
     /// Falls back to the address when a device reports no `sysName`, so a
@@ -946,13 +946,18 @@ struct FormattingTests {
         #expect(blank.displayName == "10.0.0.1")
     }
 
-    @Test("DHCP durations render in hours or minutes")
-    func dhcpDurationText() {
-        #expect(DHCPLeaseInfo.durationText(86_400) == "24h")
-        #expect(DHCPLeaseInfo.durationText(43_200) == "12h")
-        #expect(DHCPLeaseInfo.durationText(3600) == "1h")
-        #expect(DHCPLeaseInfo.durationText(1800) == "30m")
-        #expect(DHCPLeaseInfo.durationText(60) == "1m")
+    @Test(
+        "DHCP durations render in hours or minutes",
+        arguments: [
+            (86_400, "24h"),
+            (43_200, "12h"),
+            (3600, "1h"),
+            (1800, "30m"),
+            (60, "1m")
+        ]
+    )
+    func dhcpDurationText(seconds: Int, expected: String) {
+        #expect(DHCPLeaseInfo.durationText(seconds) == expected)
     }
 }
 
@@ -1066,11 +1071,9 @@ struct NATLayerDetectionTests {
 /// that every declared box still has a real, positive height.
 @Suite("SectionLayout")
 struct SectionLayoutTests {
-    @Test("every declared section has a positive box height")
-    func everySectionHasAPositiveHeight() {
-        for section in SectionLayout.allCases {
-            #expect(section.boxHeight > 0, "\(section.rawValue) should declare a positive box height")
-        }
+    @Test("every declared section has a positive box height", arguments: SectionLayout.allCases)
+    func everySectionHasAPositiveHeight(_ section: SectionLayout) {
+        #expect(section.boxHeight > 0)
     }
 }
 
