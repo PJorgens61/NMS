@@ -12,6 +12,55 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: a Share button for diagnostic state, with the interesting
+  case being "the network is down, save it and offer to resend once
+  it's back."** Raised live (2026-08-04): "mac apps often have a
+  'share' button... could a user share some application state with
+  another user? Perhaps a corporate help desk? A broken network
+  interferes with this. could we save the bad state and then offer to
+  resend it whenever the network comes back up?"
+  Two very different costs bundled in one idea:
+  1. **Cheap**: a Share button on the existing export
+     (`script/export-diagnostic.sh`'s JSON, or the debug-only
+     Diagnostic Log page) via macOS's standard `NSSharingServicePicker`
+     — Mail/Messages/AirDrop. AirDrop specifically doesn't need
+     internet at all if the recipient is nearby. No new state machine.
+
+     **This already covers the follow-up "send it to my own iPhone,
+     which still has cellular" idea raised in the same conversation** —
+     AirDrop is one of `NSSharingServicePicker`'s built-in destinations,
+     and it transfers over Bluetooth + peer-to-peer Wi-Fi (AWDL), not
+     through either device's regular internet-routed connection. It
+     doesn't care whether the Mac's ISP link is up, or even whether the
+     Mac is associated with any Wi-Fi network at all — just that both
+     devices' radios are on. No custom Mac<->iPhone protocol or
+     companion app needed; the "remote worker" pattern (get the file
+     onto a device with its own working uplink, then forward from
+     there) falls out of the plain Share Sheet for free.
+  2. **Real work**: "save now, offer to resend once back online" needs
+     an actual queue — capture the export at failure time, persist a
+     pending-share intent (including *who* it was meant for, captured
+     before connectivity was lost), detect restoration (the app already
+     watches this continuously via `ConnectivityViewModel`/
+     `NetworkMonitorViewModel`), and **re-prompt rather than silently
+     auto-send** — a stale export firing off unreviewed once reconnected
+     is a real risk, not just a nice-to-have safeguard.
+  **Privacy, raised in the same breath and genuinely not minor:** a
+  diagnostic export isn't only the user's own data — it can include
+  DHCP-leased and SNMP-discovered devices belonging to *other* people on
+  the same network. "Help desks have deep visibility" holds for
+  corporate IT, but the app has no way to know who's actually on the
+  other end of a share. Real precedent already in this codebase for
+  exactly this shape of concern: `KnownNetwork.isPublicForCapture`
+  gates automated capture behind an explicit per-network opt-in rather
+  than defaulting to "capture everything" — a share feature should
+  probably follow the same discipline (review/redact before sending,
+  never silent, especially for the deferred-resend case).
+  Not built — the cheap version (plain Share Sheet on the existing
+  export) is a reasonable small first step if this gets picked up; the
+  queue-and-resend version needs real design work first, not just
+  implementation.
+
 - [ ] **Idea: a private-address traceroute hop appearing mid-path (not
   leading) could be an ISP's own privately-numbered backbone link, not
   NAT/CGNAT — the app doesn't currently explain this possibility
@@ -167,6 +216,29 @@ checked off as of that date, full reasoning intact.
   handed to a session, or falling back to a no-login public looking
   glass (`lg.he.net` or similar from `traceroute.org`'s directory) for a
   less rigorous single-vantage-point version.
+
+  **Follow-up the same day, once home:** account created (free "RIPE
+  NCC Access" signup, confirmed live — not the LIR Portal, which is a
+  separate, unrelated membership/allocation system easy to land on by
+  mistake). Attempted a real one-off traceroute toward the home
+  network's public IP (`192.184.170.5`, RDAP-confirmed Sonic.net, LLC)
+  from 5 US probes — blocked: **new accounts start at 0 credits, and
+  RIPE Atlas has no way to buy credits with money at all.** Credits are
+  earned only by hosting a probe/anchor, sponsoring, RIPE NCC
+  membership, or a transfer — confirmed directly from RIPE's own credit
+  docs, not assumed.
+  If this gets revisited: the realistic path for an individual is
+  RIPE's free software probe (a Docker container, ~15 credits/minute
+  while connected) — but **not a quick unblock**: accounts are only
+  credited once per day per RIPE's own docs (so even starting a probe
+  immediately wouldn't unlock a 3000-credit measurement same-day), and
+  registration requires generating a probe key then waiting for RIPE
+  NCC to manually process it before the probe even starts counting as
+  connected. Worth doing on its own schedule if ongoing RIPE Atlas
+  access matters, not worth spinning up just to unblock one curiosity
+  traceroute. For tonight, left as: HE's looking-glass attempt (see
+  above) is the best answer available, itself inconclusive rather than
+  negative.
 
 - [ ] **Field-test session notes — Martha's Coffee, Church St, 2026-08-04.**
   Raised live, mid-session, to act on later rather than interrupt testing.
