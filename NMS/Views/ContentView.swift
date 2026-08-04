@@ -478,6 +478,7 @@ struct ContentView: View {
             HStack {
                 Text(title)
                     .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 trailing()
             }
@@ -523,10 +524,10 @@ struct ContentView: View {
         // still "no height constraint at all, size to content."
         .frame(maxWidth: .infinity, minHeight: effectiveHeight, maxHeight: effectiveHeight, alignment: .topLeading)
         .reportFrameForFieldTest("tile.\(title)")
-        .overlay(
+        .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.secondary.opacity(0.25))
-        )
+        }
     }
 
     /// First estimate for `tile(fixedHeight:)`'s header+padding overhead
