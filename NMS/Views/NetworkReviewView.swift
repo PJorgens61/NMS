@@ -11,11 +11,11 @@ import AppKit
 /// `SnapshotStore` overloads rather than the live `currentNetworkFingerprint`
 /// path every other view in this app uses.
 struct NetworkReviewView: View {
-    @StateObject private var viewModel: NetworkReviewViewModel
+    @State private var viewModel: NetworkReviewViewModel
     @Environment(\.dismiss) private var dismiss
 
     init(network: KnownNetwork, snapshotStore: SnapshotStore) {
-        _viewModel = StateObject(wrappedValue: NetworkReviewViewModel(network: network, snapshotStore: snapshotStore))
+        _viewModel = State(wrappedValue: NetworkReviewViewModel(network: network, snapshotStore: snapshotStore))
     }
 
     var body: some View {

@@ -6,14 +6,14 @@ import SwiftUI
 ///
 /// Eighth of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — reads two `@ObservedObject`s (`networkQuality` for
+/// fan-in entry) — reads two view models (`networkQuality` for
 /// the test itself, `viewModel` only to read the current interface name
 /// for the run button). The verbose-report sheet's `@State` moved here
 /// too — purely local UI state with no reason to live on `ContentView`
 /// once this section is its own type.
 struct AppleNetworkQualityTile: View {
-    @ObservedObject var networkQuality: NetworkQualityViewModel
-    @ObservedObject var viewModel: NetworkMonitorViewModel
+    var networkQuality: NetworkQualityViewModel
+    var viewModel: NetworkMonitorViewModel
 
     @State private var isShowingAppleVerboseOutput = false
 

@@ -1,16 +1,16 @@
 import Foundation
-import Combine
 
 @MainActor
-final class LANDiscoveryViewModel: ObservableObject {
+@Observable
+final class LANDiscoveryViewModel {
     /// Instrumented so the `arp -n` + async-enrichment change is verifiable
     /// from the log: hostnames now arrive *after* the scan rather than with
     /// it, which is exactly the kind of thing worth being able to confirm.
-    @Published private(set) var devices: [DiscoveredDevice] = [] {
+    private(set) var devices: [DiscoveredDevice] = [] {
         didSet { UIStateLogger.log("LANDiscoveryViewModel.devices", devices) }
     }
-    @Published private(set) var lastScanAt: Date?
-    @Published private(set) var lastError: String?
+    private(set) var lastScanAt: Date?
+    private(set) var lastError: String?
 
     private let discoveryService = LANDiscoveryService()
     private let reverseDNSService = ReverseDNSService()

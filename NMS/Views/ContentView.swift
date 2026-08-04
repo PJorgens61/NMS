@@ -1,22 +1,27 @@
 import SwiftUI
 
 struct ContentView: View {
-    @ObservedObject var viewModel: NetworkMonitorViewModel
-    @ObservedObject var lanDiscovery: LANDiscoveryViewModel
-    @ObservedObject var connectivity: ConnectivityViewModel
-    @ObservedObject var networkIdentity: NetworkIdentityViewModel
-    @ObservedObject var publicIP: PublicIPViewModel
-    @ObservedObject var ispIdentity: ISPIdentityViewModel
-    @ObservedObject var dhcpLease: DHCPLeaseViewModel
-    @ObservedObject var networkQuality: NetworkQualityViewModel
-    @ObservedObject var wifiStressTest: WiFiStressTestViewModel
-    @ObservedObject var wifiSSID: WiFiSSIDViewModel
-    @ObservedObject var ethernetLink: EthernetLinkViewModel
-    @ObservedObject var eventLog: EventLogViewModel
-    @ObservedObject var traceroute: TracerouteViewModel
-    @ObservedObject var snmp: SNMPViewModel
-    @ObservedObject var saasMonitoring: SaaSMonitoringViewModel
-    @ObservedObject var ddns: DDNSViewModel
+    // Every view model here is `@Observable`, not `ObservableObject` — see
+    // `PUNCHLIST.md`'s Observation migration entry. Plain `var`, not
+    // `@ObservedObject`: `ContentView` only forwards each one to a child,
+    // never creates or two-way-binds any of them, and `@Observable`
+    // reference types need no property wrapper for that.
+    var viewModel: NetworkMonitorViewModel
+    var lanDiscovery: LANDiscoveryViewModel
+    var connectivity: ConnectivityViewModel
+    var networkIdentity: NetworkIdentityViewModel
+    var publicIP: PublicIPViewModel
+    var ispIdentity: ISPIdentityViewModel
+    var dhcpLease: DHCPLeaseViewModel
+    var networkQuality: NetworkQualityViewModel
+    var wifiStressTest: WiFiStressTestViewModel
+    var wifiSSID: WiFiSSIDViewModel
+    var ethernetLink: EthernetLinkViewModel
+    var eventLog: EventLogViewModel
+    var traceroute: TracerouteViewModel
+    var snmp: SNMPViewModel
+    var saasMonitoring: SaaSMonitoringViewModel
+    var ddns: DDNSViewModel
     /// Not `@ObservedObject` — a plain value computed once at launch (see
     /// `NMSApp`), not something that changes while the popover is open.
     let buildInfo: BuildInfoService.Info?

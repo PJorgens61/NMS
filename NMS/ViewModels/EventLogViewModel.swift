@@ -1,9 +1,9 @@
 import Foundation
-import Combine
 
 @MainActor
-final class EventLogViewModel: ObservableObject {
-    @Published private(set) var events: [AppEventRecord] = [] {
+@Observable
+final class EventLogViewModel {
+    private(set) var events: [AppEventRecord] = [] {
         didSet { UIStateLogger.log("EventLogViewModel.events", events) }
     }
 

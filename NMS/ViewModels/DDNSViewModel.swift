@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// Periodically resolves every user-configured DDNS hostname
 /// (`FeatureFlags.ddnsHostnames`, set via `PreferencesView`) and compares
@@ -14,7 +13,8 @@ import Combine
 /// Deliberately no feature-flag gate beyond the hostname list itself
 /// being non-empty — see `FeatureFlags.ddnsHostnames`'s own doc comment.
 @MainActor
-final class DDNSViewModel: ObservableObject {
+@Observable
+final class DDNSViewModel {
     enum SyncState: Equatable {
         case current
         case stale
@@ -37,10 +37,10 @@ final class DDNSViewModel: ObservableObject {
         let lastError: String?
     }
 
-    @Published private(set) var statuses: [Status] = [] {
+    private(set) var statuses: [Status] = [] {
         didSet { UIStateLogger.log("DDNSViewModel.statuses", statuses) }
     }
-    @Published private(set) var isChecking = false
+    private(set) var isChecking = false
 
     /// Fired when an `AppEventRecord` gets logged, so the event log view
     /// can refresh — same convention every other view model here uses.
@@ -74,10 +74,19 @@ final class DDNSViewModel: ObservableObject {
         observeFeatureFlagChanges()
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading
+    // `@Observable`-tracked stored properties from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance of this
+    // class is only ever created/held on the main actor (see
+    // `NMSApp`/`ContentViewPreviewSupport`). `ObservableObject` didn't
+    // surface this same diagnostic; `@Observable`'s macro-generated
+    // accessors do.
     deinit {
-        timer?.invalidate()
-        if let featureFlagObserver {
-            NotificationCenter.default.removeObserver(featureFlagObserver)
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+            if let featureFlagObserver {
+                NotificationCenter.default.removeObserver(featureFlagObserver)
+            }
         }
     }
 

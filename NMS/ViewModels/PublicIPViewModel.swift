@@ -1,12 +1,12 @@
 import Foundation
-import Combine
 
 @MainActor
-final class PublicIPViewModel: ObservableObject {
-    @Published private(set) var currentIP: String?
-    @Published private(set) var lastCheckedAt: Date?
-    @Published private(set) var lastError: String?
-    @Published private(set) var isChecking = false
+@Observable
+final class PublicIPViewModel {
+    private(set) var currentIP: String?
+    private(set) var lastCheckedAt: Date?
+    private(set) var lastError: String?
+    private(set) var isChecking = false
 
     private let service = PublicIPService()
     private let snapshotStore: SnapshotStore
@@ -48,8 +48,14 @@ final class PublicIPViewModel: ObservableObject {
         check()
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading an
+    // `@Observable`-tracked stored property from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance is only
+    // ever created/held on the main actor (see `NMSApp`).
     deinit {
-        timer?.invalidate()
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
     }
 
     /// `URLSession`'s async API suspends without blocking the main thread,

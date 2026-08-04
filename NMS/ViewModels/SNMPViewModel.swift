@@ -1,9 +1,9 @@
 import Foundation
-import Combine
 
 @MainActor
-final class SNMPViewModel: ObservableObject {
-    @Published private(set) var devices: [SNMPDevice] = [] {
+@Observable
+final class SNMPViewModel {
+    private(set) var devices: [SNMPDevice] = [] {
         didSet {
             UIStateLogger.log("SNMPViewModel.devices", devices)
             // Compared on ping-target identity rather than with `!=`, because
@@ -23,16 +23,16 @@ final class SNMPViewModel: ObservableObject {
     private static func targetIdentity(_ devices: [SNMPDevice]) -> [String] {
         devices.map { "\($0.ipAddress)|\($0.displayName)" }
     }
-    @Published private(set) var isScanning = false
-    @Published private(set) var lastScanAt: Date?
-    @Published private(set) var lastError: String?
+    private(set) var isScanning = false
+    private(set) var lastScanAt: Date?
+    private(set) var lastError: String?
     /// Read-only community strings, tried in order. `public` is the
     /// near-universal default; a list is supported because real networks
     /// routinely mix vendors or eras of gear with different strings.
     /// Editable in the popover, stored in `UserDefaults` alongside the
     /// monitored-hop setting — see the README's note on why these are
     /// deliberately not treated as Keychain-grade secrets.
-    @Published private(set) var communities: [String]
+    private(set) var communities: [String]
 
     private let service = SNMPService()
     private let webDetectionService = DeviceWebDetectionService()
@@ -166,10 +166,16 @@ final class SNMPViewModel: ObservableObject {
         observeFeatureFlagChanges()
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading
+    // `@Observable`-tracked stored properties from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance is only
+    // ever created/held on the main actor (see `NMSApp`).
     deinit {
-        timer?.invalidate()
-        if let featureFlagObserver {
-            NotificationCenter.default.removeObserver(featureFlagObserver)
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+            if let featureFlagObserver {
+                NotificationCenter.default.removeObserver(featureFlagObserver)
+            }
         }
     }
 

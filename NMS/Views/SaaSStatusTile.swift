@@ -8,9 +8,9 @@ import SwiftUI
 /// Third of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
 /// fan-in entry, and `EthernetTile`/`WiFiTile` for the first two) —
-/// holds only the one `@ObservedObject` it actually reads.
+/// holds only the one view model it actually reads.
 struct SaaSStatusTile: View {
-    @ObservedObject var saasMonitoring: SaaSMonitoringViewModel
+    var saasMonitoring: SaaSMonitoringViewModel
 
     var body: some View {
         tile(title: "SaaS Status", fixedHeight: SectionLayout.saasMonitoring.boxHeight) {

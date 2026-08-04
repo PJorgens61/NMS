@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// Backs `NetworkReviewView` — a read-only look at a *past* `KnownNetwork`,
 /// for a field technician revisiting a site who wants to see what this Mac
@@ -14,11 +13,12 @@ import Combine
 /// poll, DHCP check, Wi-Fi sample) land on the *actual* current network
 /// while this window is open. See DESIGN-NOTES.md's "Network Review".
 @MainActor
-final class NetworkReviewViewModel: ObservableObject {
-    @Published private(set) var events: [AppEventRecord] = []
-    @Published private(set) var snmpDevices: [SNMPDeviceRecord] = []
-    @Published private(set) var dhcpHistory: [DHCPLeaseRecord] = []
-    @Published private(set) var wifiSamples: [WiFiSampleRecord] = []
+@Observable
+final class NetworkReviewViewModel {
+    private(set) var events: [AppEventRecord] = []
+    private(set) var snmpDevices: [SNMPDeviceRecord] = []
+    private(set) var dhcpHistory: [DHCPLeaseRecord] = []
+    private(set) var wifiSamples: [WiFiSampleRecord] = []
 
     let network: KnownNetwork
     private let snapshotStore: SnapshotStore

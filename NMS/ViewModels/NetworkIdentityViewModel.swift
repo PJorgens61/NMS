@@ -1,11 +1,11 @@
 import Foundation
-import Combine
 
 @MainActor
-final class NetworkIdentityViewModel: ObservableObject {
-    @Published private(set) var currentNetwork: KnownNetwork?
-    @Published private(set) var isNewNetwork = false
-    @Published private(set) var knownNetworks: [KnownNetwork] = []
+@Observable
+final class NetworkIdentityViewModel {
+    private(set) var currentNetwork: KnownNetwork?
+    private(set) var isNewNetwork = false
+    private(set) var knownNetworks: [KnownNetwork] = []
 
     private let snapshotStore: SnapshotStore
     /// Guards against retrying more than once per topology change — see

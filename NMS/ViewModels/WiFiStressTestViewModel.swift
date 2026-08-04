@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// On-demand only, like `NetworkQualityViewModel`'s Cloudflare/Apple
 /// tests — deliberately no timer, never wired into `NMSApp`'s launch-time
@@ -7,14 +6,15 @@ import Combine
 /// load (that's the whole point — see `WiFiStressTestService`'s doc
 /// comment), so it must never happen without the user explicitly asking.
 @MainActor
-final class WiFiStressTestViewModel: ObservableObject {
-    @Published private(set) var isRunning = false {
+@Observable
+final class WiFiStressTestViewModel {
+    private(set) var isRunning = false {
         didSet { UIStateLogger.log("WiFiStressTestViewModel.isRunning", isRunning) }
     }
-    @Published private(set) var lastError: String? {
+    private(set) var lastError: String? {
         didSet { UIStateLogger.log("WiFiStressTestViewModel.lastError", lastError as Any) }
     }
-    @Published private(set) var recentRuns: [WiFiStressTestRecord] = [] {
+    private(set) var recentRuns: [WiFiStressTestRecord] = [] {
         didSet { UIStateLogger.log("WiFiStressTestViewModel.recentRuns", recentRuns) }
     }
 

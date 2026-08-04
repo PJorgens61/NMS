@@ -15,7 +15,7 @@ import SwiftUI
 ///
 /// Ninth of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — reads two `@ObservedObject`s (`wifiStressTest` for
+/// fan-in entry) — reads two view models (`wifiStressTest` for
 /// the test itself, `viewModel` only for the router-address gate/isWiFi
 /// flag). The confirmation alert's `@State` moved here too — purely
 /// local UI state with no reason to live on `ContentView` once this
@@ -23,8 +23,8 @@ import SwiftUI
 /// router address, same "the tile decides its own visibility" pattern
 /// `EthernetTile`/`WiFiTile` already use.
 struct LocalStressTestTile: View {
-    @ObservedObject var wifiStressTest: WiFiStressTestViewModel
-    @ObservedObject var viewModel: NetworkMonitorViewModel
+    var wifiStressTest: WiFiStressTestViewModel
+    var viewModel: NetworkMonitorViewModel
 
     @State private var isShowingWiFiStressTestConfirmation = false
 

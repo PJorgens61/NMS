@@ -3,22 +3,25 @@ import SwiftData
 
 @main
 struct NMSApp: App {
-    @StateObject private var networkMonitor: NetworkMonitorViewModel
-    @StateObject private var lanDiscovery: LANDiscoveryViewModel
-    @StateObject private var connectivity: ConnectivityViewModel
-    @StateObject private var networkIdentity: NetworkIdentityViewModel
-    @StateObject private var publicIP: PublicIPViewModel
-    @StateObject private var ispIdentity: ISPIdentityViewModel
-    @StateObject private var dhcpLease: DHCPLeaseViewModel
-    @StateObject private var networkQuality: NetworkQualityViewModel
-    @StateObject private var wifiStressTest: WiFiStressTestViewModel
-    @StateObject private var wifiSSID: WiFiSSIDViewModel
-    @StateObject private var ethernetLink: EthernetLinkViewModel
-    @StateObject private var eventLog: EventLogViewModel
-    @StateObject private var traceroute: TracerouteViewModel
-    @StateObject private var snmp: SNMPViewModel
-    @StateObject private var saasMonitoring: SaaSMonitoringViewModel
-    @StateObject private var ddns: DDNSViewModel
+    // Every view model here is `@Observable` (`@State`), not
+    // `ObservableObject` (`@StateObject`) — see `PUNCHLIST.md`'s
+    // Observation migration entry.
+    @State private var networkMonitor: NetworkMonitorViewModel
+    @State private var lanDiscovery: LANDiscoveryViewModel
+    @State private var connectivity: ConnectivityViewModel
+    @State private var networkIdentity: NetworkIdentityViewModel
+    @State private var publicIP: PublicIPViewModel
+    @State private var ispIdentity: ISPIdentityViewModel
+    @State private var dhcpLease: DHCPLeaseViewModel
+    @State private var networkQuality: NetworkQualityViewModel
+    @State private var wifiStressTest: WiFiStressTestViewModel
+    @State private var wifiSSID: WiFiSSIDViewModel
+    @State private var ethernetLink: EthernetLinkViewModel
+    @State private var eventLog: EventLogViewModel
+    @State private var traceroute: TracerouteViewModel
+    @State private var snmp: SNMPViewModel
+    @State private var saasMonitoring: SaaSMonitoringViewModel
+    @State private var ddns: DDNSViewModel
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -124,22 +127,22 @@ struct NMSApp: App {
             saasMonitoring: saasMonitoring,
             ddns: ddns
         )
-        _networkMonitor = StateObject(wrappedValue: networkMonitor)
-        _lanDiscovery = StateObject(wrappedValue: lanDiscovery)
-        _connectivity = StateObject(wrappedValue: connectivity)
-        _networkIdentity = StateObject(wrappedValue: networkIdentity)
-        _publicIP = StateObject(wrappedValue: publicIP)
-        _ispIdentity = StateObject(wrappedValue: ispIdentity)
-        _dhcpLease = StateObject(wrappedValue: dhcpLease)
-        _networkQuality = StateObject(wrappedValue: networkQuality)
-        _wifiStressTest = StateObject(wrappedValue: wifiStressTest)
-        _wifiSSID = StateObject(wrappedValue: wifiSSID)
-        _ethernetLink = StateObject(wrappedValue: ethernetLink)
-        _eventLog = StateObject(wrappedValue: eventLog)
-        _traceroute = StateObject(wrappedValue: traceroute)
-        _snmp = StateObject(wrappedValue: snmp)
-        _saasMonitoring = StateObject(wrappedValue: saasMonitoring)
-        _ddns = StateObject(wrappedValue: ddns)
+        _networkMonitor = State(wrappedValue: networkMonitor)
+        _lanDiscovery = State(wrappedValue: lanDiscovery)
+        _connectivity = State(wrappedValue: connectivity)
+        _networkIdentity = State(wrappedValue: networkIdentity)
+        _publicIP = State(wrappedValue: publicIP)
+        _ispIdentity = State(wrappedValue: ispIdentity)
+        _dhcpLease = State(wrappedValue: dhcpLease)
+        _networkQuality = State(wrappedValue: networkQuality)
+        _wifiStressTest = State(wrappedValue: wifiStressTest)
+        _wifiSSID = State(wrappedValue: wifiSSID)
+        _ethernetLink = State(wrappedValue: ethernetLink)
+        _eventLog = State(wrappedValue: eventLog)
+        _traceroute = State(wrappedValue: traceroute)
+        _snmp = State(wrappedValue: snmp)
+        _saasMonitoring = State(wrappedValue: saasMonitoring)
+        _ddns = State(wrappedValue: ddns)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.

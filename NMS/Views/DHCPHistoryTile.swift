@@ -16,13 +16,13 @@ import SwiftUI
 ///
 /// Last of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — holds only the one `@ObservedObject` it actually
+/// fan-in entry) — holds only the one view model it actually
 /// reads. The Renew-confirmation alert's `@State` moved here too, same
 /// reasoning as `SNMPDevicesTile`'s community-editing state: purely
 /// local UI state with no reason to live on `ContentView` once this
 /// section is its own type.
 struct DHCPHistoryTile: View {
-    @ObservedObject var dhcpLease: DHCPLeaseViewModel
+    var dhcpLease: DHCPLeaseViewModel
 
     @State private var isShowingDHCPRenewConfirmation = false
 

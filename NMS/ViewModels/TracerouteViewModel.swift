@@ -1,25 +1,25 @@
 import Foundation
-import Combine
 
 @MainActor
-final class TracerouteViewModel: ObservableObject {
+@Observable
+final class TracerouteViewModel {
     /// Instrumented for the UI state log beyond the original staged five:
     /// diagnosing why the ISP Edge Router check vanished after an upstream
     /// outage required reading source to work out that `monitoredHop` had
     /// been cleared, because none of this was observable. It is now.
-    @Published private(set) var hops: [TracerouteHop] = [] {
+    private(set) var hops: [TracerouteHop] = [] {
         didSet { UIStateLogger.log("TracerouteViewModel.hops", hops) }
     }
-    @Published private(set) var isRunning = false
-    @Published private(set) var lastError: String? {
+    private(set) var isRunning = false
+    private(set) var lastError: String? {
         didSet { UIStateLogger.log("TracerouteViewModel.lastError", lastError as Any) }
     }
-    @Published private(set) var lastRunAt: Date?
+    private(set) var lastRunAt: Date?
     /// The hop number the user has confirmed as "the" router to monitor —
     /// persisted per network (`SnapshotStore.confirmedEdgeHopNumber`), not
     /// globally. `nil` until they confirm one *on this network*; see
     /// `reloadMonitoredHop`.
-    @Published private(set) var monitoredHopNumber: Int? {
+    private(set) var monitoredHopNumber: Int? {
         didSet { UIStateLogger.log("TracerouteViewModel.monitoredHopNumber", monitoredHopNumber as Any) }
     }
 
@@ -90,8 +90,14 @@ final class TracerouteViewModel: ObservableObject {
         run()
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading an
+    // `@Observable`-tracked stored property from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance is only
+    // ever created/held on the main actor (see `NMSApp`).
     deinit {
-        timer?.invalidate()
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
     }
 
     func run() {

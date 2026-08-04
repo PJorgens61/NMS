@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// Tracks the current DHCP lease (from `ipconfig getpacket`, a purely
 /// local read — see `DHCPLeaseService`) and its history over time, plus two
@@ -8,17 +7,18 @@ import Combine
 /// self-assigned (APIPA) address, and a renewal that's run past its
 /// expected T2 deadline without the transaction ID changing.
 @MainActor
-final class DHCPLeaseViewModel: ObservableObject {
+@Observable
+final class DHCPLeaseViewModel {
     /// Every real lease change, newest first — a genuine `@Model` array
     /// (like `NetworkIdentityViewModel.currentNetwork`) rather than a
     /// value-type projection, since the view just needs to list them.
     /// `history.first` doubles as "the current lease" — there's no
     /// separate "current" property, since the newest history row already
     /// is that.
-    @Published private(set) var history: [DHCPLeaseRecord] = [] {
+    private(set) var history: [DHCPLeaseRecord] = [] {
         didSet { UIStateLogger.log("DHCPLeaseViewModel.history", history.map(\.info)) }
     }
-    @Published private(set) var isFallenBackToLinkLocal = false
+    private(set) var isFallenBackToLinkLocal = false
     /// Same shape as `isFallenBackToLinkLocal` above — kept unconditionally
     /// current in `checkRenewalOverdue()`, `wasOverdue` below stays the
     /// separate, private edge-detector for the actual transition logging.
@@ -26,12 +26,12 @@ final class DHCPLeaseViewModel: ObservableObject {
     /// `PUNCHLIST.md`'s "Network Health and Info tiles" item) — this
     /// state already existed for `.dhcpRenewalOverdue`/`.dhcpRenewalRecovered`
     /// event logging, it just wasn't readable by the UI before now.
-    @Published private(set) var isRenewalOverdue = false
+    private(set) var isRenewalOverdue = false
     /// True while a user-triggered `renew()` is in flight — separate from
     /// `isChecking`, which fires on every routine poll and would otherwise
     /// make the Renew button flicker disabled during ordinary background
     /// activity that has nothing to do with the button being pressed.
-    @Published private(set) var isRenewing = false
+    private(set) var isRenewing = false
 
     /// One-time "this briefly disrupts the connection and may prompt for
     /// an administrator password" acknowledgment — same shape as
@@ -76,8 +76,14 @@ final class DHCPLeaseViewModel: ObservableObject {
         check()
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading an
+    // `@Observable`-tracked stored property from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance is only
+    // ever created/held on the main actor (see `NMSApp`).
     deinit {
-        timer?.invalidate()
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
     }
 
     /// Re-reads the stored history for whatever network is now current.

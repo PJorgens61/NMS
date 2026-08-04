@@ -1,13 +1,13 @@
 import Foundation
-import Combine
 
 @MainActor
-final class ConnectivityViewModel: ObservableObject {
-    @Published private(set) var checks: [ConnectivityCheck] = [] {
+@Observable
+final class ConnectivityViewModel {
+    private(set) var checks: [ConnectivityCheck] = [] {
         didSet { UIStateLogger.log("ConnectivityViewModel.checks", checks) }
     }
-    @Published private(set) var lastCheckedAt: Date?
-    @Published private(set) var isChecking = false
+    private(set) var lastCheckedAt: Date?
+    private(set) var isChecking = false
 
     private let service = ConnectivityService()
     private let dnsService = DNSResolutionService()
@@ -195,8 +195,14 @@ final class ConnectivityViewModel: ObservableObject {
         }
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading an
+    // `@Observable`-tracked stored property from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance is only
+    // ever created/held on the main actor (see `NMSApp`).
     deinit {
-        timer?.invalidate()
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
     }
 
     /// Replaces a fixed repeating timer — the interval before the *next*

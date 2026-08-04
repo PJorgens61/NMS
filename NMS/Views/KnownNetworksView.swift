@@ -8,7 +8,7 @@ import SwiftUI
 /// History from also having to make room for a list that's only relevant
 /// occasionally.
 struct KnownNetworksView: View {
-    @ObservedObject var networkIdentity: NetworkIdentityViewModel
+    var networkIdentity: NetworkIdentityViewModel
     let snapshotStore: SnapshotStore
 
     /// The network currently shown in the Review sheet — `nil` when

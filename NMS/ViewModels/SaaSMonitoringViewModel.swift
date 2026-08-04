@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// Periodically checks a small, fixed list of business SaaS services'
 /// status pages — see `SaaSStatusService` and DESIGN-NOTES.md's "Business
@@ -9,7 +8,8 @@ import Combine
 /// feed `OverallStatus`/the menu-bar color at all — see the plan this
 /// shipped from for why that's a deliberate scope cut, not an oversight.
 @MainActor
-final class SaaSMonitoringViewModel: ObservableObject {
+@Observable
+final class SaaSMonitoringViewModel {
     struct ServiceStatus: Identifiable {
         var id: String { name }
         let name: String
@@ -21,15 +21,15 @@ final class SaaSMonitoringViewModel: ObservableObject {
         let url: String
     }
 
-    @Published private(set) var statuses: [ServiceStatus] = [] {
+    private(set) var statuses: [ServiceStatus] = [] {
         didSet { UIStateLogger.log("SaaSMonitoringViewModel.statuses", statuses) }
     }
     /// The user's own added sites (Preferences), checked for plain
-    /// reachability — deliberately a separate published list from
-    /// `statuses` above, not merged in, so the UI can render them
-    /// visually distinct from the curated table. See
-    /// `checkUserAddedSites`'s doc comment for why.
-    @Published private(set) var userAddedStatuses: [ServiceStatus] = [] {
+    /// reachability — deliberately a separate list from `statuses`
+    /// above, not merged in, so the UI can render them visually distinct
+    /// from the curated table. See `checkUserAddedSites`'s doc comment
+    /// for why.
+    private(set) var userAddedStatuses: [ServiceStatus] = [] {
         didSet { UIStateLogger.log("SaaSMonitoringViewModel.userAddedStatuses", userAddedStatuses) }
     }
 
@@ -105,10 +105,18 @@ final class SaaSMonitoringViewModel: ObservableObject {
         observeFeatureFlagChanges()
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading
+    // `@Observable`-tracked stored properties from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance of this
+    // class is only ever created/held on the main actor (see `NMSApp`).
+    // `ObservableObject` didn't surface this same diagnostic;
+    // `@Observable`'s macro-generated accessors do.
     deinit {
-        timer?.invalidate()
-        if let featureFlagObserver {
-            NotificationCenter.default.removeObserver(featureFlagObserver)
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+            if let featureFlagObserver {
+                NotificationCenter.default.removeObserver(featureFlagObserver)
+            }
         }
     }
 

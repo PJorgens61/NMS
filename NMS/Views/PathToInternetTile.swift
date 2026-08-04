@@ -5,14 +5,14 @@ import SwiftUI
 ///
 /// Sixth of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — reads three `@ObservedObject`s: `traceroute` for the
+/// fan-in entry) — reads three view models: `traceroute` for the
 /// hop list itself, `viewModel` for the "is there even an interface"
 /// gate, `connectivity` only to trigger a fresh check when the monitored
 /// hop changes.
 struct PathToInternetTile: View {
-    @ObservedObject var traceroute: TracerouteViewModel
-    @ObservedObject var viewModel: NetworkMonitorViewModel
-    @ObservedObject var connectivity: ConnectivityViewModel
+    var traceroute: TracerouteViewModel
+    var viewModel: NetworkMonitorViewModel
+    var connectivity: ConnectivityViewModel
 
     var body: some View {
         tile(title: "Path to Internet", fixedHeight: ContentView.tileHeight, trailing: {

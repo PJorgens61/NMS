@@ -10,9 +10,9 @@ import SwiftUI
 /// app — its `Grid` reads top-to-bottom as most-dependent to most-
 /// fundamental. Last, and by far the largest, of the ten window tiles
 /// pulled out of `ContentView`'s single body into its own `View` type
-/// (see `PUNCHLIST.md`'s `ContentView` fan-in entry) — reads more
-/// `@ObservedObject`s than any other extracted tile (nine, versus
-/// `ContentView`'s original seventeen) simply because this tile
+/// (see `PUNCHLIST.md`'s `ContentView` fan-in entry) — reads more view
+/// models than any other extracted tile (nine, versus `ContentView`'s
+/// original seventeen) simply because this tile
 /// genuinely synthesizes signal from that much of the app's state; even
 /// so, a change to (say) `snmp` or `saasMonitoring` no longer
 /// re-evaluates this tile's body at all, which it would have as part of
@@ -20,16 +20,16 @@ import SwiftUI
 /// purely local UI state with no reason to live on `ContentView` once
 /// this section is its own type.
 struct NetworkTile: View {
-    @ObservedObject var viewModel: NetworkMonitorViewModel
-    @ObservedObject var connectivity: ConnectivityViewModel
-    @ObservedObject var wifiSSID: WiFiSSIDViewModel
-    @ObservedObject var networkIdentity: NetworkIdentityViewModel
-    @ObservedObject var publicIP: PublicIPViewModel
-    @ObservedObject var ispIdentity: ISPIdentityViewModel
-    @ObservedObject var traceroute: TracerouteViewModel
-    @ObservedObject var dhcpLease: DHCPLeaseViewModel
-    @ObservedObject var networkQuality: NetworkQualityViewModel
-    @ObservedObject var ddns: DDNSViewModel
+    var viewModel: NetworkMonitorViewModel
+    var connectivity: ConnectivityViewModel
+    var wifiSSID: WiFiSSIDViewModel
+    var networkIdentity: NetworkIdentityViewModel
+    var publicIP: PublicIPViewModel
+    var ispIdentity: ISPIdentityViewModel
+    var traceroute: TracerouteViewModel
+    var dhcpLease: DHCPLeaseViewModel
+    var networkQuality: NetworkQualityViewModel
+    var ddns: DDNSViewModel
 
     /// Keyed by `ConnectionLayer.id`. Populated by this tile's own
     /// `.task`; empty until then, which simply renders no sparklines

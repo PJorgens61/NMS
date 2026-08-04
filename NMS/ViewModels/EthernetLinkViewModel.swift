@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// Negotiated Ethernet link speed/duplex — see `EthernetLinkService`. No
 /// persisted history, no events, no periodic timer of its own: unlike
@@ -10,11 +9,12 @@ import Combine
 /// again. A timer polling for a value that's otherwise static would just
 /// re-read the same answer every interval.
 @MainActor
-final class EthernetLinkViewModel: ObservableObject {
-    @Published private(set) var currentSpeedMbps: Double? {
+@Observable
+final class EthernetLinkViewModel {
+    private(set) var currentSpeedMbps: Double? {
         didSet { UIStateLogger.log("EthernetLinkViewModel.currentSpeedMbps", currentSpeedMbps as Any) }
     }
-    @Published private(set) var currentDuplex: String?
+    private(set) var currentDuplex: String?
 
     private let service = EthernetLinkService()
 

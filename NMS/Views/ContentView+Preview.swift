@@ -7,7 +7,7 @@ import SwiftData
 /// layout iteration on Network Health, Info, or Events can happen live in
 /// Xcode's canvas instead of a full build→relaunch→screenshot round trip.
 ///
-/// `ContentView` takes fifteen `@ObservedObject` view models, each with
+/// `ContentView` takes sixteen `@Observable` view models, each with
 /// real side effects at `init` (a background timer, a subprocess, a
 /// network fetch) — building one straight from `NMSApp`'s own disk-backed
 /// store would mean a preview that reaches out to the real network and

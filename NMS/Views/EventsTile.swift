@@ -6,10 +6,10 @@ import SwiftUI
 ///
 /// Fourth of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — holds only the one `@ObservedObject` it actually
+/// fan-in entry) — holds only the one view model it actually
 /// reads.
 struct EventsTile: View {
-    @ObservedObject var eventLog: EventLogViewModel
+    var eventLog: EventLogViewModel
 
     var body: some View {
         tile(title: "Events", fixedHeight: SectionLayout.events.boxHeight) {

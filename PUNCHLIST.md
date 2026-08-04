@@ -2263,26 +2263,51 @@ from this list. This one remains, since it's an idea, not a defect):
   immediately instead — see `c425805` for the one genuinely fixable
   site and why the other was deliberately left alone.
 
-  1. **Observation migration: 18 view models still use
-     `ObservableObject`/`@Published`, zero `@Observable` in the
-     project.** `@Observable` gives per-property observation
-     tracking; today any `@Published` change on a view model
-     invalidates every view observing that object, not just the ones
-     reading the field that changed. The biggest single lever of the
-     three, but touches all of `NMS/ViewModels/` — a real migration,
-     not a mechanical rename (different property-wrapper semantics,
-     different `@MainActor`/`Equatable` requirements per
-     `swiftui-specialist`'s own `references/dataflow.md`).
+  1. **Observation migration — done (2026-08-04).** All 17 view
+     models in `NMS/ViewModels/` converted from `ObservableObject`/
+     `@Published` to `@Observable` (per-property observation tracking
+     instead of `ObservableObject`'s coarse `objectWillChange`
+     broadcast to every observer regardless of which field changed).
+     A real migration, not a mechanical rename, done in six verified
+     batches (pilot, then five batches of 2-5 view models each — see
+     commit history), each followed by a full build and
+     `test-quick.sh`: `EthernetLinkViewModel`, `EventLogViewModel`,
+     `ISPIdentityViewModel`, `DDNSViewModel`, `SaaSMonitoringViewModel`,
+     `WiFiStressTestViewModel`, `NetworkReviewViewModel`,
+     `LANDiscoveryViewModel`, `PublicIPViewModel`, `WiFiSSIDViewModel`,
+     `DHCPLeaseViewModel`, `NetworkIdentityViewModel`,
+     `TracerouteViewModel`, `SNMPViewModel`, `NetworkQualityViewModel`,
+     `NetworkMonitorViewModel`, `ConnectivityViewModel`. Every
+     `@StateObject`/`@ObservedObject` site (`NMSApp.swift` and every
+     `View` holding a view model) moved to `@State`/plain `var` in
+     lockstep with its class's conversion, never left mismatched
+     between builds.
+     
+     One real gotcha, not mentioned in `swiftui-specialist`'s own
+     `references/dataflow.md`: eight view models have a `deinit`
+     cleaning up a `Timer`/`NotificationCenter` observer token, and
+     reading an `@Observable`-tracked stored property from `deinit`
+     doesn't compile — `deinit` is nonisolated even on a `@MainActor`
+     class, and (unlike plain `ObservableObject`/`@Published`
+     properties) the macro's generated accessors surface that as a
+     real "main actor-isolated property can not be referenced from a
+     nonisolated context" error. Fixed by wrapping each such `deinit`
+     body in `MainActor.assumeIsolated { }` — safe since every
+     instance is only ever created/held on the main actor.
+     
+     Verified with a full build and `test-quick.sh` after each batch,
+     `test-max.sh` (NMSTests + NMSUITests + live scenarios) at the
+     end — all passed.
 
   2. **`ContentView` fan-in — done (2026-08-04).** All ten window
      tiles pulled out of `ContentView.swift`/`ContentView+Window.swift`
-     into their own `View` types, each holding only the
-     `@ObservedObject`(s) it actually reads instead of the original
-     17-property struct: `EthernetTile`, `WiFiTile`, `SaaSStatusTile`,
+     into their own `View` types, each holding only the view model(s)
+     it actually reads instead of the original 17-property struct:
+     `EthernetTile`, `WiFiTile`, `SaaSStatusTile`,
      `EventsTile`, `SNMPDevicesTile`, `DHCPHistoryTile`,
      `PathToInternetTile`, `SpeedTestTile`, `AppleNetworkQualityTile`,
      `LocalStressTestTile`, and `NetworkTile` (the merged Network
-     Health/Info tile — the largest, nine `@ObservedObject`s, since it
+     Health/Info tile — the largest, nine view models, since it
      genuinely synthesizes that much of the app's state). Shared
      plumbing (`tile()`/`row()`/`externalLinkIcon`/`.help(optional:)`)
      moved to `TileHelpers.swift`; the RPM color/tooltip logic shared
@@ -2293,11 +2318,12 @@ from this list. This one remains, since it's an idea, not a defect):
      lines. Verified with a full build, `test-quick.sh` after each
      tile, and `test-max.sh` (NMSTests + NMSUITests + live scenarios)
      at the end — all passed. `ContentView` itself still declares all
-     17 `@ObservedObject`s (it has to, to construct the view-model
-     graph and pass pieces down), but a change to any *one* of them no
-     longer re-evaluates tiles that don't read it — only `ContentView
-     .body` itself and whichever extracted tile(s) actually depend on
-     that view model do.
+     16 view models (it has to, to construct the view-model graph and
+     pass pieces down), but a change to any *one* of them no longer
+     re-evaluates tiles that don't read it — only `ContentView.body`
+     itself and whichever extracted tile(s) actually depend on that
+     view model do. Combined with #1 above (now also done), that
+     narrowing is now genuinely per-property, not just per-tile.
 
   3. **View structure/factoring: ~40 computed `some View` properties,
      only a handful of real `View` structs.** `swiftui-specialist`'s
@@ -2315,9 +2341,7 @@ from this list. This one remains, since it's an idea, not a defect):
      confirmed finding from the sweep.
 
   Suggested order from the skill: fan-in (#2, done) → Observation
-  migration (#1) → view structure (#3), since #2 was the most
-  self-contained of the three and #1/#3 compound each other's benefit
-  now that #2 has already separated the hierarchy into real types.
+  migration (#1, done) → view structure (#3, the one item left open).
 
 - [ ] **`ImageRenderer`-based preview capture (`NMSTests/PreviewCapture
   .swift`, `script/capture-preview.sh`, 2026-08-04) — the crash is a

@@ -9,11 +9,16 @@ import SwiftUI
 ///
 /// First of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — holds only the one `@ObservedObject` it actually
-/// reads, so a change to any of `ContentView`'s other sixteen view
-/// models no longer re-evaluates this tile's body at all.
+/// fan-in entry) — holds only the one view model it actually reads, so a
+/// change to any of `ContentView`'s other view models no longer
+/// re-evaluates this tile's body at all.
+///
+/// `ethernetLink` is a plain `var`, not `@ObservedObject` --
+/// `EthernetLinkViewModel` is `@Observable` now, which needs no property
+/// wrapper here (this tile only reads it, never creates or two-way-binds
+/// it) — see `PUNCHLIST.md`'s Observation migration entry.
 struct EthernetTile: View {
-    @ObservedObject var ethernetLink: EthernetLinkViewModel
+    var ethernetLink: EthernetLinkViewModel
 
     var body: some View {
         if let speed = ethernetLink.currentSpeedMbps {

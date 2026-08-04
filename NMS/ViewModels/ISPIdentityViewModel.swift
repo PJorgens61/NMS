@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// Identifies the ISP behind the current public IP and, when known, its
 /// status-page link — see `ISPIdentityService`. No timer of its own: a
@@ -15,11 +14,12 @@ import Combine
 /// which stay silent for the same reasons `SaaSStatusService`'s own
 /// `.unknown` catch branch does.
 @MainActor
-final class ISPIdentityViewModel: ObservableObject {
-    @Published private(set) var organizationName: String? {
+@Observable
+final class ISPIdentityViewModel {
+    private(set) var organizationName: String? {
         didSet { UIStateLogger.log("ISPIdentityViewModel.organizationName", organizationName as Any) }
     }
-    @Published private(set) var statusPageURL: String?
+    private(set) var statusPageURL: String?
 
     private let service = ISPIdentityService()
     private let snapshotStore: SnapshotStore

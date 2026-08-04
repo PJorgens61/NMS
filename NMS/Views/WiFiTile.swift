@@ -9,9 +9,9 @@ import SwiftUI
 /// Second of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
 /// fan-in entry, and `EthernetTile` for the first) — holds only the one
-/// `@ObservedObject` it actually reads.
+/// view model it actually reads.
 struct WiFiTile: View {
-    @ObservedObject var wifiSSID: WiFiSSIDViewModel
+    var wifiSSID: WiFiSSIDViewModel
 
     var body: some View {
         if wifiSSID.currentSSID != nil {

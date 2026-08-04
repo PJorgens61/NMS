@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 /// On-demand only — deliberately no timer, unlike every other view model
 /// in this app. `run()` is the sole entry point, triggered by a button
@@ -9,7 +8,8 @@ import Combine
 /// the user explicitly asking. See DESIGN-NOTES.md's "Network Quality"
 /// section.
 @MainActor
-final class NetworkQualityViewModel: ObservableObject {
+@Observable
+final class NetworkQualityViewModel {
     /// Which source is currently running, `nil` if neither is — replaces a
     /// plain `isRunning: Bool` now that Cloudflare throughput and Apple's
     /// `networkQuality` live in separate tiles (`PUNCHLIST.md`'s "Give
@@ -27,13 +27,13 @@ final class NetworkQualityViewModel: ObservableObject {
     /// flight, or how far it got, in `ui-state.log`/state dumps/bug
     /// reports — every other check in this app logs its running/error
     /// state this way already.
-    @Published private(set) var runningSource: NetworkQualityResult.Source? {
+    private(set) var runningSource: NetworkQualityResult.Source? {
         didSet { UIStateLogger.log("NetworkQualityViewModel.runningSource", runningSource?.rawValue as Any) }
     }
-    @Published private(set) var lastError: String? {
+    private(set) var lastError: String? {
         didSet { UIStateLogger.log("NetworkQualityViewModel.lastError", lastError as Any) }
     }
-    @Published private(set) var recentRuns: [NetworkQualityRecord] = [] {
+    private(set) var recentRuns: [NetworkQualityRecord] = [] {
         didSet { UIStateLogger.log("NetworkQualityViewModel.recentRuns", recentRuns) }
     }
 
@@ -46,7 +46,7 @@ final class NetworkQualityViewModel: ObservableObject {
     /// running it. Overwritten by each new run, `nil` again after a
     /// network change (`reloadHistory` doesn't touch this — it's tied to
     /// "the last thing this session actually ran," not per-network state).
-    @Published private(set) var latestAppleVerboseOutput: String?
+    private(set) var latestAppleVerboseOutput: String?
 
     /// Whether *either* source is running — the shared mutual-exclusion
     /// guard both `run()` and `runAppleTest(interfaceName:)` check, and
@@ -74,18 +74,18 @@ final class NetworkQualityViewModel: ObservableObject {
     /// own doc comment), just tracked separately since it isn't one of
     /// the two `NetworkQualityResult.Source` cases `runningSource`
     /// itself is typed over.
-    @Published private(set) var isRunningQuickCheck = false {
+    private(set) var isRunningQuickCheck = false {
         didSet { UIStateLogger.log("NetworkQualityViewModel.isRunningQuickCheck", isRunningQuickCheck) }
     }
-    @Published private(set) var quickCheckStatus: QuickCheckStatus?
-    @Published private(set) var quickCheckError: String?
+    private(set) var quickCheckStatus: QuickCheckStatus?
+    private(set) var quickCheckError: String?
     /// Newest first, `.quickCheck`-source rows only — backs the merged
     /// Network tile's dot-history row (see `PUNCHLIST.md`'s "Network
     /// Health and Info tiles" item). `quickCheckStatus` above stays the
     /// separate, ephemeral "what did the very last run say" value the
     /// row's trailing text already used before this existed; this is
     /// additive, not a replacement.
-    @Published private(set) var quickCheckHistory: [NetworkQualityRecord] = []
+    private(set) var quickCheckHistory: [NetworkQualityRecord] = []
 
     private let service = NetworkQualityService()
     private let appleService = AppleNetworkQualityService()

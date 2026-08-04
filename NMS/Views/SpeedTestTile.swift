@@ -12,10 +12,10 @@ import SwiftUI
 ///
 /// Seventh of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — holds only the one `@ObservedObject` it actually
+/// fan-in entry) — holds only the one view model it actually
 /// reads.
 struct SpeedTestTile: View {
-    @ObservedObject var networkQuality: NetworkQualityViewModel
+    var networkQuality: NetworkQualityViewModel
 
     var body: some View {
         tile(title: "Speed Test", fixedHeight: ContentView.tileHeight, trailing: {

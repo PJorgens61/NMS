@@ -12,7 +12,7 @@ import SwiftUI
 ///
 /// Fifth of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
-/// fan-in entry) — reads three `@ObservedObject`s (`snmp` for the device
+/// fan-in entry) — reads three view models (`snmp` for the device
 /// list itself, `viewModel`/`connectivity` only for
 /// `deviceReachability`'s router-label lookup), narrower than
 /// `ContentView`'s original seventeen but not down to one the way the
@@ -20,9 +20,9 @@ import SwiftUI
 /// moved here too — purely local UI state with no reason to live on
 /// `ContentView` once this section is its own type.
 struct SNMPDevicesTile: View {
-    @ObservedObject var snmp: SNMPViewModel
-    @ObservedObject var viewModel: NetworkMonitorViewModel
-    @ObservedObject var connectivity: ConnectivityViewModel
+    var snmp: SNMPViewModel
+    var viewModel: NetworkMonitorViewModel
+    var connectivity: ConnectivityViewModel
 
     @State private var communityDraft: String = ""
     @State private var isEditingCommunity = false

@@ -1,12 +1,12 @@
 import Foundation
-import Combine
 
 @MainActor
-final class NetworkMonitorViewModel: ObservableObject {
-    @Published private(set) var currentInterface: NetworkInterfaceInfo? {
+@Observable
+final class NetworkMonitorViewModel {
+    private(set) var currentInterface: NetworkInterfaceInfo? {
         didSet { UIStateLogger.log("NetworkMonitorViewModel.currentInterface", currentInterface as Any) }
     }
-    @Published private(set) var lastUpdated: Date?
+    private(set) var lastUpdated: Date?
     /// When the interface last *actually changed* — `nil` until the first
     /// real change, and untouched by a `refresh()`/observer callback that
     /// finds nothing different (unlike `lastUpdated`, which moves on every
@@ -20,7 +20,7 @@ final class NetworkMonitorViewModel: ObservableObject {
     /// 30-second grace period from `ui-state.log` needs to see this value
     /// directly, not infer it from `currentInterface` merely having
     /// changed.
-    @Published private(set) var lastChangeAt: Date? {
+    private(set) var lastChangeAt: Date? {
         didSet { UIStateLogger.log("NetworkMonitorViewModel.lastChangeAt", lastChangeAt as Any) }
     }
 

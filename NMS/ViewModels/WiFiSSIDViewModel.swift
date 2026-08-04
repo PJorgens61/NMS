@@ -1,26 +1,26 @@
 import Foundation
-import Combine
 
 @MainActor
-final class WiFiSSIDViewModel: ObservableObject {
-    @Published private(set) var currentSSID: String? {
+@Observable
+final class WiFiSSIDViewModel {
+    private(set) var currentSSID: String? {
         didSet { UIStateLogger.log("WiFiSSIDViewModel.currentSSID", currentSSID as Any) }
     }
     /// The associated access point's MAC address — shown so a VRRP-style
     /// AP pair sharing one SSID can be told apart at a glance, without
     /// cross-referencing the SNMP device list.
-    @Published private(set) var currentBSSID: String? {
+    private(set) var currentBSSID: String? {
         didSet { UIStateLogger.log("WiFiSSIDViewModel.currentBSSID", currentBSSID as Any) }
     }
-    @Published private(set) var currentRSSI: Int?
-    @Published private(set) var currentNoise: Int?
-    @Published private(set) var currentChannelNumber: Int?
-    @Published private(set) var currentChannelBand: String?
-    @Published private(set) var currentPHYRateMbps: Double?
-    @Published private(set) var currentSecurity: String?
+    private(set) var currentRSSI: Int?
+    private(set) var currentNoise: Int?
+    private(set) var currentChannelNumber: Int?
+    private(set) var currentChannelBand: String?
+    private(set) var currentPHYRateMbps: Double?
+    private(set) var currentSecurity: String?
     /// Newest-first, for `ContentView`'s Wi-Fi history — see
     /// `SnapshotStore.fetchWiFiSampleHistory`.
-    @Published private(set) var recentSamples: [WiFiSampleRecord] = []
+    private(set) var recentSamples: [WiFiSampleRecord] = []
 
     private let ssidService = WiFiSSIDService()
     private let authService = LocationAuthorizationService()
@@ -68,8 +68,14 @@ final class WiFiSSIDViewModel: ObservableObject {
         self.snapshotStore = snapshotStore
     }
 
+    // `deinit` is nonisolated even on a `@MainActor` class -- reading an
+    // `@Observable`-tracked stored property from it needs
+    // `MainActor.assumeIsolated`, safe here since every instance is only
+    // ever created/held on the main actor (see `NMSApp`).
     deinit {
-        timer?.invalidate()
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
     }
 
     /// Re-reads Wi-Fi state if `isWiFi`, requesting Core Location
