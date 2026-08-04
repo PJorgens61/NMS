@@ -3073,6 +3073,52 @@ from this list. This one remains, since it's an idea, not a defect):
      because the local case is easy. Let the local-comparison version
      prove itself useful before considering that jump at all.
 
+- [ ] **Three architectural findings from trying the `swiftui-specialist`
+  skill (2026-08-04), deliberately deferred — each is a real,
+  deliberate undertaking, not a same-night flag-flip.** Asked for a
+  scan-and-suggest-focus-areas pass rather than a full review, per the
+  skill's own large-codebase guidance. A fourth finding from the same
+  pass (index-as-identity in two `ForEach`s) was small enough to fix
+  immediately instead — see `c425805` for the one genuinely fixable
+  site and why the other was deliberately left alone.
+
+  1. **Observation migration: 18 view models still use
+     `ObservableObject`/`@Published`, zero `@Observable` in the
+     project.** `@Observable` gives per-property observation
+     tracking; today any `@Published` change on a view model
+     invalidates every view observing that object, not just the ones
+     reading the field that changed. The biggest single lever of the
+     three, but touches all of `NMS/ViewModels/` — a real migration,
+     not a mechanical rename (different property-wrapper semantics,
+     different `@MainActor`/`Equatable` requirements per
+     `swiftui-specialist`'s own `references/dataflow.md`).
+
+  2. **`ContentView` fan-in: 17 `@ObservedObject` properties on one
+     struct** (`ContentView.swift:4-19`, confirmed by direct count)
+     **whose `body` spans 2,637 lines across `ContentView.swift` +
+     `ContentView+Window.swift`** (confirmed: 1393 + 1244). Combined
+     with #1 above, a change to any one of the 17 view models
+     re-evaluates the entire hierarchy, not just the section that
+     actually depends on it.
+
+  3. **View structure/factoring: ~40 computed `some View` properties,
+     only a handful of real `View` structs.** `swiftui-specialist`'s
+     own `references/structure.md` is explicit that sections should
+     be separate `View` types, not computed properties, for
+     invalidation scoping — a computed property re-evaluates as part
+     of its parent, a separate `View` type can be skipped
+     independently by SwiftUI's diffing.
+
+  4. **Soft-deprecated API sweep** — flagged as "cheap, mechanical,
+     independent of the others," i.e. the one item here that doesn't
+     need to wait on the bigger three. Not yet run.
+
+  Suggested order from the skill, not yet acted on: fan-in (#2) →
+  Observation migration (#1) → view structure (#3), since #2 is the
+  most self-contained of the three and #1/#3 compound each other's
+  benefit once #2 has already separated the hierarchy into real
+  types.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
