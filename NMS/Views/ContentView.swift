@@ -69,17 +69,34 @@ struct ContentView: View {
                     // scroll indicator this once needed (a stand-in for
                     // `NoBounceScrollView`'s old `persistentScrollbar`)
                     // was removed again; the standard auto-hiding
-                    // indicator is back. The window's own `.frame(width:)`
-                    // grows by the same total amount so tile content
-                    // itself doesn't get any narrower.
+                    // indicator is back.
                     .padding(.horizontal, 32)
+                    // Caps tile content + its 32pt gutter at the window's
+                    // original 600pt width, then centers that block in
+                    // whatever's wider. Previously the *outer* VStack
+                    // (below) was pinned to a fixed 600 — widening the
+                    // window just added blank space outside the
+                    // `ScrollView` entirely, dead space that couldn't
+                    // catch wheel/trackpad input at all. Capping here
+                    // instead means the extra space stays inside the
+                    // `ScrollView`'s own content, i.e. the gutter itself
+                    // grows with the window rather than a separate margin
+                    // sitting outside it.
+                    .frame(maxWidth: 600)
+                    .frame(maxWidth: .infinity)
             }
             .frame(maxHeight: .infinity)
             Divider()
             footerBar
                 .padding(12)
+                // Same cap-then-center as scrollableContent above, so the
+                // footer buttons stay column-aligned with the tiles
+                // instead of stretching to the window's full flexible
+                // width while the tiles stay centered in a narrower one.
+                .frame(maxWidth: 600)
+                .frame(maxWidth: .infinity)
         }
-        .frame(width: 600)
+        .frame(minWidth: 600, maxWidth: .infinity)
         // Named rather than relying on `.global`'s less precisely
         // documented semantics — anchors every `reportFrameForFieldTest`
         // reading to this one known root, unambiguously. See
