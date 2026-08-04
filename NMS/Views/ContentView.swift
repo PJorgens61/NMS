@@ -120,7 +120,7 @@ struct ContentView: View {
         // documented semantics — anchors every `reportFrameForFieldTest`
         // reading to this one known root, unambiguously. See
         // `FieldTestFrameReporter`'s own doc comment for why this exists.
-        .coordinateSpace(name: "nmsWindow")
+        .coordinateSpace(.named("nmsWindow"))
     }
 
     @ViewBuilder
