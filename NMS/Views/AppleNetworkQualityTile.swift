@@ -26,6 +26,7 @@ struct AppleNetworkQualityTile: View {
             .accessibilityLabel(networkQuality.runningSource == .appleNetworkQuality ? "Testing" : "Run Apple networkQuality")
             .accessibilityHint("Runs Apple's own network quality test: throughput plus responsiveness under load. Uses your data plan and takes about 30 seconds.")
             .accessibilityIdentifier("appleNetworkQuality.run")
+            .help("Runs Apple's own network quality test: throughput plus responsiveness under load. Uses your data plan and takes about 30 seconds.")
         }) {
             // "~30s" alone understated this badly — confirmed live via
             // `networkQuality`'s own real byte counts (`dl_bytes_transferred`/
@@ -79,6 +80,7 @@ struct AppleNetworkQualityTile: View {
                 .foregroundStyle(Color.accentColor)
                 .accessibilityHint("Shows Apple's own full networkQuality verbose report for the most recent run")
                 .accessibilityIdentifier("appleNetworkQuality.viewFullReport")
+                .help("Shows Apple's own full networkQuality verbose report for the most recent run")
                 .sheet(isPresented: $isShowingAppleVerboseOutput) {
                     AppleNetworkQualityVerboseView(text: verboseOutput)
                 }

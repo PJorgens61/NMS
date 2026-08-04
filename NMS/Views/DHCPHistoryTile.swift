@@ -42,6 +42,7 @@ struct DHCPHistoryTile: View {
                 .accessibilityLabel(dhcpLease.isRenewing ? "Renewing" : "Renew DHCP Lease")
                 .accessibilityHint("Forces a fresh DHCP negotiation on this Mac's active interface. Briefly disrupts the connection and may prompt for an administrator password.")
                 .accessibilityIdentifier("dhcpHistory.renew")
+                .help("Forces a fresh DHCP negotiation on this Mac's active interface. Briefly disrupts the connection and may prompt for an administrator password.")
                 // Attached directly to the button, same established
                 // local-attachment pattern the Local Stress Test tile's
                 // own confirmation alert uses.

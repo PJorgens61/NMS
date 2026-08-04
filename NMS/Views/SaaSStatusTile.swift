@@ -41,17 +41,28 @@ struct SaaSStatusTile: View {
     /// — same visual shape (dot, name, description, link), so the only
     /// thing distinguishing "weaker signal" is the section label, not a
     /// second row style to keep in sync with the first.
+    @ViewBuilder
     private func statusRow(_ status: SaaSMonitoringViewModel.ServiceStatus) -> some View {
+        // `.maintenance`'s blue is real status meaning (planned, not an
+        // outage) that must survive with `tooltipHighlights` off — same
+        // reasoning as `PathToInternetTile`'s confirmed-hop blue. Only
+        // the underline is flag-gated; raised directly during the same
+        // app-wide blue sweep that found the confirmed-hop case.
+        let isMaintenance = status.indicator == .maintenance
+        let maintenanceHelp = "Scheduled maintenance — a planned window, not an unexpected outage."
         HStack {
             Circle()
                 .fill(indicatorColor(status.indicator))
                 .frame(width: 8, height: 8)
+                .help(optional: isMaintenance ? maintenanceHelp : nil)
             Text(status.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
             Text(status.description)
                 .foregroundStyle(status.indicator == .none ? Color.secondary : indicatorColor(status.indicator))
+                .underline(isMaintenance && FeatureFlags.tooltipHighlights)
+                .help(optional: isMaintenance ? maintenanceHelp : nil)
                 .lineLimit(1)
                 .truncationMode(.middle)
             // Always present — `status.url` is always a real link

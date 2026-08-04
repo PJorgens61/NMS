@@ -31,6 +31,10 @@ struct PreferencesView: View {
     // including a prior explicit opt-out.
     @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = true
     @AppStorage(FeatureFlags.autoBaselineNetworkQualityKey) private var autoBaselineNetworkQualityEnabled = false
+    // Default `true` — see `FeatureFlags.tooltipHighlights`'s own doc
+    // comment for why this one's also a deliberate on-by-default
+    // exception, same shape as `saasMonitoringEnabled` above.
+    @AppStorage(FeatureFlags.tooltipHighlightsKey) private var tooltipHighlightsEnabled = true
 
     var body: some View {
         // Content-driven height with no scroll container used to mean the
@@ -88,6 +92,13 @@ struct PreferencesView: View {
                 isOn: $autoBaselineNetworkQualityEnabled,
                 description: "Runs Network Health's ~5 second networkQuality check automatically when you reconnect to a network you've already seen before, so the status dot has a real color instead of staying gray until you press it yourself. This is a genuine responsiveness test under load, not a ping — it uses your data plan, same as pressing the button manually. Never runs on the very first time this Mac sees a network.",
                 identifier: "preferences.autoBaselineNetworkQuality"
+            )
+
+            feature(
+                "Tooltip Highlights",
+                isOn: $tooltipHighlightsEnabled,
+                description: "Colors any row's label blue and underlines it when hovering shows more detail — otherwise a tooltip gives no visual sign it's there at all. Turn off to compare against plain labels.",
+                identifier: "preferences.tooltipHighlights"
             )
 
             // Its own top-level section, not nested under a toggle like

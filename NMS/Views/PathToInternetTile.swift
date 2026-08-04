@@ -23,6 +23,7 @@ struct PathToInternetTile: View {
             .accessibilityLabel("Trace Now")
             .accessibilityHint("Runs a traceroute to find the path to the internet")
             .accessibilityIdentifier("pathToInternet.traceNow")
+            .help("Runs a traceroute to find the path to the internet")
         }) {
             currentPathStatus
             if viewModel.currentInterface != nil, !traceroute.hops.isEmpty {
@@ -65,6 +66,7 @@ struct PathToInternetTile: View {
             .accessibilityLabel("Stop monitoring hop \(monitored.hopNumber)")
             .accessibilityHint("Stops treating this hop as the ISP edge router")
             .accessibilityIdentifier("pathToInternet.stopMonitoringHop")
+            .help("Stops treating this hop as the ISP edge router")
         } else if let suggested = traceroute.suggestedEdgeHop {
             // A separate wrapped-text row here used to explain this, at a
             // real height cost: every *new* network starts unconfirmed, so
@@ -136,6 +138,22 @@ struct PathToInternetTile: View {
                     .frame(width: 16, alignment: .trailing)
                 Text(hopLabel(for: hop))
                     .foregroundStyle(hopColor(for: hop))
+                    // Blue here already meant "this is your confirmed
+                    // ISP edge router hop" before any tooltip existed —
+                    // real, independent selection-state, not just a
+                    // hover hint (unlike VRRP suspected's blue, which
+                    // had no other meaning). So only the underline is
+                    // gated by `FeatureFlags.tooltipHighlights`; the
+                    // color itself stays regardless, since it must
+                    // survive with the flag off. Raised directly ("the
+                    // selected path to internet is already BLUE... it
+                    // needs a tooltip also").
+                    .underline(traceroute.monitoredHopNumber == hop.hopNumber && FeatureFlags.tooltipHighlights)
+                    .help(optional:
+                        traceroute.monitoredHopNumber == hop.hopNumber
+                            ? "Confirmed as your ISP's edge router — pinged directly to track its health, separate from the rest of the path."
+                            : nil
+                    )
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
@@ -160,6 +178,11 @@ struct PathToInternetTile: View {
                         : "Monitor hop \(hop.hopNumber) as ISP edge router"
                 )
                 .accessibilityIdentifier("pathToInternet.monitorHop.\(hop.hopNumber)")
+                .help(
+                    traceroute.monitoredHopNumber == hop.hopNumber
+                        ? "Monitored ISP edge router, hop \(hop.hopNumber)"
+                        : "Monitor hop \(hop.hopNumber) as ISP edge router"
+                )
             }
             .font(.system(size: 11))
         }

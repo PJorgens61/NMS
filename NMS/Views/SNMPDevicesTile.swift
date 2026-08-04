@@ -43,6 +43,7 @@ struct SNMPDevicesTile: View {
                 .accessibilityLabel(snmp.isScanning ? "Scanning" : "Scan")
                 .accessibilityHint("Clears the SNMP device list and sweeps the subnet again")
                 .accessibilityIdentifier("snmpDevices.scan")
+                .help("Clears the SNMP device list and sweeps the subnet again")
             }
         ) {
             if !snmp.isAvailable {
@@ -128,9 +129,24 @@ struct SNMPDevicesTile: View {
                 // say), so this is a hint pointing at the addresses just
                 // shown above, not an assertion.
                 if !device.aliasAddresses.isEmpty {
+                    // Was plain, unconditional blue with no tooltip at
+                    // all — the only such case in the app, and a real
+                    // collision once blue started meaning "hover for
+                    // more" elsewhere (raised directly: "is this a BLUE
+                    // conflict?"). Resolved by giving this label the
+                    // tooltip it always should have had — the doc
+                    // comment above already had the real "why suspected,
+                    // not certain" explanation, just never surfaced in
+                    // the UI — rather than picking a different color.
+                    // After this, blue-and-underlined means "has a
+                    // tooltip" with no exceptions anywhere in the app.
+                    let vrrpHelp = "ARP evidence alone can't distinguish a VRRP virtual address from other shared-MAC shapes, like a router trunking several VLANs — a hint pointing at the addresses above, not a certainty."
+                    let highlight = FeatureFlags.tooltipHighlights
                     Text("VRRP suspected")
                         .font(.system(size: 10))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(highlight ? .blue : .secondary)
+                        .underline(highlight)
+                        .help(vrrpHelp)
                 }
                 // Split into up to two *fixed-height* lines rather than
                 // one auto-wrapping `Text` — deliberately, not the

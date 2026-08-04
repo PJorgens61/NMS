@@ -246,18 +246,21 @@ struct ContentView: View {
                 .accessibilityLabel("Refresh")
                 .accessibilityHint("Re-reads network state, public IP and Wi-Fi network")
                 .accessibilityIdentifier("footer.refresh")
+                .help("Re-reads network state, public IP and Wi-Fi network")
                 Button("Networks…") {
                     openWindowInFront("known-networks")
                 }
                 .accessibilityLabel("Known Networks")
                 .accessibilityHint("Opens a list of every network this Mac has connected to, with a way to forget one")
                 .accessibilityIdentifier("footer.networks")
+                .help("Opens a list of every network this Mac has connected to, with a way to forget one")
                 Button("Preferences…") {
                     openWindowInFront("preferences")
                 }
                 .accessibilityLabel("Preferences")
                 .accessibilityHint("Opens toggles for experimental features")
                 .accessibilityIdentifier("footer.preferences")
+                .help("Opens toggles for experimental features")
                 Spacer()
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
@@ -265,6 +268,7 @@ struct ContentView: View {
                 .accessibilityLabel("Quit")
                 .accessibilityHint("Quits NMS")
                 .accessibilityIdentifier("footer.quit")
+                .help("Quits NMS")
             }
 
             if buildInfo != nil || storeSizeText != nil {

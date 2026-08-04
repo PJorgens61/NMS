@@ -43,6 +43,7 @@ struct LocalStressTestTile: View {
                 .accessibilityLabel(wifiStressTest.isRunning ? "Testing" : "Run Local Stress Test")
                 .accessibilityHint("Fires many concurrent ping streams at the local router for about 1-2 seconds to check for packet loss under load. Generates real network traffic.")
                 .accessibilityIdentifier("wifiStressTest.run")
+                .help("Fires many concurrent ping streams at the local router for about 1-2 seconds to check for packet loss under load. Generates real network traffic.")
                 // Attached directly to the button, not hoisted to
                 // `body` — same established local-attachment pattern
                 // `.sheet(isPresented: $isShowingAppleVerboseOutput)`

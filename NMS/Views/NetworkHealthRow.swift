@@ -28,11 +28,17 @@ func statusGridRow<Icon: View, Chart: View>(
     @ViewBuilder icon: () -> Icon,
     @ViewBuilder chart: () -> Chart
 ) -> some View {
+    let highlight = dotHelp != nil && FeatureFlags.tooltipHighlights
     GridRow {
         Circle()
             .fill(color)
             .frame(width: 8, height: 8)
             .help(optional: dotHelp)
+        // Plain — the highlight moved to the detail/result text below
+        // instead (raised directly: "blue highlight for the result not
+        // 'networkQuality'"). The result is what the tooltip actually
+        // explains (an RPM number's good/fair/poor meaning), so it's the
+        // more natural hover target than this row's fixed name.
         Text(label)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -59,7 +65,9 @@ func statusGridRow<Icon: View, Chart: View>(
         // via user screenshot: looked fine in the narrower popover,
         // misaligned only in the window.
         Text(detail)
-            .foregroundStyle(detailColor)
+            .foregroundStyle(highlight ? .blue : detailColor)
+            .underline(highlight)
+            .help(optional: dotHelp)
             .lineLimit(1)
             .truncationMode(.middle)
             .frame(minWidth: 85, maxWidth: .infinity, alignment: .trailing)

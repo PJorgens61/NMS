@@ -36,6 +36,7 @@ struct SpeedTestTile: View {
             .accessibilityLabel(networkQuality.runningSource == .cloudflareEndpoint ? "Testing" : "Run Speed Test")
             .accessibilityHint("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
             .accessibilityIdentifier("speedTest.runCloudflare")
+            .help("Measures download and upload throughput using Cloudflare's public speed-test endpoint. Uses your data plan, up to roughly 50MB total, less on a slow connection.")
         }) {
             Text("up to ~50MB per run")
                 .font(.system(size: 10))

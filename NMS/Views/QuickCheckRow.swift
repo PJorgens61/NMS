@@ -103,10 +103,12 @@ struct QuickCheckRow: View {
     private var detailText: String {
         if networkQuality.isRunningQuickCheck { return "Checking…" }
         if let error = networkQuality.quickCheckError { return error }
-        // Shorter than "\(status.label) — \(status.rpm) RPM" (tried
-        // first) — that version truncated in the middle of the RPM
-        // number once the label above was long enough to squeeze it.
-        if let status = networkQuality.quickCheckStatus { return "\(status.label) (\(status.rpm))" }
+        // "Fair - 1321", not "Fair (1321)" — raised directly. Shorter
+        // than "\(status.label) — \(status.rpm) RPM" (tried first, and
+        // rejected for the same truncation reason this comment already
+        // recorded) but keeps the plain-dash separator that request
+        // asked for instead of parens.
+        if let status = networkQuality.quickCheckStatus { return "\(status.label) - \(status.rpm)" }
         return "Tap to check"
     }
 }

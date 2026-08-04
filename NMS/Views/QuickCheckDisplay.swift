@@ -27,9 +27,19 @@ enum QuickCheckDisplay {
     /// Apple's own tool is characterized in independent write-ups (not
     /// invented here) — see `DESIGN-NOTES.md`'s "Network Quality" section
     /// for the man-page-level description this supplements.
+    /// Reframed to lead with "risk, not current state" — raised directly:
+    /// this number predicts whether the connection would hold up under a
+    /// worst-case concurrent-load scenario (a call while something else
+    /// streams or uploads), not a live health reading the way the
+    /// Router/DNS/Internet rows are. A poor score right now doesn't mean
+    /// anything is broken at this moment — it means the *next* time this
+    /// connection gets loaded hard, it probably won't stay usable.
     static let rpmThresholdHelp = """
         RPM (round trips per minute) measures responsiveness under load — \
-        higher is better. Roughly: above 2000 is excellent, under 800 \
-        suggests bufferbloat.
+        higher is better. This predicts risk, not current state: a low \
+        score means this connection would likely stall a call or game \
+        under simultaneous heavy use, not that anything's wrong right \
+        now. Roughly: above 2000 is low-risk, under 800 suggests real \
+        bufferbloat risk.
         """
 }

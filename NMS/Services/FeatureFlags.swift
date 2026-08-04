@@ -38,6 +38,7 @@ enum FeatureFlags {
     static let ddnsHostnamesKey = "FeatureDDNSHostnames"
     static let ddnsCheckIntervalKey = "FeatureDDNSCheckInterval"
     static let autoBaselineNetworkQualityKey = "FeatureAutoBaselineNetworkQuality"
+    static let tooltipHighlightsKey = "FeatureTooltipHighlights"
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by
@@ -79,6 +80,22 @@ enum FeatureFlags {
     static var saasMonitoring: Bool {
         guard defaults.object(forKey: saasMonitoringKey) != nil else { return true }
         return defaults.bool(forKey: saasMonitoringKey)
+    }
+
+    /// Blue-and-underlined labels on rows that carry a `.help()` tooltip
+    /// (`row(_:_:help:)`, `statusGridRow`'s `dotHelp`) — raised directly
+    /// ("I can never find them in NMS"), then made toggleable on request
+    /// ("can this be a build parameter so we can experiment later")
+    /// rather than a fixed, unconditional style change, so the treatment
+    /// itself can be A/B'd against plain `.secondary` labels without a
+    /// rebuild. **A second deliberate on-by-default exception**, same
+    /// shape as `saasMonitoring` above and for a similar reason: this
+    /// isn't a probing/privacy concern like `snmpDevices`, it's a pure
+    /// display treatment that directly fixes a real usability complaint,
+    /// so there's no reason to ship it hidden.
+    static var tooltipHighlights: Bool {
+        guard defaults.object(forKey: tooltipHighlightsKey) != nil else { return true }
+        return defaults.bool(forKey: tooltipHighlightsKey)
     }
 
     /// Which of `SaaSStatusService.monitoredServices` are actually

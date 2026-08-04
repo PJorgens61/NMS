@@ -38,9 +38,11 @@ struct SaaSServicePickerSection: View {
                 Button("Select All") { setAll(enabled: true) }
                     .font(.system(size: 11))
                     .accessibilityIdentifier("preferences.saas.selectAll")
+                    .help("Enables every listed SaaS service")
                 Button("Clear All") { setAll(enabled: false) }
                     .font(.system(size: 11))
                     .accessibilityIdentifier("preferences.saas.clearAll")
+                    .help("Disables every listed SaaS service")
             }
             LazyVGrid(
                 columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],

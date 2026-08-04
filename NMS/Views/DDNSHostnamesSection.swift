@@ -37,6 +37,7 @@ struct DDNSHostnamesSection: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Remove \(entry.hostname)")
                     .accessibilityIdentifier("preferences.ddns.hostname.remove.\(entry.id)")
+                    .help("Remove \(entry.hostname)")
                 }
                 .font(.system(size: 11))
             }
@@ -48,6 +49,7 @@ struct DDNSHostnamesSection: View {
                 Button("Add") { add() }
                     .disabled(!isNewHostnameValid)
                     .accessibilityIdentifier("preferences.ddns.hostname.add")
+                    .help("Adds this hostname to the DDNS staleness check")
             }
             .font(.system(size: 11))
 

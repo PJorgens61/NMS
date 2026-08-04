@@ -45,6 +45,7 @@ struct UserAddedSitesSection: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Remove \(site.nickname)")
                     .accessibilityIdentifier("preferences.saas.userSite.remove.\(site.id)")
+                    .help("Remove \(site.nickname)")
                 }
                 .font(.system(size: 11))
             }
@@ -59,6 +60,7 @@ struct UserAddedSitesSection: View {
                 Button("Add") { add() }
                     .disabled(!isNewSiteValid)
                     .accessibilityIdentifier("preferences.saas.userSite.add")
+                    .help("Adds this site to your own reachability checks")
             }
             .font(.system(size: 11))
         }

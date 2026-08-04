@@ -2464,6 +2464,42 @@ from this list. This one remains, since it's an idea, not a defect):
   rendering a real tile with real data needs one of the two above
   first.
 
+- [ ] **Tooltips are undiscoverable app-wide — raised directly ("I can
+  never find them in NMS").** Every existing tooltip (`dotHelp` on
+  every `statusGridRow` line, `QuickCheckDisplay.rpmThresholdHelp`, now
+  `WiFiTile`'s new `phyRateHelp`) is a plain `.help(_:)` hover — no
+  visual cue that a label has more info at all, so finding one means
+  blind guess-and-hover across the whole app. Surfaced while adding the
+  PHY Rate tooltip (below) — that one has the identical problem the
+  moment it ships.
+
+  **Recommended fix, not yet built: a small "ⓘ" info glyph next to any
+  label that has a tooltip**, so it's visibly discoverable instead of
+  invisible-until-hovered. Keep the trigger itself native `.help()`
+  hover — macOS doesn't expose a supported way to shorten that delay,
+  and reaching for an undocumented/private-API hack for it isn't worth
+  it. This is a real pass across every existing tooltip site (the
+  status-dot `dotHelp`s, RPM help, PHY Rate help), not a one-line
+  tweak — deferred as its own item rather than folded into the PHY
+  Rate change that surfaced it.
+
+- [x] ~~PHY Rate reads as a speed guarantee with nothing explaining the
+  gap between it and what NMS actually measures.~~ **Built.**
+  `WiFiTile`'s PHY Rate row now carries a tooltip
+  (`WiFiTile.phyRateHelp`, via a new optional `help:` parameter on the
+  shared `row(_:_:)` helper) explaining it's a negotiated ceiling, not
+  a throughput guarantee, and that the gap is mostly protocol overhead
+  and — especially in a crowded area — contention with neighboring
+  networks, not something even a good access point controls. Prompted
+  by a real live comparison this session: Apple's own `networkQuality
+  -v`, run directly against this Mac's real Wi-Fi connection, showed
+  excellent idle latency (4555 RPM) but loaded responsiveness of only
+  315 RPM ("Medium" per Apple's own classification) — below this app's
+  own "poor" threshold (800), confirming real bufferbloat under load
+  that a fast PHY Rate/idle-latency number gives no hint of. Inherits
+  the same discoverability problem as every other tooltip in the app —
+  see the item directly above.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they

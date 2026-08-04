@@ -20,6 +20,7 @@ struct AppleNetworkQualityVerboseView: View {
                 Spacer()
                 Button("Done") { dismiss() }
                     .accessibilityIdentifier("appleNetworkQuality.verboseReport.done")
+                    .help("Closes the full report")
             }
 
             ScrollView {

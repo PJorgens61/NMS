@@ -28,6 +28,7 @@ struct CommunityRow: View {
                     Button("Set") { commit() }
                         .accessibilityLabel("Set community strings")
                         .accessibilityIdentifier("snmpDevices.setCommunity")
+                        .help("Saves these community strings and closes the editor")
                         .font(.system(size: 11))
                 }
                 Text("Comma-separated, tried in order — put the most common first.")
@@ -52,6 +53,7 @@ struct CommunityRow: View {
                 .accessibilityLabel("Change community strings")
                 .accessibilityHint("Edits the SNMP community strings used for discovery")
                 .accessibilityIdentifier("snmpDevices.changeCommunity")
+                .help("Edits the SNMP community strings used for discovery")
             }
         }
     }

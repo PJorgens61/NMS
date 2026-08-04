@@ -120,6 +120,7 @@ struct KnownNetworksView: View {
             .accessibilityLabel("Review \(network.label ?? network.routerMAC)")
             .accessibilityHint("Opens a read-only view of this network's recorded events, SNMP devices, DHCP history, and Wi-Fi telemetry")
             .accessibilityIdentifier("knownNetworks.review.\(network.fingerprint)")
+            .help("Opens a read-only view of this network's recorded events, SNMP devices, DHCP history, and Wi-Fi telemetry")
             Button(role: .destructive) {
                 networkIdentity.deleteNetwork(network)
             } label: {
@@ -129,6 +130,7 @@ struct KnownNetworksView: View {
             .accessibilityLabel("Forget \(network.label ?? network.routerMAC)")
             .accessibilityHint("Deletes this network and every event, DHCP lease, SNMP device, and Wi-Fi reading recorded on it")
             .accessibilityIdentifier("knownNetworks.delete.\(network.fingerprint)")
+            .help("Deletes this network and every event, DHCP lease, SNMP device, and Wi-Fi reading recorded on it")
         }
         .padding(.vertical, 2)
     }

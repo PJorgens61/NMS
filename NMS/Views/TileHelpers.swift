@@ -119,10 +119,28 @@ extension View {
 
     /// One label/value line inside a tile — a secondary-styled label on
     /// the left, a selectable, middle-truncated value on the right.
-    func row(_ label: String, _ value: String) -> some View {
+    /// `help` is optional reference detail for a value that isn't
+    /// self-explanatory (see `WiFiTile`'s PHY Rate row) — hover-only,
+    /// same "tooltip, not a permanent caption" posture
+    /// `QuickCheckDisplay.rpmThresholdHelp` already established. The
+    /// label turns blue-and-underlined when `help` is set — raised
+    /// directly ("I can never find them in NMS"), a plain `.help()`
+    /// hover gives no visual cue a label has more info at all. Blue
+    /// specifically because nothing else in this app's own color
+    /// vocabulary uses it (status is green/yellow/red; `externalLinkIcon`
+    /// is deliberately `.secondary`, not blue) — checked directly before
+    /// picking it, not assumed free. Underline added on top, also raised
+    /// directly: the classic web-link convention, already muscle memory
+    /// for "this has more behind it" well beyond this one app. Gated by
+    /// `FeatureFlags.tooltipHighlights` (on by default) rather than
+    /// unconditional — see that flag's own doc comment.
+    @ViewBuilder
+    func row(_ label: String, _ value: String, help: String? = nil) -> some View {
+        let highlight = help != nil && FeatureFlags.tooltipHighlights
         HStack {
             Text(label)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(highlight ? .blue : .secondary)
+                .underline(highlight)
             Spacer()
             Text(value)
                 .textSelection(.enabled)
@@ -130,6 +148,7 @@ extension View {
                 .truncationMode(.middle)
         }
         .font(.system(size: 12))
+        .help(optional: help)
     }
 
     /// Small "open in browser" icon button — first used by the SaaS

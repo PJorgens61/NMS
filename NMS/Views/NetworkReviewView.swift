@@ -30,6 +30,7 @@ struct NetworkReviewView: View {
                 Spacer()
                 Button("Close") { dismiss() }
                     .accessibilityIdentifier("networkReview.close")
+                    .help("Closes this review")
             }
         }
         .padding(16)
