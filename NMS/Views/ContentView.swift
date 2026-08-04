@@ -1080,8 +1080,13 @@ struct ContentView: View {
     /// chronological arrays by the time they reach `Sparkline`).
     @ViewBuilder
     private var quickCheckHistoryDots: some View {
-        let rpms = networkQuality.quickCheckHistory.reversed().compactMap(\.combinedResponsivenessRPM)
-        if rpms.isEmpty {
+        // Filters, doesn't compactMap to just the RPM values -- keeps each
+        // `NetworkQualityRecord` around so ForEach below can use its own
+        // real (SwiftData-provided) identity instead of array offset. Same
+        // pattern already relied on for `dhcpLease.history`/`snmp.devices`
+        // elsewhere in this file.
+        let records = networkQuality.quickCheckHistory.reversed().filter { $0.combinedResponsivenessRPM != nil }
+        if records.isEmpty {
             // Same "always emit every cell" rule the rest of this Grid
             // follows — see the `Color.clear` comment on the layer rows'
             // own sparkline column for why an empty cell still needs a
@@ -1089,9 +1094,9 @@ struct ContentView: View {
             Color.clear.frame(width: 0, height: 0)
         } else {
             HStack(spacing: 2) {
-                ForEach(Array(rpms.enumerated()), id: \.offset) { _, rpm in
+                ForEach(records) { record in
                     Circle()
-                        .fill(Self.statusColor(forRPM: rpm))
+                        .fill(Self.statusColor(forRPM: record.combinedResponsivenessRPM ?? 0))
                         .frame(width: 5, height: 5)
                 }
             }
