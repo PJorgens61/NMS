@@ -12,6 +12,12 @@ xcuserdata/
 .claude/*
 !.claude/skills/
 
+# The `skills` npx CLI's own reproducibility manifest for whatever it
+# last installed on this machine -- tooling metadata, not the skill
+# content itself (that's .claude/skills/, tracked above). Regenerable
+# from a fresh `npx skills add`, not needed by a clone.
+skills-lock.json
+
 # A snapshot of a real, populated SwiftData store, used as a test fixture
 # by script/save-fixture.sh / script/scenarios.sh-style scripts so tests
 # needing pre-existing history (known networks, SNMP devices, DHCP
