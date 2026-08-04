@@ -240,6 +240,30 @@ checked off as of that date, full reasoning intact.
   above) is the best answer available, itself inconclusive rather than
   negative.
 
+  **Refinement, same day:** run the software probe on a free always-on
+  cloud host instead of the Mac — "could be any free cloud host," not
+  AWS specifically. Real advantage: credits accrue proportional to
+  *connected* time, and a personal Mac that sleeps or changes networks
+  has gaps that directly interrupt accrual, unlike a cloud VM. RIPE's
+  probe needs almost nothing (1 CPU core, 20MB RAM, 100MB disk, Docker)
+  — any free-tier VM from any provider (AWS, GCP, Oracle Cloud's
+  permanently-free tier, Azure, etc.) comfortably covers it, and native
+  Linux Docker on a real Linux host is simpler than Docker Desktop's
+  virtualization layer on macOS. Does **not** fix the actual bottleneck
+  though: RIPE's once-daily credit batching and manual probe-
+  registration processing are RIPE-side, unaffected by where the probe
+  runs. Also worth remembering if this gets built: the cloud-hosted
+  probe becomes a vantage point in that provider's own datacenter
+  network, not "near home" — it's purely a credit-generating asset, not
+  itself useful for the home-network reverse-trace question. AWS
+  specifically checked live (2026-08-04): free-tier terms depend on
+  account age (AWS changed the program July 2025) — legacy accounts get
+  750 hrs/month of a t2/t3.micro free for 12 months from account
+  creation (enough for 24/7); newer accounts get a $100-200 credit pool
+  instead, valid 6 months. Whichever provider gets picked, check that
+  account's actual current free-tier terms before assuming, not this
+  note.
+
 - [ ] **Field-test session notes — Martha's Coffee, Church St, 2026-08-04.**
   Raised live, mid-session, to act on later rather than interrupt testing.
 
