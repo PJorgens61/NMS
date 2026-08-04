@@ -240,6 +240,29 @@ checked off as of that date, full reasoning intact.
   above) is the best answer available, itself inconclusive rather than
   negative.
 
+  **Update, later the same day, once home**: retried HE's looking glass
+  against the home (Sonic.net) network — this time it worked, run
+  manually in Safari rather than via browser automation (which kept
+  losing form state this session; the manual route was simply more
+  reliable). Reached the actual destination end-to-end this time,
+  unlike the inconclusive Comcast attempt. Full trace, hop-by-hop
+  reading, a real unresolved public-IP discrepancy (Terminal's `curl`
+  and Safari's HE session reported two different, both RDAP-confirmed,
+  Sonic addresses), and a genuine latency anomaly at one hop (likely a
+  traceroute artifact, not confirmed either way) are all in
+  `script/diagnostic-exports/reverse-traceroute-home-20260804.md`.
+
+  **Idea from the same result**: run the same reverse-trace from
+  *several* different vantage points toward the same target. The last
+  few hops before the destination should converge regardless of
+  starting point — every path funnels through the same last-mile
+  infrastructure (same BNG, same regional core router) to reach one
+  specific home connection, so convergence (or the lack of it) is real
+  topology information near the router, not noise. This is the
+  informal version of the alias-resolution technique already named
+  above (Ally, MIDAR, kapar; CAIDA's Ark project) — arrived at
+  independently here. Not yet tried with a second vantage point.
+
   **Refinement, same day:** run the software probe on a free always-on
   cloud host instead of the Mac — "could be any free cloud host," not
   AWS specifically. Real advantage: credits accrue proportional to
