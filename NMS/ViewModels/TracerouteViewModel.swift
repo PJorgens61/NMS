@@ -251,16 +251,34 @@ final class TracerouteViewModel {
         return count
     }
 
-    /// Whether any hop's address falls in the CGNAT-reserved range
-    /// specifically (100.64.0.0/10), as opposed to merely being RFC 1918
-    /// private — evidence strong enough to name the cause directly
-    /// ("carrier-grade NAT") rather than the hedged general wording,
-    /// since nothing but an ISP's own infrastructure legitimately uses
-    /// that range. Martha's trace didn't hit this (Comcast used plain
-    /// 10.0.0.0/8 there), so the hedged wording is what most real traces
-    /// will actually produce.
+    /// Whether any *leading* hop's address falls in the CGNAT-reserved
+    /// range specifically (100.64.0.0/10), as opposed to merely being
+    /// RFC 1918 private — evidence strong enough to name the cause
+    /// directly ("carrier-grade NAT") rather than the hedged general
+    /// wording, since nothing but an ISP's own infrastructure
+    /// legitimately uses that range. Martha's trace didn't hit this
+    /// (Comcast used plain 10.0.0.0/8 there), so the hedged wording is
+    /// what most real traces will actually produce.
+    ///
+    /// Scoped to the same leading prefix `leadingNonInternetHopCount`
+    /// already uses, not the whole trace — a real correctness bug fixed
+    /// after direct discussion (2026-08-04): an ISP can legitimately
+    /// number its own backbone router-to-router links out of
+    /// 100.64.0.0/10 too (the address doesn't need to be public for the
+    /// customer traffic it carries, which is routed via BGP-learned
+    /// public prefixes — the same reasoning RFC 6598 itself gives for
+    /// reserving this range, to avoid colliding with a subscriber's own
+    /// already-common RFC 1918 usage). A hop like that can appear well
+    /// past the first public hop, with zero bearing on whether *this*
+    /// connection is behind CGNAT — before this fix, one unrelated
+    /// backbone hop deep in an otherwise-clean trace would have wrongly
+    /// upgraded the event wording to "confirmed" CGNAT and wrongly set
+    /// `DDNSViewModel.checkAll()`'s `isCGNAT` flag, both of which only
+    /// make sense for CGNAT actually sitting on *this* Mac's own path.
     nonisolated static func includesConfirmedCGNAT(_ hops: [TracerouteHop]) -> Bool {
-        hops.contains { $0.address.map(IPClassifier.isCGNAT) == true }
+        let sorted = hops.sorted(by: { $0.hopNumber < $1.hopNumber })
+        let leadingCount = leadingNonInternetHopCount(hops)
+        return sorted.prefix(leadingCount).contains { $0.address.map(IPClassifier.isCGNAT) == true }
     }
 
     /// Logs `.multipleNATLayersDetected` only on a genuine change in

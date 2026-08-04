@@ -12,6 +12,39 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: a private-address traceroute hop appearing mid-path (not
+  leading) could be an ISP's own privately-numbered backbone link, not
+  NAT/CGNAT — the app doesn't currently explain this possibility
+  anywhere.** Raised live (2026-08-04): "in theory, an isp could use
+  rfc1918 private ips for their backbone router interfaces. eBGP would
+  carry the public customer IPs. The router interface ips are not part
+  of the 'service' so it doesn't break the internet... might lead to
+  some odd traceroute results." Real, known backbone-design practice
+  (sometimes called "unnumbered"/privately-addressed transit links), not
+  purely hypothetical — a link's own transport address doesn't need to
+  be public for the customer traffic it carries (routed via BGP-learned
+  public prefixes) to work. Not confirmed against any specific ISP or
+  observed live in any trace so far, per the user's own framing ("i
+  don't know if any isp does this").
+  Why this matters here specifically: it's a **third, distinct** cause
+  of a private-looking hop, different from the two
+  `TracerouteViewModel.leadingNonInternetHopCount`'s own doc comment
+  already names ("the customer's own second router" or "the ISP's own
+  carrier-grade NAT"). It wouldn't even trip that detector — it only
+  counts *leading* private hops before the first public one, and an
+  unnumbered backbone link would typically appear *after* the first
+  public hop instead. But a private RFC1918 address showing up
+  mid-path in Path to Internet's raw hop list could still read as
+  alarming (looks like a mid-route NAT detour) to someone who doesn't
+  know this is normal, benign ISP-internal numbering with zero bearing
+  on their own connection.
+  Not built — worth considering whether Path to Internet's hop-list
+  UI/tooltips should explain this specific pattern (leading private hop
+  = NAT signal, worth investigating; mid-path private hop after the
+  first public one = probably just internal ISP numbering, not a
+  concern) rather than coloring/treating every private hop the same way
+  regardless of position.
+
 - [ ] **Add tooltips to Known Networks and Preferences windows.** Raised
   live (2026-08-04). The app-wide tooltip-discoverability push earlier
   this session covered the main popover/window's tiles and buttons, but

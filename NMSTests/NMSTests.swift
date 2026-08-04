@@ -1027,6 +1027,25 @@ struct NATLayerDetectionTests {
         #expect(TracerouteViewModel.includesConfirmedCGNAT(hops))
     }
 
+    @Test("a CGNAT-range address well past the first public hop is NOT confirmed CGNAT -- an ISP's own backbone link, not this connection's")
+    func cgnatRangeHopAfterFirstPublicHopDoesNotCount() {
+        // Regression pin (2026-08-04): an ISP can legitimately number its
+        // own router-to-router backbone links out of 100.64.0.0/10 too --
+        // that has zero bearing on whether *this* connection is behind
+        // CGNAT. Only hop 2 here is "this connection's" leading prefix
+        // (a normal single-NAT home router); hop 4's CGNAT-range address
+        // is deep in the ISP's own network, unrelated.
+        let hops = [
+            hop(1, "192.168.1.1"),
+            hop(2, "75.101.33.52"),
+            hop(3, "96.216.8.109"),
+            hop(4, "100.64.5.1"),
+            hop(5, "8.8.8.8")
+        ]
+        #expect(TracerouteViewModel.leadingNonInternetHopCount(hops) == 1)
+        #expect(!TracerouteViewModel.includesConfirmedCGNAT(hops))
+    }
+
     /// The accepted limitation, pinned: a non-responding hop stops the
     /// count rather than being skipped over, so a real double-NAT path
     /// can undercount if the *first* hop happens to time out. Documented
