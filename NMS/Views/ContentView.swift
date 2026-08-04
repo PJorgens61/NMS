@@ -29,6 +29,17 @@ struct ContentView: View {
     /// genuinely changes during a run, so it's read fresh from
     /// `storeSizeText` on every render rather than cached here.
     let storeURL: URL
+    /// Unconditional (unlike `diagnosticServer` below) -- `SnapshotStore`
+    /// itself isn't debug-only, only `LocalDiagnosticServer` is. Keeping
+    /// this a plain, always-present property avoids the awkward
+    /// conditional-trailing-argument problem a `#if DEBUG`-wrapped init
+    /// parameter runs into (confirmed directly: it doesn't parse cleanly
+    /// either way the comma is placed). Needed here rather than routed
+    /// through an existing view model since `LocalDiagnosticServer`
+    /// wants several `fetch*History` calls made fresh per page load, not
+    /// whatever limit/shape any one view model's own in-memory array
+    /// already happens to have.
+    let snapshotStore: SnapshotStore
 
     /// Lets "Networks…"/"Preferences…" bring up their own `Window` scenes
     /// (see `NMSApp`).
@@ -279,15 +290,15 @@ struct ContentView: View {
                 // reasoning.
                 Button("Diagnostic Log…") {
                     Task {
-                        if let url = await diagnosticServer.start(events: eventLog.events) {
+                        if let url = await diagnosticServer.start(snapshotStore: snapshotStore) {
                             NSWorkspace.shared.open(url)
                         }
                     }
                 }
                 .accessibilityLabel("Diagnostic Log")
-                .accessibilityHint("Opens a local web page listing recent events, for reviewing a field-testing session")
+                .accessibilityHint("Opens a local web page listing recent events and test results, for reviewing a field-testing session. Reload the page to see anything since it opened.")
                 .accessibilityIdentifier("footer.diagnosticLog")
-                .help("Opens a local web page listing recent events, for reviewing a field-testing session. Debug builds only, loopback-only, stops itself after 10 minutes idle.")
+                .help("Opens a local web page listing recent events and test results, for reviewing a field-testing session. Reload the page to see anything since it opened. Debug builds only, loopback-only, stops itself after 10 minutes idle.")
                 #endif
                 Spacer()
                 Button("Quit") {

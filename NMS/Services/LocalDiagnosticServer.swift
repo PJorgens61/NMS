@@ -2,11 +2,13 @@ import Foundation
 import Network
 
 #if DEBUG
-/// A local-only, on-demand HTTP server serving a simple chronological log
-/// of recent diagnostic history as a plain web page — the first, simplest
-/// use case of the local-HTTP-server idea in `PUNCHLIST.md` ("A
-/// local-only HTTP server"), built first specifically to prove the server
-/// plumbing before the two heavier, shipped-feature use cases (Apple
+/// A local-only, on-demand HTTP server serving a chronological log of
+/// recent diagnostic activity — Events, plus every test result
+/// (`NetworkQualityRecord`, `WiFiStressTestRecord`) and the SNMP device
+/// list — as a plain web page. The first, simplest use case of the
+/// local-HTTP-server idea in `PUNCHLIST.md` ("A local-only HTTP
+/// server"), built first specifically to prove the server plumbing
+/// before the two heavier, shipped-feature use cases (Apple
 /// networkQuality report formatting, the Mermaid diagram privacy fix)
 /// build their own content generators on top of it.
 ///
@@ -34,16 +36,18 @@ import Network
 /// per-launch path token** (defense in depth on top of the loopback
 /// binding — another local process can't guess the URL either).
 ///
-/// The page is rendered once, at `start()`, from whatever's in the store
-/// at that moment — not live-updating. A field-test session is reviewed
-/// after the fact, not watched in real time; keeping this one-shot
-/// avoids any need to hop back to the main actor from the listener's own
-/// background queue on every request.
+/// **Regenerated on every request, not cached from `start()`** — raised
+/// directly ("will it log tests as I do them?"): a field-test session
+/// keeps producing new events and test results after the page is first
+/// opened, so reloading the browser tab needs to show what's happened
+/// since, not a frozen snapshot from the moment the button was clicked.
+/// Cheap to do — the underlying `fetch*History` calls are the same ones
+/// `script/export-diagnostic.sh` already makes, not expensive queries.
 @MainActor
 final class LocalDiagnosticServer {
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
-    private var pageHTML = ""
+    private var snapshotStore: SnapshotStore?
     private var pathToken = ""
     private var idleTimer: Timer?
 
@@ -55,14 +59,11 @@ final class LocalDiagnosticServer {
     /// URL to open, once the listener is actually bound and its ephemeral
     /// port is known. `nil` on failure -- logged, not thrown, since this
     /// is a debug convenience, not a code path anything else depends on.
-    /// Takes events directly rather than a `SnapshotStore` reference --
-    /// `EventLogViewModel.events` is already loaded in memory wherever
-    /// this is triggered from, so no new store dependency is needed.
-    func start(events: [AppEventRecord]) async -> URL? {
+    func start(snapshotStore: SnapshotStore) async -> URL? {
         stop()
 
         pathToken = Self.randomToken()
-        pageHTML = Self.renderPage(events: events)
+        self.snapshotStore = snapshotStore
 
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
@@ -119,6 +120,7 @@ final class LocalDiagnosticServer {
         listener = nil
         connections.values.forEach { $0.cancel() }
         connections.removeAll()
+        snapshotStore = nil
     }
 
     private func scheduleIdleTimeout() {
@@ -164,8 +166,10 @@ final class LocalDiagnosticServer {
         let path = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? ""
 
         let response: Data
-        if path == "/\(pathToken)" || path == "/\(pathToken)/" {
-            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: pageHTML)
+        if (path == "/\(pathToken)" || path == "/\(pathToken)/"), let snapshotStore {
+            // Fresh query on every request, not a cached string -- see
+            // this type's own doc comment for why.
+            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderPage(snapshotStore: snapshotStore))
         } else {
             response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
         }
@@ -185,31 +189,96 @@ final class LocalDiagnosticServer {
         (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
     }
 
+    /// One row of the merged chronological log -- built from three
+    /// different record types (`AppEventRecord`, `NetworkQualityRecord`,
+    /// `WiFiStressTestRecord`), each contributing its own summary text
+    /// and color, then sorted together by date. Merging at this level
+    /// rather than three separate tables is the actual point: "what
+    /// happened, in order" spans all three kinds of activity, not just
+    /// state-change events.
+    private struct LogRow {
+        let date: Date
+        let color: String
+        let text: String
+    }
+
     /// Plain, self-contained HTML -- inline `<style>`, no external
     /// stylesheet or script, matching the "no dependencies" posture at
-    /// the page level too. Newest first, same convention `EventsTile`/
-    /// `NetworkReviewView` already use for the same underlying data.
-    private static func renderPage(events: [AppEventRecord]) -> String {
-        let rows = events.map { event -> String in
+    /// the page level too.
+    private static func renderPage(snapshotStore: SnapshotStore) -> String {
+        let neutral = "#0F1729", positive = "#1FAA59", negative = "#E0453A", secondary = "#5B6B85"
+
+        var rows: [LogRow] = snapshotStore.fetchRecentEvents(limit: 200).map { event in
             let kind = AppEventKind(rawValue: event.kind)
             let color: String
             switch kind?.polarity {
-            case .positive: color = "#1FAA59"
-            case .negative: color = "#E0453A"
-            case .neutral, .none: color = "#0F1729"
+            case .positive: color = positive
+            case .negative: color = negative
+            case .neutral, .none: color = neutral
             }
-            let timestamp = event.occurredAt.formatted(date: .abbreviated, time: .standard)
-            return """
+            return LogRow(date: event.occurredAt, color: color, text: event.message)
+        }
+
+        // All three `NetworkQualityResult.Source` cases come back mixed
+        // from one fetch -- see `fetchNetworkQualityHistory`'s own doc
+        // comment, it isn't filtered by source the way
+        // `fetchQuickCheckHistory` is.
+        rows += snapshotStore.fetchNetworkQualityHistory(limit: 100).map { record in
+            let text: String
+            switch NetworkQualityResult.Source(rawValue: record.source) {
+            case .quickCheck:
+                text = "networkQuality quick check: \(record.combinedResponsivenessRPM.map { "\($0) RPM" } ?? "no result")"
+            case .appleNetworkQuality:
+                text = "Apple networkQuality: ↓\(rpmText(record.downloadResponsivenessRPM)) / ↑\(rpmText(record.uploadResponsivenessRPM)) RPM"
+            case .cloudflareEndpoint, .none:
+                text = "Speed Test: ↓\(mbpsText(record.downloadMbps)) / ↑\(mbpsText(record.uploadMbps)) Mbps"
+            }
+            return LogRow(date: record.testedAt, color: neutral, text: text)
+        }
+
+        rows += snapshotStore.fetchWiFiStressTestHistory(limit: 50).map { record in
+            let rtt = record.avgRTTMs.map { String(format: "%.0f ms avg RTT", $0) } ?? "no RTT recorded"
+            let color = record.packetLossPercent > 0 ? negative : positive
+            return LogRow(
+                date: record.testedAt,
+                color: color,
+                text: "Local Stress Test: \(String(format: "%.1f", record.packetLossPercent))% loss, \(rtt)"
+            )
+        }
+
+        rows.sort { $0.date > $1.date }
+
+        let logRowsHTML = rows.map { row in
+            """
             <tr>
-              <td class="ts">\(escape(timestamp))</td>
-              <td style="color: \(color)">\(escape(event.message))</td>
+              <td class="ts">\(escape(row.date.formatted(date: .abbreviated, time: .standard)))</td>
+              <td style="color: \(row.color)">\(escape(row.text))</td>
             </tr>
             """
         }.joined(separator: "\n")
 
-        let body = events.isEmpty
-            ? "<p class=\"empty\">No events recorded yet.</p>"
-            : "<table>\n\(rows)\n</table>"
+        let logBody = rows.isEmpty
+            ? "<p class=\"empty\">Nothing recorded yet.</p>"
+            : "<table>\n\(logRowsHTML)\n</table>"
+
+        // SNMP devices are a standing inventory, not a time series --
+        // same "every device is relevant context, not just the newest
+        // few" reasoning `export-diagnostic.sh` already uses, not merged
+        // into the chronological log above.
+        let devices = snapshotStore.fetchSNMPDevices(limit: 200)
+        let deviceRowsHTML = devices.map { device in
+            """
+            <tr>
+              <td>\(escape(device.displayName))</td>
+              <td class="secondary">\(escape(device.ipAddress))</td>
+              <td class="secondary">\(escape(device.uptimeDescription))</td>
+              <td class="ts">\(escape(device.lastSeenAt.formatted(date: .abbreviated, time: .standard)))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+        let deviceBody = devices.isEmpty
+            ? "<p class=\"empty\">No SNMP devices recorded.</p>"
+            : "<table>\n\(deviceRowsHTML)\n</table>"
 
         return """
         <!doctype html>
@@ -218,23 +287,30 @@ final class LocalDiagnosticServer {
         <meta charset="utf-8">
         <title>NMS — Diagnostic Log</title>
         <style>
-          body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #F5F7FB; color: #0F1729; padding: 2rem; }
+          body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #F5F7FB; color: \(neutral); padding: 2rem; }
           h1 { font-size: 1.1rem; }
-          .subtitle { color: #5B6B85; font-size: 0.85rem; margin-bottom: 1.5rem; }
+          h2 { font-size: 0.95rem; margin-top: 2rem; }
+          .subtitle { color: \(secondary); font-size: 0.85rem; margin-bottom: 1.5rem; }
           table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
           td { padding: 0.35rem 0.75rem 0.35rem 0; border-bottom: 1px solid rgba(15,23,41,0.08); vertical-align: top; }
-          .ts { color: #5B6B85; white-space: nowrap; }
-          .empty { color: #5B6B85; }
+          .ts { color: \(secondary); white-space: nowrap; }
+          .secondary { color: \(secondary); }
+          .empty { color: \(secondary); }
         </style>
         </head>
         <body>
         <h1>NMS — Diagnostic Log</h1>
-        <p class="subtitle">Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — a one-time snapshot, not live. Reload starts a new server instance.</p>
-        \(body)
+        <p class="subtitle">Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — reload this page to see anything that's happened since.</p>
+        \(logBody)
+        <h2>SNMP Devices</h2>
+        \(deviceBody)
         </body>
         </html>
         """
     }
+
+    private static func rpmText(_ value: Int?) -> String { value.map(String.init) ?? "—" }
+    private static func mbpsText(_ value: Double?) -> String { value.map { String(format: "%.0f", $0) } ?? "—" }
 
     private static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")

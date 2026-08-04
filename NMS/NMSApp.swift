@@ -568,7 +568,8 @@ struct NMSApp: App {
             saasMonitoring: saasMonitoring,
             ddns: ddns,
             buildInfo: buildInfo,
-            storeURL: storeURL
+            storeURL: storeURL,
+            snapshotStore: snapshotStore
         )
     }
 

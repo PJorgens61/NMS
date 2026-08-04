@@ -107,7 +107,8 @@ enum ContentViewPreviewSupport {
             saasMonitoring: saasMonitoring,
             ddns: ddns,
             buildInfo: nil,
-            storeURL: URL(fileURLWithPath: "/dev/null")
+            storeURL: URL(fileURLWithPath: "/dev/null"),
+            snapshotStore: store
         )
     }
 
