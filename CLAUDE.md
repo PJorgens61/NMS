@@ -8,10 +8,20 @@ and `BUGS.md`. This file is only for things that are specifically about
 
 ## Testing
 
-- `script/test-quick.sh` — unit tests only, seconds. Run after any change.
+- Plain `xcodebuild build` (or `script/build-and-run.sh --run` to also
+  launch it) — the default while iterating on a simple/visual UI change.
+  No test run at all; just build, look at it, adjust.
+- `script/test-quick.sh` — unit tests only, seconds. Run once a change
+  touches actual logic (a view model, a parser, a computed property),
+  not just layout/visual tweaks.
 - `script/test-max.sh` — unit tests + UI tests + live network scenarios,
-  a couple of minutes. Run before considering a change to shared/view-model
-  wiring done.
+  a couple of minutes. **Disruptive, not just slow**: the UI tests launch
+  and drive a real, frontmost app window via XCUITest, taking over
+  keyboard/mouse focus on whatever machine runs it — there's no way to
+  scope that to just the NMS window. Run it before considering a change
+  to shared/view-model wiring done, before switching to a different area
+  of the app, and always before a commit or push — not after every small
+  edit within one area.
 - `script/build-and-run.sh --run` — builds and launches the real app.
   Refuses to launch over an already-running instance; quit it first
   (`osascript -e 'tell application "NMS" to quit'`).
