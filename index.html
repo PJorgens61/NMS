@@ -397,7 +397,14 @@
     font-family: var(--font-mono);
     font-size: 0.72rem;
     color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
+  .topo-caption a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .topo-caption a:hover { text-decoration: underline; }
 
   /* ---------- Destination / footer ---------- */
   .destination {
@@ -483,12 +490,13 @@
   <nav class="hop-nav" id="trace">
     <a href="#hop-1">1 remote-workers</a>
     <a href="#hop-2">2 field-technicians</a>
-    <a href="#hop-3">3 homelab</a>
-    <a href="#hop-4">4 self-hosters</a>
-    <a href="#hop-5">5 path-discovery</a>
-    <a href="#hop-6">6 corporate-it</a>
-    <a href="#hop-7">7 swift-programmers</a>
-    <a href="#hop-8">8 opensource</a>
+    <a href="#hop-3">3 network-builder</a>
+    <a href="#hop-4">4 homelab</a>
+    <a href="#hop-5">5 self-hosters</a>
+    <a href="#hop-6">6 path-discovery</a>
+    <a href="#hop-7">7 corporate-it</a>
+    <a href="#hop-8">8 swift-programmers</a>
+    <a href="#hop-9">9 opensource</a>
   </nav>
 
   <section class="hop" id="hop-1">
@@ -545,7 +553,35 @@
   </section>
 
   <section class="hop" id="hop-3">
-    <div class="hop-trace"><span class="n">3</span> homelab <span class="rtt">2.4 ms</span></div>
+    <div class="hop-trace"><span class="n">3</span> network-builder <span class="rtt">1.8 ms</span></div>
+    <div class="hop-grid">
+      <div>
+        <h2>Amazon just delivered a stack of boxes. How will you know when you're done?</h2>
+        <p class="sub-hook">Continuous monitoring from the moment each device comes online.</p>
+        <p class="lede">New router, new switch, new APs, cables everywhere. Plugging things in isn't the hard part — knowing you're actually finished is. NMS watches every piece as it comes up, so "done" is a verified state, not a guess you stop making once you're tired of running cables.</p>
+        <ul class="feat-list">
+          <li><span class="mark">→</span> Is DHCP actually handing out leases, and DNS actually resolving — before you plug in device #12 and start troubleshooting from scratch.</li>
+          <li><span class="mark">→</span> Is your ISP service actually up, not just the lights on your new router.</li>
+          <li><span class="mark">→</span> Can you actually reach the SaaS apps you depend on — not just "the internet," the specific things you need working today.</li>
+          <li><span class="mark">→</span> Is it fast? A real speed test and bufferbloat check, not a guess based on the box the router came in.</li>
+          <li><span class="mark">→</span> With Firewall Visibility configured, know the moment your new build changes what's reachable from outside — a forwarded port that used to work, or shouldn't, catching a misconfigured rule on the spot instead of weeks later.</li>
+        </ul>
+      </div>
+      <div class="mock-card mock-card-wide">
+        <div class="mock-head">Build Checklist</div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>Router</span><span class="value">reachable</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>DHCP</span><span class="value">leases active</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>DNS</span><span class="value">resolving</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>Internet</span><span class="value">up</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-warn"></span>SaaS</span><span class="value">12/13 reachable</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>Speed</span><span class="value">940 / 38 Mbps</span></div>
+        <div style="margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid var(--line); font-family:var(--font-mono); font-size:0.72rem; color:var(--muted);">Slack degraded — everything else is you, not the build.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hop" id="hop-4">
+    <div class="hop-trace"><span class="n">4</span> homelab <span class="rtt">2.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Break things on purpose. Know when they come back.</h2>
@@ -570,8 +606,8 @@
     </div>
   </section>
 
-  <section class="hop" id="hop-4">
-    <div class="hop-trace"><span class="n">4</span> self-hosters <span class="rtt">3.0 ms</span></div>
+  <section class="hop" id="hop-5">
+    <div class="hop-trace"><span class="n">5</span> self-hosters <span class="rtt">3.0 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Can't get there from here. Let NMS show you the way.</h2>
@@ -593,8 +629,8 @@
     </div>
   </section>
 
-  <section class="hop" id="hop-5">
-    <div class="hop-trace"><span class="n">5</span> path-discovery <span class="rtt">3.4 ms</span></div>
+  <section class="hop" id="hop-6">
+    <div class="hop-trace"><span class="n">6</span> path-discovery <span class="rtt">3.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Lost in the woods? NMS can set you straight.</h2>
@@ -706,13 +742,16 @@
 <text class="topo-label" x="2680.5" y="1370.8"><tspan x="2680.5" dy="0">Berlin, DE · IONOS · ASN 8560</tspan></text>
 </svg>
         </div>
-        <div class="topo-caption">A real Path Discovery run — scroll inside the box to follow the full path from this Mac out to the outside vantage points. Rendered locally by NMS; the diagram data never leaves this Mac.</div>
+        <div class="topo-caption">
+          <span>A real Path Discovery run — scroll inside the box to follow the full path from this Mac out to the outside vantage points. Rendered locally by NMS; the diagram data never leaves this Mac.</span>
+          <a href="topology-diagram.html" target="_blank" rel="noopener">View full diagram ↗</a>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="hop" id="hop-6">
-    <div class="hop-trace"><span class="n">6</span> corporate-it <span class="rtt">3.8 ms</span></div>
+  <section class="hop" id="hop-7">
+    <div class="hop-trace"><span class="n">7</span> corporate-it <span class="rtt">3.8 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>You used to manage 1 network. Now you have 1000.</h2>
@@ -731,8 +770,8 @@
     </div>
   </section>
 
-  <section class="hop" id="hop-7">
-    <div class="hop-trace"><span class="n">7</span> swift-programmers <span class="rtt">6.1 ms</span></div>
+  <section class="hop" id="hop-8">
+    <div class="hop-trace"><span class="n">8</span> swift-programmers <span class="rtt">6.1 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Built the way you'd want a Mac utility built.</h2>
@@ -765,8 +804,8 @@
     </ul>
   </section>
 
-  <section class="hop" id="hop-8">
-    <div class="hop-trace"><span class="n">8</span> opensource <span class="rtt">9.4 ms</span></div>
+  <section class="hop" id="hop-9">
+    <div class="hop-trace"><span class="n">9</span> opensource <span class="rtt">9.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Every decision, written down — including the honest parts.</h2>

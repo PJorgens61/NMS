@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NMS — ISP topology diagram (full size)</title>
+<style>
+  :root {
+    --bg: #FFFFFF; --card: #F5F7FB; --ink: #0F1729; --muted: #5B6B85;
+    --line: rgba(15, 23, 41, 0.10);
+    --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, "Courier New", monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0B1220; --card: #121B2E; --ink: #EAF0F7; --muted: #93A3BE;
+      --line: rgba(234, 240, 247, 0.12);
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font-display);
+    padding: 1.5rem; overflow-x: auto;
+  }
+  a { color: inherit; }
+  .back {
+    display: inline-block; margin-bottom: 1rem; font-family: var(--font-mono);
+    font-size: 0.8rem; color: var(--muted); text-decoration: none;
+  }
+  .back:hover { color: var(--ink); }
+  .mini-topo .topo-line { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .mini-topo .topo-node { stroke-width: 1.5; }
+  .mini-topo .topo-thismac { fill: #d1fae5; stroke: #059669; }
+  .mini-topo .topo-hop { fill: #dbeafe; stroke: #2563eb; }
+  .mini-topo .topo-source { fill: #fef3c7; stroke: #d97706; }
+  .mini-topo .topo-label {
+    font-family: var(--font-display); font-size: 11px; font-weight: 600;
+    text-anchor: middle; fill: #1e293b;
+  }
+  .mini-topo .topo-sub { font-weight: 400; font-size: 9.5px; opacity: 0.75; }
+</style>
+</head>
+<body>
+<a class="back" href="index.html#hop-5">← back to nms</a>
+<svg class="mini-topo real-topo" viewBox="0 0 2807 1415" role="img" aria-label="ISP topology diagram: this Mac at top, expanding down through router and ISP hops, to ten external vantage points at bottom that corroborate the path.">
+<path class="topo-line" d="M1403.5,65.0 C1403.5,100.0 1403.5,100.0 1403.5,135.0"/>
+<path class="topo-line" d="M1403.5,185.0 C1403.5,220.0 1403.5,220.0 1403.5,255.0"/>
+<path class="topo-line" d="M1403.5,350.0 C1403.5,385.0 1233.5,385.0 1233.5,420.0"/>
+<path class="topo-line" d="M1403.5,350.0 C1403.5,385.0 1573.5,385.0 1573.5,420.0"/>
+<path class="topo-line" d="M1233.5,470.0 C1233.5,505.0 1403.5,505.0 1403.5,540.0"/>
+<path class="topo-line" d="M1573.5,470.0 C1573.5,505.0 1403.5,505.0 1403.5,540.0"/>
+<path class="topo-line" d="M1403.5,620.0 C1403.5,655.0 1403.5,655.0 1403.5,690.0"/>
+<path class="topo-line" d="M1403.5,770.0 C1403.5,805.0 1403.5,805.0 1403.5,840.0"/>
+<path class="topo-line" d="M1403.5,920.0 C1403.5,955.0 1403.5,955.0 1403.5,990.0"/>
+<path class="topo-line" d="M1403.5,1040.0 C1403.5,1075.0 1214.5,1075.0 1214.5,1110.0"/>
+<path class="topo-line" d="M1403.5,1040.0 C1403.5,1075.0 1592.5,1075.0 1592.5,1110.0"/>
+<path class="topo-line" d="M1214.5,1160.0 C1214.5,1195.0 1214.5,1195.0 1214.5,1230.0"/>
+<path class="topo-line" d="M1214.5,1160.0 C1214.5,1195.0 1589.5,1195.0 1589.5,1230.0"/>
+<path class="topo-line" d="M1592.5,1160.0 C1592.5,1195.0 1214.5,1195.0 1214.5,1230.0"/>
+<path class="topo-line" d="M1592.5,1160.0 C1592.5,1195.0 1589.5,1195.0 1589.5,1230.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 142.5,1307.5 142.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 418.5,1307.5 418.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1110.0 C1214.5,1247.5 688.0,1247.5 688.0,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 973.5,1307.5 973.5,1385.0"/>
+<path class="topo-line" d="M1233.5,420.0 C1233.5,902.5 1262.5,902.5 1262.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 1554.5,1307.5 1554.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 1875.0,1307.5 1875.0,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 2167.0,1307.5 2167.0,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 2433.5,1307.5 2433.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 2680.5,1307.5 2680.5,1385.0"/>
+<rect class="topo-node topo-thismac" x="1358.5" y="30.0" width="90.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="50.8"><tspan x="1403.5" dy="0">This Mac</tspan></text>
+<rect class="topo-node topo-hop" x="1319.5" y="135.0" width="168.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="155.8"><tspan x="1403.5" dy="0">10.0.0.1</tspan><tspan x="1403.5" dy="15">router.local: 10.0.0.1</tspan></text>
+<rect class="topo-node topo-hop" x="1239.5" y="255.0" width="328.0" height="95.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="275.8"><tspan x="1403.5" dy="0">bng3.snfcca05.sonic.net</tspan><tspan x="1403.5" dy="15">304.ae0.bng3.snfcca05.sonic.net: 157.131.209.12</tspan><tspan x="1403.5" dy="15">305.ae0.bng3.snfcca05.sonic.net: 157.131.209.36</tspan><tspan x="1403.5" dy="15">bng3.snfcca05.sonic.net: 75.101.33.52</tspan><tspan x="1403.5" dy="15">lo0.bng3.snfcca05.sonic.net: 75.101.33.52</tspan></text>
+<rect class="topo-node topo-hop" x="1072.5" y="420.0" width="322.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1233.5" y="440.8"><tspan x="1233.5" dy="0">eo-sw1-1.snfcca05.sonic.net</tspan><tspan x="1233.5" dy="15">ae0.eo-sw1-1.snfcca05.sonic.net: 198.27.244.50</tspan></text>
+<rect class="topo-node topo-hop" x="1412.5" y="420.0" width="322.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1573.5" y="440.8"><tspan x="1573.5" dy="0">eo-sw1-2.snfcca05.sonic.net</tspan><tspan x="1573.5" dy="15">ae0.eo-sw1-2.snfcca05.sonic.net: 198.27.244.58</tspan></text>
+<rect class="topo-node topo-hop" x="1255.5" y="540.0" width="296.0" height="80.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="560.8"><tspan x="1403.5" dy="0">cr4.colaca01.sonic.net</tspan><tspan x="1403.5" dy="15">ae1.cr4.colaca01.sonic.net: 157.131.243.30</tspan><tspan x="1403.5" dy="15">cr4.colaca01.sonic.net: 75.101.33.10</tspan><tspan x="1403.5" dy="15">lo0.cr4.colaca01.sonic.net: 75.101.33.10</tspan></text>
+<rect class="topo-node topo-hop" x="1255.5" y="690.0" width="296.0" height="80.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="710.8"><tspan x="1403.5" dy="0">cr1.colaca01.sonic.net</tspan><tspan x="1403.5" dy="15">cr1.colaca01.sonic.net: 157.131.132.54</tspan><tspan x="1403.5" dy="15">lo0.cr1.colaca01.sonic.net: 157.131.132.54</tspan><tspan x="1403.5" dy="15">ae0.cr1.colaca01.sonic.net: 70.36.205.62</tspan></text>
+<rect class="topo-node topo-hop" x="1265.0" y="840.0" width="277.0" height="80.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="860.8"><tspan x="1403.5" dy="0">cr1.pao1.sonic.net</tspan><tspan x="1403.5" dy="15">102.ae1.cr1.pao1.sonic.net: 70.36.205.5</tspan><tspan x="1403.5" dy="15">cr1.pao1.sonic.net: 75.101.33.66</tspan><tspan x="1403.5" dy="15">lo0.cr1.pao1.sonic.net: 75.101.33.66</tspan></text>
+<rect class="topo-node topo-hop" x="1300.0" y="990.0" width="207.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="1010.8"><tspan x="1403.5" dy="0">104.141.82</tspan><tspan x="1403.5" dy="15">38.104.141.82: 38.104.141.82</tspan></text>
+<rect class="topo-node topo-hop" x="1034.5" y="1110.0" width="360.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1214.5" y="1130.8"><tspan x="1214.5" dy="0">154.54.42.158</tspan><tspan x="1214.5" dy="15">be2379.ccr31.sjc04.atlas.cogentco.com: 154.54.42.158</tspan></text>
+<rect class="topo-node topo-hop" x="1412.5" y="1110.0" width="360.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1592.5" y="1130.8"><tspan x="1592.5" dy="0">154.54.88.186</tspan><tspan x="1592.5" dy="15">be2430.ccr31.sjc04.atlas.cogentco.com: 154.54.88.186</tspan></text>
+<rect class="topo-node topo-hop" x="1037.5" y="1230.0" width="354.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1214.5" y="1250.8"><tspan x="1214.5" dy="0">154.54.1.210</tspan><tspan x="1214.5" dy="15">be3905.ccr21.sfo01.atlas.cogentco.com: 154.54.1.210</tspan></text>
+<rect class="topo-node topo-hop" x="1409.5" y="1230.0" width="360.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1589.5" y="1250.8"><tspan x="1589.5" dy="0">154.54.28.197</tspan><tspan x="1589.5" dy="15">be9853.ccr21.sfo01.atlas.cogentco.com: 154.54.28.197</tspan></text>
+<rect class="topo-node topo-source" x="20.0" y="1350.0" width="245.0" height="35.0" rx="7"/>
+<text class="topo-label" x="142.5" y="1370.8"><tspan x="142.5" dy="0">Buffalo, US · HostPapa · ASN 36352</tspan></text>
+<rect class="topo-node topo-source" x="283.0" y="1350.0" width="271.0" height="35.0" rx="7"/>
+<text class="topo-label" x="418.5" y="1370.8"><tspan x="418.5" dy="0">Los Angeles, US · HostPapa · ASN 36352</tspan></text>
+<rect class="topo-node topo-source" x="572.0" y="1350.0" width="232.0" height="35.0" rx="7"/>
+<text class="topo-label" x="688.0" y="1370.8"><tspan x="688.0" dy="0">Ashburn, US · Oracle · ASN 31898</tspan></text>
+<rect class="topo-node topo-source" x="822.0" y="1350.0" width="303.0" height="35.0" rx="7"/>
+<text class="topo-label" x="973.5" y="1370.8"><tspan x="973.5" dy="0">Spokane, US · Redoubt Networks · ASN 400304</tspan></text>
+<rect class="topo-node topo-source" x="1143.0" y="1350.0" width="239.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1262.5" y="1370.8"><tspan x="1262.5" dy="0">San Jose, US · Oracle · ASN 31898</tspan></text>
+<rect class="topo-node topo-source" x="1400.0" y="1350.0" width="309.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1554.5" y="1370.8"><tspan x="1554.5" dy="0">Falkenstein, DE · Hetzner Online · ASN 24940</tspan></text>
+<rect class="topo-node topo-source" x="1727.0" y="1350.0" width="296.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1875.0" y="1370.8"><tspan x="1875.0" dy="0">Nuremberg, DE · Hetzner Online · ASN 24940</tspan></text>
+<rect class="topo-node topo-source" x="2041.0" y="1350.0" width="252.0" height="35.0" rx="7"/>
+<text class="topo-label" x="2167.0" y="1370.8"><tspan x="2167.0" dy="0">Nuremberg, DE · netcup · ASN 197540</tspan></text>
+<rect class="topo-node topo-source" x="2311.0" y="1350.0" width="245.0" height="35.0" rx="7"/>
+<text class="topo-label" x="2433.5" y="1370.8"><tspan x="2433.5" dy="0">Frankfurt, DE · Oracle · ASN 31898</tspan></text>
+<rect class="topo-node topo-source" x="2574.0" y="1350.0" width="213.0" height="35.0" rx="7"/>
+<text class="topo-label" x="2680.5" y="1370.8"><tspan x="2680.5" dy="0">Berlin, DE · IONOS · ASN 8560</tspan></text>
+</svg>
+</body>
+</html>
