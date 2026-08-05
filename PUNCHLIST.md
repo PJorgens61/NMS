@@ -12,6 +12,44 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: per-host fallback probe method (HTTP/HTTPS/DNS, not just
+  ICMP) for connectivity targets.** Raised directly (2026-08-04) while
+  comparing NMS against `NetViews` (a paid, professional macOS network
+  diagnostic app) — NetViews lets you right-click a host in its ping
+  monitor and switch it to answer-based-on-HTTP/HTTPS/DNS instead of
+  ICMP, specifically for networks where ping is blocked but the host
+  still answers on those other ports.
+
+  Every check target today goes through `ConnectivityService.Target`
+  (label, host, timeout) and `check(_:)`, which always shells out to
+  `/sbin/ping` — see `ConnectivityService.swift`. DNS and HTTP checks
+  already exist (`ConnectivityViewModel.runDNSCheck`/`runHTTPCheck`),
+  but as two *fixed, global* probes (one DNS lookup, one HTTP fetch),
+  not a per-host alternative for Router/Public IP/ISP Edge Router/
+  SNMP-confirmed infrastructure/printers.
+
+  **This would be a genuine alternative to, not just an addition
+  alongside, `isLikelyLocalPingFailure`/`shouldSuppressAsLocalInterference`.**
+  That heuristic exists because ICMP-only checking can't tell "the
+  network is fine but something local starved the `ping` subprocesses"
+  from "the host is actually down" — it currently *guesses* from the
+  pattern (path-critical pings all fail while DNS/HTTP succeed) and
+  suppresses the event log for the guessed-interference case. A host
+  known to have ICMP blocked (a firewall, a VPN endpoint, certain
+  managed switches) could instead get a *true* answer every round by
+  checking it over HTTP/HTTPS/DNS specifically, rather than being
+  guessed-around every time.
+
+  Open questions, not resolved: per-host method needs to be
+  user-configurable somewhere (a picker in the Network tile's own row,
+  or in Preferences alongside the other per-feature settings) since
+  there's no way to auto-detect "this host blocks ICMP but answers
+  HTTP" without first trying and failing at ICMP anyway; and whether
+  DNS-as-a-liveness-check makes sense for an arbitrary LAN host at all
+  (most SNMP devices/printers don't run a DNS resolver — HTTP/HTTPS
+  is the more broadly applicable fallback of the two for LAN targets,
+  DNS mattering more for the existing WAN-facing DNS-server check).
+
 - [ ] **Idea: a Share button for diagnostic state, with the interesting
   case being "the network is down, save it and offer to resend once
   it's back."** Raised live (2026-08-04): "mac apps often have a
