@@ -255,22 +255,23 @@
     color: var(--muted);
     padding: 0.2rem 0.75rem;
     border-right: 1px solid var(--line);
-    position: relative;
+    border-bottom: 2px solid transparent;
   }
   .hop-nav a:last-child { border-right: none; }
   .hop-nav a:hover { color: var(--accent); }
   .hop-nav a.active {
     color: var(--ink);
     font-weight: 600;
-  }
-  .hop-nav a.active::after {
-    content: "";
-    position: absolute;
-    left: 0.75rem;
-    right: 0.75rem;
-    bottom: -1.1rem;
-    height: 2px;
-    background: var(--accent);
+    /* Underline attached directly to the anchor's own box (not an
+       absolutely-positioned ::after with a fixed offset) so it stays
+       under the active item's own row regardless of which row it wraps
+       to -- raised directly, live: with only 6 items the active
+       indicator's old fixed `bottom: -1.1rem` always landed in the
+       nav's own empty bottom margin, but once the FW/Path Discovery
+       hops pushed the nav to 8 items and more wrapping, that same fixed
+       offset started bleeding into a *different* row's text on
+       narrower widths. */
+    border-bottom-color: var(--accent);
   }
 
   .hop {
@@ -346,6 +347,56 @@
     padding: 0.1em 0.4em;
     border-radius: 4px;
     font-size: 0.88em;
+  }
+
+  /* ---------- Mini topology diagram (path-discovery hop) ---------- */
+  /* Fixed hex colors, not CSS vars -- deliberately matching the app's
+     own topology-colors.json exactly (this Mac green, hop devices
+     blue, outside vantage points amber), which isn't theme-aware
+     either. Pastel fills read fine against both --surface (light) and
+     --surface (dark navy), same as the real Mermaid diagram does. */
+  .topo-panel { padding: 1.1rem 1.1rem 0.9rem; }
+  .mini-topo { display: block; }
+  /* The real diagram is wider and taller than the panel -- a fixed-size
+     scrollport (not width:100%, which would squash real, multi-line
+     hostname/IP text down to illegible size) lets it render at a
+     readable pixel size and be explored by scrolling, same "small
+     window onto a bigger diagram" shape already used elsewhere on this
+     page (the hop-nav's own overflow, etc). */
+  .topo-scroll {
+    max-width: 100%;
+    max-height: 460px;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--card, #fff);
+  }
+  /* CSS Grid's `fr` tracks default to min-width:auto -- without this,
+     a wide-enough child (the SVG's own explicit pixel width) forces the
+     whole .hop-grid column to grow past its fair share and the layout
+     breaks. `min-width: 0` on the grid item itself (`.topo-panel` sits
+     directly in `.hop-grid`) lets max-width above actually take effect,
+     same well-known Grid/Flexbox gotcha. */
+  .topo-panel { min-width: 0; }
+  .mini-topo .topo-line { fill: none; stroke: var(--line); stroke-width: 1.5; }
+  .mini-topo .topo-node { stroke-width: 1.5; }
+  .mini-topo .topo-thismac { fill: #d1fae5; stroke: #059669; }
+  .mini-topo .topo-hop { fill: #dbeafe; stroke: #2563eb; }
+  .mini-topo .topo-source { fill: #fef3c7; stroke: #d97706; }
+  .mini-topo .topo-label {
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    text-anchor: middle;
+    fill: #1e293b;
+  }
+  .mini-topo .topo-sub { font-weight: 400; font-size: 9.5px; opacity: 0.75; }
+  .topo-caption {
+    margin-top: 0.7rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--muted);
   }
 
   /* ---------- Destination / footer ---------- */
@@ -433,9 +484,11 @@
     <a href="#hop-1">1 remote-workers</a>
     <a href="#hop-2">2 field-technicians</a>
     <a href="#hop-3">3 homelab</a>
-    <a href="#hop-4">4 corporate-it</a>
-    <a href="#hop-5">5 swift-programmers</a>
-    <a href="#hop-6">6 opensource</a>
+    <a href="#hop-4">4 self-hosters</a>
+    <a href="#hop-5">5 path-discovery</a>
+    <a href="#hop-6">6 corporate-it</a>
+    <a href="#hop-7">7 swift-programmers</a>
+    <a href="#hop-8">8 opensource</a>
   </nav>
 
   <section class="hop" id="hop-1">
@@ -518,7 +571,148 @@
   </section>
 
   <section class="hop" id="hop-4">
-    <div class="hop-trace"><span class="n">4</span> corporate-it <span class="rtt">3.8 ms</span></div>
+    <div class="hop-trace"><span class="n">4</span> self-hosters <span class="rtt">3.0 ms</span></div>
+    <div class="hop-grid">
+      <div>
+        <h2>Can't get there from here. Let NMS show you the way.</h2>
+        <p class="sub-hook">A real outside-in answer, not a router config you're just trusting.</p>
+        <p class="lede">You forwarded a port for Plex, a game server, or remote access into your homelab. Does it actually work from the internet, or just from your own couch? Firewall Visibility asks FW — a free, open, internet-hosted companion service, not run from your own network — to try reaching your current public IP from genuinely outside it, the same vantage point a friend three states away would have.</p>
+        <ul class="feat-list">
+          <li><span class="mark">→</span> Point it at a port you've forwarded and get a real answer: reachable from the outside, or not — not just "the router says it's configured."</li>
+          <li><span class="mark">→</span> A device token, generated once and stored in this Mac's own Keychain — no account, nothing else about your network leaves this Mac.</li>
+          <li><span class="mark">→</span> Runs on demand, or automatically alongside an SNMP-detected topology change — the moment your port-forward might have broken, you find out before your friends do.</li>
+        </ul>
+      </div>
+      <div class="mock-card mock-card-wide">
+        <div class="mock-head">Firewall Visibility</div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>51820 · WireGuard</span><span class="value">reachable</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-ok"></span>32400 · Plex</span><span class="value">reachable</span></div>
+        <div class="mock-row"><span class="label"><span class="dot dot-bad"></span>22 · SSH</span><span class="value ev-bad">filtered</span></div>
+        <div style="margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid var(--line); font-family:var(--font-mono); font-size:0.72rem; color:var(--muted);">Tested from pjorgens61-fw.fly.dev, not from your own network.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hop" id="hop-5">
+    <div class="hop-trace"><span class="n">5</span> path-discovery <span class="rtt">3.4 ms</span></div>
+    <div class="hop-grid">
+      <div>
+        <h2>Lost in the woods? NMS can set you straight.</h2>
+        <p class="sub-hook">Ever wonder how your network connects to the world? See it now.</p>
+        <p class="lede">"The ISP" isn't one faceless blob — it's a real chain of routers, and Path Discovery draws it. It merges this Mac's own outbound trace with reverse traces run from several outside vantage points simultaneously (via Globalping, free and unauthenticated), so you see where every path converges on the same infrastructure, not just your own one-sided view of it.</p>
+        <ul class="feat-list">
+          <li><span class="mark">→</span> Confirms whether the "ISP Edge Router" hop really is your ISP's edge — a majority of outside vantage points agreeing is real evidence, not a guess.</li>
+          <li><span class="mark">→</span> Every interface's DNS name and IP address, not just one — a single router can answer to more names than you'd expect.</li>
+          <li><span class="mark">→</span> Vantage points aren't fixed at five, and aren't limited to the US — dial the count up or mix in other countries to see your path from further away.</li>
+        </ul>
+      </div>
+      <div class="panel topo-panel">
+        <div class="panel-title">ISP topology</div>
+        <!-- Real ISP topology data (from an actual Path Discovery run),
+             rendered as pure SVG -- rect/text/tspan only, no
+             foreignObject, no filter, no iframe, no JS, no external
+             request of any kind. Raised directly twice: first "will
+             this work on a slower network like dsl? needs lots of dns
+             lookups?" (the original CDN-loaded Mermaid.js was 3.5MB
+             uncompressed / ~950KB gzipped -- fixed by pre-rendering to a
+             static SVG instead), then "nothing displayed in topology
+             window on safari or brave" / "might be a content blocker
+             problem on brave" -- confirmed live: both browsers' content
+             blockers were stripping the <iframe> that held the earlier
+             static-SVG-via-Mermaid version. Rebuilt from scratch as a
+             hand-generated pure SVG (script in NMS's own repo history,
+             not checked in here) reusing the same topo-node/topo-hop/
+             topo-source/topo-thismac/topo-label classes as the original
+             illustrative mockup -- this is that same visual language,
+             just populated with real captured data and laid out top-to-
+             bottom (this Mac first, matching reading order) instead of
+             Mermaid's bottom-to-top. Wrapped in a scrollable box since
+             this real trace is 9 tiers deep -- explicit pixel width/
+             height on the SVG itself (not 100%) so it renders at a
+             legible size instead of being squashed to the panel's
+             width. -->
+        <div class="topo-scroll">
+<svg class="mini-topo real-topo" viewBox="0 0 2807 1415" width="1684" height="849" role="img" aria-label="ISP topology diagram: this Mac at top, expanding down through router and ISP hops, to ten external vantage points at bottom that corroborate the path.">
+<path class="topo-line" d="M1403.5,65.0 C1403.5,100.0 1403.5,100.0 1403.5,135.0"/>
+<path class="topo-line" d="M1403.5,185.0 C1403.5,220.0 1403.5,220.0 1403.5,255.0"/>
+<path class="topo-line" d="M1403.5,350.0 C1403.5,385.0 1233.5,385.0 1233.5,420.0"/>
+<path class="topo-line" d="M1403.5,350.0 C1403.5,385.0 1573.5,385.0 1573.5,420.0"/>
+<path class="topo-line" d="M1233.5,470.0 C1233.5,505.0 1403.5,505.0 1403.5,540.0"/>
+<path class="topo-line" d="M1573.5,470.0 C1573.5,505.0 1403.5,505.0 1403.5,540.0"/>
+<path class="topo-line" d="M1403.5,620.0 C1403.5,655.0 1403.5,655.0 1403.5,690.0"/>
+<path class="topo-line" d="M1403.5,770.0 C1403.5,805.0 1403.5,805.0 1403.5,840.0"/>
+<path class="topo-line" d="M1403.5,920.0 C1403.5,955.0 1403.5,955.0 1403.5,990.0"/>
+<path class="topo-line" d="M1403.5,1040.0 C1403.5,1075.0 1214.5,1075.0 1214.5,1110.0"/>
+<path class="topo-line" d="M1403.5,1040.0 C1403.5,1075.0 1592.5,1075.0 1592.5,1110.0"/>
+<path class="topo-line" d="M1214.5,1160.0 C1214.5,1195.0 1214.5,1195.0 1214.5,1230.0"/>
+<path class="topo-line" d="M1214.5,1160.0 C1214.5,1195.0 1589.5,1195.0 1589.5,1230.0"/>
+<path class="topo-line" d="M1592.5,1160.0 C1592.5,1195.0 1214.5,1195.0 1214.5,1230.0"/>
+<path class="topo-line" d="M1592.5,1160.0 C1592.5,1195.0 1589.5,1195.0 1589.5,1230.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 142.5,1307.5 142.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 418.5,1307.5 418.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1110.0 C1214.5,1247.5 688.0,1247.5 688.0,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 973.5,1307.5 973.5,1385.0"/>
+<path class="topo-line" d="M1233.5,420.0 C1233.5,902.5 1262.5,902.5 1262.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 1554.5,1307.5 1554.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 1875.0,1307.5 1875.0,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 2167.0,1307.5 2167.0,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 2433.5,1307.5 2433.5,1385.0"/>
+<path class="topo-line" d="M1214.5,1230.0 C1214.5,1307.5 2680.5,1307.5 2680.5,1385.0"/>
+<rect class="topo-node topo-thismac" x="1358.5" y="30.0" width="90.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="50.8"><tspan x="1403.5" dy="0">This Mac</tspan></text>
+<rect class="topo-node topo-hop" x="1319.5" y="135.0" width="168.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="155.8"><tspan x="1403.5" dy="0">10.0.0.1</tspan><tspan x="1403.5" dy="15">router.local: 10.0.0.1</tspan></text>
+<rect class="topo-node topo-hop" x="1239.5" y="255.0" width="328.0" height="95.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="275.8"><tspan x="1403.5" dy="0">bng3.snfcca05.sonic.net</tspan><tspan x="1403.5" dy="15">304.ae0.bng3.snfcca05.sonic.net: 157.131.209.12</tspan><tspan x="1403.5" dy="15">305.ae0.bng3.snfcca05.sonic.net: 157.131.209.36</tspan><tspan x="1403.5" dy="15">bng3.snfcca05.sonic.net: 75.101.33.52</tspan><tspan x="1403.5" dy="15">lo0.bng3.snfcca05.sonic.net: 75.101.33.52</tspan></text>
+<rect class="topo-node topo-hop" x="1072.5" y="420.0" width="322.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1233.5" y="440.8"><tspan x="1233.5" dy="0">eo-sw1-1.snfcca05.sonic.net</tspan><tspan x="1233.5" dy="15">ae0.eo-sw1-1.snfcca05.sonic.net: 198.27.244.50</tspan></text>
+<rect class="topo-node topo-hop" x="1412.5" y="420.0" width="322.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1573.5" y="440.8"><tspan x="1573.5" dy="0">eo-sw1-2.snfcca05.sonic.net</tspan><tspan x="1573.5" dy="15">ae0.eo-sw1-2.snfcca05.sonic.net: 198.27.244.58</tspan></text>
+<rect class="topo-node topo-hop" x="1255.5" y="540.0" width="296.0" height="80.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="560.8"><tspan x="1403.5" dy="0">cr4.colaca01.sonic.net</tspan><tspan x="1403.5" dy="15">ae1.cr4.colaca01.sonic.net: 157.131.243.30</tspan><tspan x="1403.5" dy="15">cr4.colaca01.sonic.net: 75.101.33.10</tspan><tspan x="1403.5" dy="15">lo0.cr4.colaca01.sonic.net: 75.101.33.10</tspan></text>
+<rect class="topo-node topo-hop" x="1255.5" y="690.0" width="296.0" height="80.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="710.8"><tspan x="1403.5" dy="0">cr1.colaca01.sonic.net</tspan><tspan x="1403.5" dy="15">cr1.colaca01.sonic.net: 157.131.132.54</tspan><tspan x="1403.5" dy="15">lo0.cr1.colaca01.sonic.net: 157.131.132.54</tspan><tspan x="1403.5" dy="15">ae0.cr1.colaca01.sonic.net: 70.36.205.62</tspan></text>
+<rect class="topo-node topo-hop" x="1265.0" y="840.0" width="277.0" height="80.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="860.8"><tspan x="1403.5" dy="0">cr1.pao1.sonic.net</tspan><tspan x="1403.5" dy="15">102.ae1.cr1.pao1.sonic.net: 70.36.205.5</tspan><tspan x="1403.5" dy="15">cr1.pao1.sonic.net: 75.101.33.66</tspan><tspan x="1403.5" dy="15">lo0.cr1.pao1.sonic.net: 75.101.33.66</tspan></text>
+<rect class="topo-node topo-hop" x="1300.0" y="990.0" width="207.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1403.5" y="1010.8"><tspan x="1403.5" dy="0">104.141.82</tspan><tspan x="1403.5" dy="15">38.104.141.82: 38.104.141.82</tspan></text>
+<rect class="topo-node topo-hop" x="1034.5" y="1110.0" width="360.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1214.5" y="1130.8"><tspan x="1214.5" dy="0">154.54.42.158</tspan><tspan x="1214.5" dy="15">be2379.ccr31.sjc04.atlas.cogentco.com: 154.54.42.158</tspan></text>
+<rect class="topo-node topo-hop" x="1412.5" y="1110.0" width="360.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1592.5" y="1130.8"><tspan x="1592.5" dy="0">154.54.88.186</tspan><tspan x="1592.5" dy="15">be2430.ccr31.sjc04.atlas.cogentco.com: 154.54.88.186</tspan></text>
+<rect class="topo-node topo-hop" x="1037.5" y="1230.0" width="354.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1214.5" y="1250.8"><tspan x="1214.5" dy="0">154.54.1.210</tspan><tspan x="1214.5" dy="15">be3905.ccr21.sfo01.atlas.cogentco.com: 154.54.1.210</tspan></text>
+<rect class="topo-node topo-hop" x="1409.5" y="1230.0" width="360.0" height="50.0" rx="7"/>
+<text class="topo-label" x="1589.5" y="1250.8"><tspan x="1589.5" dy="0">154.54.28.197</tspan><tspan x="1589.5" dy="15">be9853.ccr21.sfo01.atlas.cogentco.com: 154.54.28.197</tspan></text>
+<rect class="topo-node topo-source" x="20.0" y="1350.0" width="245.0" height="35.0" rx="7"/>
+<text class="topo-label" x="142.5" y="1370.8"><tspan x="142.5" dy="0">Buffalo, US · HostPapa · ASN 36352</tspan></text>
+<rect class="topo-node topo-source" x="283.0" y="1350.0" width="271.0" height="35.0" rx="7"/>
+<text class="topo-label" x="418.5" y="1370.8"><tspan x="418.5" dy="0">Los Angeles, US · HostPapa · ASN 36352</tspan></text>
+<rect class="topo-node topo-source" x="572.0" y="1350.0" width="232.0" height="35.0" rx="7"/>
+<text class="topo-label" x="688.0" y="1370.8"><tspan x="688.0" dy="0">Ashburn, US · Oracle · ASN 31898</tspan></text>
+<rect class="topo-node topo-source" x="822.0" y="1350.0" width="303.0" height="35.0" rx="7"/>
+<text class="topo-label" x="973.5" y="1370.8"><tspan x="973.5" dy="0">Spokane, US · Redoubt Networks · ASN 400304</tspan></text>
+<rect class="topo-node topo-source" x="1143.0" y="1350.0" width="239.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1262.5" y="1370.8"><tspan x="1262.5" dy="0">San Jose, US · Oracle · ASN 31898</tspan></text>
+<rect class="topo-node topo-source" x="1400.0" y="1350.0" width="309.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1554.5" y="1370.8"><tspan x="1554.5" dy="0">Falkenstein, DE · Hetzner Online · ASN 24940</tspan></text>
+<rect class="topo-node topo-source" x="1727.0" y="1350.0" width="296.0" height="35.0" rx="7"/>
+<text class="topo-label" x="1875.0" y="1370.8"><tspan x="1875.0" dy="0">Nuremberg, DE · Hetzner Online · ASN 24940</tspan></text>
+<rect class="topo-node topo-source" x="2041.0" y="1350.0" width="252.0" height="35.0" rx="7"/>
+<text class="topo-label" x="2167.0" y="1370.8"><tspan x="2167.0" dy="0">Nuremberg, DE · netcup · ASN 197540</tspan></text>
+<rect class="topo-node topo-source" x="2311.0" y="1350.0" width="245.0" height="35.0" rx="7"/>
+<text class="topo-label" x="2433.5" y="1370.8"><tspan x="2433.5" dy="0">Frankfurt, DE · Oracle · ASN 31898</tspan></text>
+<rect class="topo-node topo-source" x="2574.0" y="1350.0" width="213.0" height="35.0" rx="7"/>
+<text class="topo-label" x="2680.5" y="1370.8"><tspan x="2680.5" dy="0">Berlin, DE · IONOS · ASN 8560</tspan></text>
+</svg>
+        </div>
+        <div class="topo-caption">A real Path Discovery run — scroll inside the box to follow the full path from this Mac out to the outside vantage points. Rendered locally by NMS; the diagram data never leaves this Mac.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="hop" id="hop-6">
+    <div class="hop-trace"><span class="n">6</span> corporate-it <span class="rtt">3.8 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>You used to manage 1 network. Now you have 1000.</h2>
@@ -537,8 +731,8 @@
     </div>
   </section>
 
-  <section class="hop" id="hop-5">
-    <div class="hop-trace"><span class="n">5</span> swift-programmers <span class="rtt">6.1 ms</span></div>
+  <section class="hop" id="hop-7">
+    <div class="hop-trace"><span class="n">7</span> swift-programmers <span class="rtt">6.1 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Built the way you'd want a Mac utility built.</h2>
@@ -571,8 +765,8 @@
     </ul>
   </section>
 
-  <section class="hop" id="hop-6">
-    <div class="hop-trace"><span class="n">6</span> opensource <span class="rtt">9.4 ms</span></div>
+  <section class="hop" id="hop-8">
+    <div class="hop-trace"><span class="n">8</span> opensource <span class="rtt">9.4 ms</span></div>
     <div class="hop-grid">
       <div>
         <h2>Every decision, written down — including the honest parts.</h2>
