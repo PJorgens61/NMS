@@ -1077,14 +1077,45 @@ final class SnapshotStore {
     /// probe actually matched — a run that finds zero corroboration
     /// shouldn't refresh a timestamp implying it was just reconfirmed.
     /// Same "no-op if the address has since moved on" tolerance as
-    /// `updateLatestProviderEdgeHostname` above.
-    func recordPathDiscoveryRun(address: String, probeCount: Int, corroboratingCount: Int, at date: Date = Date()) {
+    /// `updateLatestProviderEdgeHostname` above. `probeCount`/
+    /// `corroboratingCount` are expected to already be gap-filtered — see
+    /// `TracerouteViewModel.corroboratingSummary`.
+    ///
+    /// Also logs `.pathDiscoveryCorroborated`/`.pathDiscoveryNotCorroborated`
+    /// on a genuine change from the previous run against this same row
+    /// (or on the very first run for it — a deliberate manual click is
+    /// always new information, unlike an automatically-repeating check
+    /// observing "just where it already is"). Nothing is logged when
+    /// `probeCount` is zero (every probe hit a reply gap — no real data
+    /// either way), and the negative kind specifically is suppressed
+    /// when `isKnownComplexTopology` is true — raised directly ("only in
+    /// certain circumstances?"): under confirmed CGNAT, divergence across
+    /// external vantage points is expected, not news.
+    func recordPathDiscoveryRun(address: String, probeCount: Int, corroboratingCount: Int, isKnownComplexTopology: Bool, at date: Date = Date()) {
         guard let latest = latestProviderEdge(), latest.address == address else { return }
+        let previousCorroborated: Bool? = latest.pathDiscoveryProbeCount == nil ? nil : (latest.pathDiscoveryCorroboratingCount ?? 0) > 0
+        let newCorroborated = corroboratingCount > 0
+
         latest.pathDiscoveryProbeCount = probeCount
         latest.pathDiscoveryCorroboratingCount = corroboratingCount
         if corroboratingCount > 0 {
             latest.externallyCorroboratedAt = date
         }
         try? context.save()
+
+        guard probeCount > 0, previousCorroborated != newCorroborated else { return }
+        if newCorroborated {
+            logEvent(
+                .pathDiscoveryCorroborated,
+                message: "Path Discovery: \(corroboratingCount) of \(probeCount) external source\(probeCount == 1 ? "" : "s") confirm \(address) as the ISP edge router.",
+                at: date
+            )
+        } else if !isKnownComplexTopology {
+            logEvent(
+                .pathDiscoveryNotCorroborated,
+                message: "Path Discovery: none of \(probeCount) external source\(probeCount == 1 ? "" : "s") reached \(address) as the last hop before this Mac — could be asymmetric routing, or the confirmed hop may be worth rechecking.",
+                at: date
+            )
+        }
     }
 }

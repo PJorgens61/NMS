@@ -157,6 +157,34 @@ enum AppEventKind: String, Codable {
     /// `ddnsRecordCurrent` gives for its own polarity: this is a real
     /// improvement worth surfacing, not just "nothing's wrong anymore."
     case firewallExposureDecreased
+    /// A Path Discovery run (`GlobalpingReverseTraceService`, debug-only)
+    /// found at least one external vantage point whose own last hop
+    /// before reaching this Mac matches the confirmed ISP edge router —
+    /// independent, externally-observed corroboration that the hop
+    /// identified from the outbound side is genuine ISP infrastructure,
+    /// not a fluke of the outbound heuristic. Logged only on a genuine
+    /// change from the previous Path Discovery run against this same
+    /// edge-hop row (see `SnapshotStore.recordPathDiscoveryRun`) — unlike
+    /// an automatically-repeating check, Path Discovery only ever runs
+    /// from a deliberate manual click, so even the very first result
+    /// counts as a change worth logging, not "just where you already
+    /// are." Positive-*sounding* but deliberately neutral polarity — see
+    /// `pathDiscoveryNotCorroborated`, its counterpart, for why neither
+    /// side of this is treated as pass/fail.
+    case pathDiscoveryCorroborated
+    /// The counterpart to `pathDiscoveryCorroborated`: a Path Discovery
+    /// run found zero external vantage points matching the confirmed ISP
+    /// edge router. Deliberately neutral, not negative — raised directly
+    /// ("does path discovery help... only in certain circumstances?"):
+    /// asymmetric routing alone (routine for real ISPs) can make even a
+    /// simple, correctly-identified network fail to corroborate, so this
+    /// isn't evidence anything is broken. Suppressed entirely when the
+    /// path is already confirmed CGNAT/carrier-grade
+    /// (`TracerouteViewModel.includesConfirmedCGNAT`) — under CGNAT,
+    /// divergence across external vantage points is *expected*, not
+    /// news, so logging it there would misrepresent normal multi-path
+    /// topology as a problem.
+    case pathDiscoveryNotCorroborated
 
     enum Polarity {
         case positive, negative, neutral
@@ -179,7 +207,8 @@ enum AppEventKind: String, Codable {
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
              .multipleNATLayersDetected, .subnetTooLargeToScan,
-             .ispOrganizationChanged, .ddnsBlockedByCGNAT:
+             .ispOrganizationChanged, .ddnsBlockedByCGNAT,
+             .pathDiscoveryCorroborated, .pathDiscoveryNotCorroborated:
             return .neutral
         }
     }

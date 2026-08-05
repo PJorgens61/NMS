@@ -89,18 +89,81 @@ struct DebugToolsView: View {
                 let measurementID = try await globalpingService.createMeasurement(target: target)
                 let results = try await globalpingService.fetchResult(measurementID: measurementID)
 
-                if let confirmedAddress = traceroute.monitoredHopAddress {
-                    let corroboratingCount = results.filter {
-                        TracerouteViewModel.reverseTraceCorroborates($0.hops, destination: $0.resolvedAddress, confirmedAddress: confirmedAddress)
-                    }.count
-                    snapshotStore.recordPathDiscoveryRun(address: confirmedAddress, probeCount: results.count, corroboratingCount: corroboratingCount)
+                var confirmedAddress: String?
+                if let address = traceroute.monitoredHopAddress {
+                    confirmedAddress = address
+                    // Gap-aware -- see `corroboratingSummary`'s own doc
+                    // comment: a probe that hit a reply gap right before
+                    // its destination is excluded, not counted as a
+                    // non-match.
+                    let summary = TracerouteViewModel.corroboratingSummary(results, confirmedAddress: address)
+                    snapshotStore.recordPathDiscoveryRun(
+                        address: address,
+                        probeCount: summary.effectiveProbeCount,
+                        corroboratingCount: summary.corroboratingCount,
+                        isKnownComplexTopology: TracerouteViewModel.includesConfirmedCGNAT(traceroute.hops)
+                    )
                 }
 
-                if let url = await diagnosticServer.start(reverseTraceTarget: target, results: results) {
+                // The focus, raised directly, is the ISP edge specifically
+                // -- so only look up siblings for whichever device stem(s)
+                // actually show up as an edge candidate (the last real hop
+                // before each probe's own destination), not every device
+                // in every probe's full path.
+                let edgeStems = Set(results.compactMap { probe -> String? in
+                    guard let hostname = TracerouteViewModel.lastHopBeforeDestination(probe.hops, destination: probe.resolvedAddress)?.hostname else { return nil }
+                    return GlobalpingReverseTraceService.deviceStem(fromHostname: hostname)
+                })
+                let siblingAddresses = await lookUpSiblingAddresses(deviceStems: edgeStems)
+
+                if let url = await diagnosticServer.showReverseTrace(
+                    target: target,
+                    results: results,
+                    confirmedAddress: confirmedAddress,
+                    siblingAddresses: siblingAddresses
+                ) {
                     NSWorkspace.shared.open(url)
                 }
             } catch {
                 pathDiscoveryError = "Path Discovery failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Supplementary `dig` lookups for a device stem's own bare name and
+    /// its `lo0.` prefix — the two patterns confirmed live (2026-08-04)
+    /// to reliably resolve for a real device, on top of whatever sibling
+    /// addresses the results page finds just by cross-referencing hops
+    /// already present in this same run's own data. Deliberately not
+    /// guessing numbered interfaces (e.g. `305.ae0...`) here — that's
+    /// only trustworthy when already observed as a real hop somewhere,
+    /// not blindly enumerable (see `PUNCHLIST.md`'s alias-resolution
+    /// entry).
+    ///
+    /// Runs off `DispatchQueue.global`, not directly inside this `Task`
+    /// — `DDNSResolutionService.resolve` blocks its calling thread on a
+    /// subprocess (`Process.waitUntilExit()`), and calling that straight
+    /// from a plain `Task { ... }` risks blocking one of Swift
+    /// Concurrency's own small cooperative-pool threads. Same "dispatch
+    /// the blocking call to a GCD queue instead" pattern
+    /// `DDNSViewModel.checkAll()` already uses for the exact same
+    /// service, bridged back into `async` with a checked continuation.
+    private func lookUpSiblingAddresses(deviceStems: Set<String>) async -> [String: [String: String]] {
+        guard !deviceStems.isEmpty else { return [:] }
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let service = DDNSResolutionService()
+                var found: [String: [String: String]] = [:]
+                for stem in deviceStems {
+                    var entries: [String: String] = [:]
+                    for candidate in [stem, "lo0.\(stem)"] {
+                        if case .success(let address) = service.resolve(hostname: candidate) {
+                            entries[candidate] = address
+                        }
+                    }
+                    if !entries.isEmpty { found[stem] = entries }
+                }
+                continuation.resume(returning: found)
             }
         }
     }
