@@ -72,6 +72,31 @@ enum TopologyBuilder {
         var connectsToDistance: Int
     }
 
+    /// Fill/stroke/text colors for the diagram's three visually distinct
+    /// node categories — raised directly ("can we change colors for the
+    /// traceroute hosts and the nms mac to help differentiate them
+    /// visually? 3 colors?"): this Mac itself, the path/hop devices in
+    /// between, and the external vantage points (sources) Path Discovery
+    /// traces from. `Decodable` and defaulted rather than hardcoded
+    /// inline in `renderMermaid` so `LocalDiagnosticServer` can read
+    /// overrides from `topology-colors.json` at request time (same
+    /// runtime-patchable pattern as `style.css`/`mermaid-init.js` — "can
+    /// the configuration options be broken out into a file..."), while
+    /// `TopologyBuilder` itself stays pure/file-I/O-free and every
+    /// existing test keeps working unchanged against `.default`.
+    struct NodeColors: Equatable, Decodable {
+        struct Style: Equatable, Decodable { var fill: String; var stroke: String; var text: String }
+        var thisMac: Style
+        var hop: Style
+        var source: Style
+
+        static let `default` = NodeColors(
+            thisMac: Style(fill: "#d1fae5", stroke: "#059669", text: "#064e3b"),
+            hop: Style(fill: "#dbeafe", stroke: "#2563eb", text: "#1e3a5f"),
+            source: Style(fill: "#fef3c7", stroke: "#d97706", text: "#78350f")
+        )
+    }
+
     /// Builds the layered tiers plus the source nodes that collapse onto
     /// wherever the paths actually diverged. `distanceFromNMS` starts at 0
     /// (this Mac itself) — 1 is the frontside-only home router, 2 is the
@@ -197,13 +222,22 @@ enum TopologyBuilder {
     ///   Still directional under the hood for Mermaid's own layout
     ///   purposes (the A/B order above still matters), just rendered
     ///   without an arrowhead.
-    static func renderMermaid(tiers: [Tier], sources: [Source]) -> String {
+    static func renderMermaid(tiers: [Tier], sources: [Source], colors: NodeColors = .default) -> String {
         func nodeID(_ distance: Int, _ index: Int) -> String { "t\(distance)n\(index)" }
+        func classDefLine(_ name: String, _ style: NodeColors.Style) -> String {
+            "  classDef \(name) fill:\(style.fill),stroke:\(style.stroke),color:\(style.text),stroke-width:2px"
+        }
 
         var lines = ["flowchart BT"]
+        lines.append(classDefLine("thisMac", colors.thisMac))
+        lines.append(classDefLine("hop", colors.hop))
+        lines.append(classDefLine("source", colors.source))
+
         for tier in tiers {
             for (index, node) in tier.nodes.enumerated() {
-                lines.append("  \(nodeID(tier.distanceFromNMS, index))[\"\(nodeText(node))\"]")
+                let id = nodeID(tier.distanceFromNMS, index)
+                lines.append("  \(id)[\"\(nodeText(node))\"]")
+                lines.append("  class \(id) \(tier.distanceFromNMS == 0 ? "thisMac" : "hop")")
             }
         }
 
@@ -218,6 +252,7 @@ enum TopologyBuilder {
         for (index, source) in sources.enumerated() {
             let sourceID = "src\(index)"
             lines.append("  \(sourceID)[\"\(mermaidEscape(source.label))\"]")
+            lines.append("  class \(sourceID) source")
             if tiers.contains(where: { $0.distanceFromNMS == source.connectsToDistance }) {
                 lines.append("  \(nodeID(source.connectsToDistance, 0)) --- \(sourceID)")
             }

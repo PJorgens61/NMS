@@ -406,6 +406,25 @@ final class LocalDiagnosticServer {
         readAsset("mermaid-init.js", fallback: "mermaid.initialize({ startOnLoad: true });")
     }
 
+    /// The topology diagram's three node colors (this Mac, path/hop
+    /// devices, external vantage points) — raised directly, right after
+    /// adding them ("can those parameters go in the config file?"), same
+    /// "edit and reload, no rebuild" reasoning as `sharedCSS`/
+    /// `mermaidInitScript`. Falls back to `TopologyBuilder.NodeColors
+    /// .default` (the same values `topology-colors.json` ships with) on
+    /// a missing file, bad JSON, or a bad hex value mid-edit.
+    private static var topologyColors: TopologyBuilder.NodeColors {
+        let url = projectRoot()
+            .appendingPathComponent("NMS/Services/LocalDiagnosticServerAssets")
+            .appendingPathComponent("topology-colors.json")
+        guard let data = try? Data(contentsOf: url),
+              let colors = try? JSONDecoder().decode(TopologyBuilder.NodeColors.self, from: data) else {
+            print("LocalDiagnosticServer: couldn't read topology-colors.json, using built-in defaults")
+            return .default
+        }
+        return colors
+    }
+
     /// One row of the merged chronological log -- built from three
     /// different record types (`AppEventRecord`, `NetworkQualityRecord`,
     /// `WiFiStressTestRecord`), each contributing its own summary text
@@ -542,7 +561,7 @@ final class LocalDiagnosticServer {
         // router... keep expanding upwards until the 5 paths diverge").
         // See `TopologyBuilder`'s own doc comment for the full algorithm.
         let topology = TopologyBuilder.build(frontsideHops: frontsideHops, backsideResults: results, siblingAddresses: siblingAddresses)
-        let mermaidText = TopologyBuilder.renderMermaid(tiers: topology.tiers, sources: topology.sources)
+        let mermaidText = TopologyBuilder.renderMermaid(tiers: topology.tiers, sources: topology.sources, colors: topologyColors)
         let topologySection = results.isEmpty ? "" : """
             <h2>ISP topology</h2>
             <div class="card diagram-card">

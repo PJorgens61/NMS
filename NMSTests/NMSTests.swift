@@ -2499,4 +2499,32 @@ struct TopologyBuilderTests {
         #expect(text.contains("src0[\"Ashburn, US\"]"))
         #expect(text.contains("t2n0 --- src0"))
     }
+
+    /// Raised directly ("can we change colors for the traceroute hosts
+    /// and the nms mac to help differentiate them visually? 3 colors?"):
+    /// this Mac, hop devices, and source vantage points each get their
+    /// own Mermaid class so the three are visually distinct, and the
+    /// actual colors used are whatever's passed in (`LocalDiagnosticServer`
+    /// reads them from `topology-colors.json` at request time) rather
+    /// than hardcoded.
+    @Test("this Mac, hop devices, and sources each get their own color class")
+    func renderMermaidAssignsThreeColorClasses() {
+        let tiers = [
+            TopologyBuilder.Tier(distanceFromNMS: 0, nodes: [TopologyBuilder.Node(label: "This Mac", interfaces: [], sourceCount: 0)]),
+            TopologyBuilder.Tier(distanceFromNMS: 1, nodes: [TopologyBuilder.Node(label: "router.local", interfaces: [], sourceCount: 0)])
+        ]
+        let sources = [TopologyBuilder.Source(label: "Ashburn, US", connectsToDistance: 1)]
+        let colors = TopologyBuilder.NodeColors(
+            thisMac: .init(fill: "#111111", stroke: "#222222", text: "#333333"),
+            hop: .init(fill: "#444444", stroke: "#555555", text: "#666666"),
+            source: .init(fill: "#777777", stroke: "#888888", text: "#999999")
+        )
+        let text = TopologyBuilder.renderMermaid(tiers: tiers, sources: sources, colors: colors)
+        #expect(text.contains("classDef thisMac fill:#111111,stroke:#222222,color:#333333,stroke-width:2px"))
+        #expect(text.contains("classDef hop fill:#444444,stroke:#555555,color:#666666,stroke-width:2px"))
+        #expect(text.contains("classDef source fill:#777777,stroke:#888888,color:#999999,stroke-width:2px"))
+        #expect(text.contains("class t0n0 thisMac"))
+        #expect(text.contains("class t1n0 hop"))
+        #expect(text.contains("class src0 source"))
+    }
 }
