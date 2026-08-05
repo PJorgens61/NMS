@@ -1659,6 +1659,34 @@ struct GlobalpingReverseTraceServiceTests {
         #expect(status == "in-progress")
         #expect(results.isEmpty)
     }
+
+    /// The real device stem this was built from (2026-08-04, live):
+    /// `lo0.bng3.snfcca05.sonic.net` and `305.ae0.bng3.snfcca05.sonic.net`
+    /// both really do reduce to `bng3.snfcca05.sonic.net` -- confirmed via
+    /// `dig`, not assumed, before pinning it here as a fixture.
+    @Test("deviceStem: strips a loopback prefix")
+    func deviceStemStripsLoopback() {
+        #expect(GlobalpingReverseTraceService.deviceStem(fromHostname: "lo0.bng3.snfcca05.sonic.net") == "bng3.snfcca05.sonic.net")
+    }
+
+    @Test("deviceStem: strips a numeric-VLAN-prefixed aggregated-Ethernet interface")
+    func deviceStemStripsNumberedAggregatedEthernet() {
+        #expect(GlobalpingReverseTraceService.deviceStem(fromHostname: "305.ae0.bng3.snfcca05.sonic.net") == "bng3.snfcca05.sonic.net")
+    }
+
+    @Test("deviceStem: a hostname with no recognized interface label returns nil, not a guess")
+    func deviceStemUnrecognizedReturnsNil() {
+        // "gw" isn't a numeric or lo/ae-style label -- this is a real
+        // hostname from tonight's session (a Sonic peering gateway), and
+        // deliberately not something this narrow, Sonic-shaped stripper
+        // should claim to understand.
+        #expect(GlobalpingReverseTraceService.deviceStem(fromHostname: "xe-5-0-0.gw.equinix-sj.sonic.net") == nil)
+    }
+
+    @Test("deviceStem: too short to have a real stem left over returns nil")
+    func deviceStemTooShortReturnsNil() {
+        #expect(GlobalpingReverseTraceService.deviceStem(fromHostname: "lo0.sonic.net") == nil)
+    }
 }
 
 @Suite("TracerouteViewModel.reverseTraceCorroborates")

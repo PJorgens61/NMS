@@ -30,6 +30,28 @@ checked off as of that date, full reasoning intact.
   131/131), verified live end-to-end including a real Release-build
   check confirming the whole feature compiles out cleanly.
 
+  **Redesigned the results page the same day, raised directly** ("the
+  focus is the isp edge router... present the results in tabular form
+  for comparison across the remote sources... include dns info about
+  multiple interface IPs"). The page's primary view is now a comparison
+  table — one row per probe, showing that probe's own ISP-edge
+  candidate (the same `lastHopBeforeDestination` extraction the
+  corroboration check already used, now factored out and shared) and
+  whether it matches the confirmed hop — instead of separate per-probe
+  hop-list sections that needed a mental diff to compare. A "known
+  addresses near the edge" section cross-references every hop across
+  every probe's *own* full path that shares a device stem with an edge
+  candidate (`GlobalpingReverseTraceService.deviceStem`, a narrow,
+  Sonic-shaped `lo`/`ae`/numeric-prefix stripper — real data, not
+  guessed), plus a couple of supplementary `dig` lookups
+  (`DebugToolsView.lookUpSiblingAddresses`, reusing
+  `DDNSResolutionService`) for a stem's bare name and `lo0.` form
+  specifically — the two patterns confirmed live to reliably resolve.
+  Full per-probe hop lists kept, just moved into a collapsed `<details>`
+  below the comparison table rather than deleted. 4 more tests added
+  for `deviceStem` (16 total for this feature now), full suite still
+  green.
+
 - [ ] **Path Discovery's corroboration check is exact-address-only, and
   the very first live use already hit the reason that matters: a
   router's loopback interface vs. its physical interface.** Built and

@@ -209,12 +209,24 @@ final class TracerouteViewModel {
     /// same class of fix as `ContentView.snapshotStore`'s own doc
     /// comment already documents for the equivalent problem there.
     #if DEBUG
+    /// The ISP-edge candidate from one probe's perspective — the last
+    /// real hop before its own destination. Factored out of
+    /// `reverseTraceCorroborates` once Path Discovery's own results page
+    /// needed the same extraction for its probe-comparison table, not
+    /// just a yes/no match.
+    nonisolated static func lastHopBeforeDestination(
+        _ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop],
+        destination: String?
+    ) -> GlobalpingReverseTraceService.ProbeTraceResult.Hop? {
+        hops.last(where: { $0.address != nil && $0.address != destination })
+    }
+
     nonisolated static func reverseTraceCorroborates(
         _ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop],
         destination: String?,
         confirmedAddress: String
     ) -> Bool {
-        hops.last(where: { $0.address != nil && $0.address != destination })?.address == confirmedAddress
+        lastHopBeforeDestination(hops, destination: destination)?.address == confirmedAddress
     }
     #endif
 

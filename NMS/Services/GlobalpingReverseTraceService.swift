@@ -178,5 +178,48 @@ struct GlobalpingReverseTraceService {
         }
         return (decoded.status, probeResults)
     }
+
+    /// Strips a *safe, narrow* set of leading interface-label segments
+    /// from a hop hostname to find the underlying device's own name —
+    /// e.g. `lo0.bng3.snfcca05.sonic.net` and `305.ae0.bng3.snfcca05.sonic.net`
+    /// both reduce to `bng3.snfcca05.sonic.net`. Confirmed live
+    /// (2026-08-04) against a real device: the bare stem and an
+    /// explicit `lo0.` prefix both resolved to the identical address,
+    /// and a VLAN-numbered `ae0` sibling (already observed as a real hop
+    /// elsewhere in the same data, not guessed) shared the same stem.
+    ///
+    /// Deliberately conservative, not a general cross-ISP parser —
+    /// interface-naming conventions vary too much between operators to
+    /// guess reliably (same caveat already on `PUNCHLIST.md`'s
+    /// alias-resolution entry). Only strips labels matching Sonic's own
+    /// confirmed shapes (`lo`/`ae` plus digits, or a purely numeric
+    /// label) from the *front*, one at a time, stopping at the first
+    /// label that doesn't match — `nil` if the very first label already
+    /// doesn't match anything recognized, rather than guessing.
+    static func deviceStem(fromHostname hostname: String) -> String? {
+        var labels = hostname.split(separator: ".").map(String.init)
+        // Need at least 3 labels left over after stripping (device +
+        // domain, e.g. "bng3.sonic.net") -- 2 would just be the bare
+        // registrable domain ("sonic.net") with no device-specific part
+        // at all, not a real stem.
+        guard labels.count > 3 else { return nil }
+        var strippedAny = false
+        while let first = labels.first, labels.count > 3, isInterfaceLabel(first) {
+            labels.removeFirst()
+            strippedAny = true
+        }
+        guard strippedAny else { return nil }
+        return labels.joined(separator: ".")
+    }
+
+    private static func isInterfaceLabel(_ label: String) -> Bool {
+        if label.allSatisfy(\.isNumber), !label.isEmpty { return true }
+        for prefix in ["lo", "ae"] {
+            guard label.hasPrefix(prefix) else { continue }
+            let rest = label.dropFirst(prefix.count)
+            if rest.isEmpty || rest.allSatisfy(\.isNumber) { return true }
+        }
+        return false
+    }
 }
 #endif

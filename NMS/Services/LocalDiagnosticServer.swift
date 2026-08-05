@@ -60,7 +60,12 @@ final class LocalDiagnosticServer {
     /// `NWListener` implementation.
     private enum ContentMode {
         case diagnosticLog(SnapshotStore)
-        case reverseTrace(target: String, results: [GlobalpingReverseTraceService.ProbeTraceResult])
+        case reverseTrace(
+            target: String,
+            results: [GlobalpingReverseTraceService.ProbeTraceResult],
+            confirmedAddress: String?,
+            siblingAddresses: [String: [String: String]]
+        )
     }
 
     private var listener: NWListener?
@@ -94,10 +99,22 @@ final class LocalDiagnosticServer {
     /// round trip on every page reload would be a worse experience than
     /// showing one run's results until a fresh "Path Discovery…" click
     /// replaces them.
-    func start(reverseTraceTarget target: String, results: [GlobalpingReverseTraceService.ProbeTraceResult]) async -> URL? {
+    /// `confirmedAddress` is Path to Internet's currently confirmed ISP
+    /// edge hop, if any -- lets the results page mark which probe(s)
+    /// actually corroborate it. `siblingAddresses` is the supplementary
+    /// `dig`-sourced lookup for each edge-candidate device stem (see
+    /// `DebugToolsView.lookUpSiblingAddresses`) -- both optional/empty by
+    /// default so this stays callable the same simple way for a plain
+    /// run with no confirmed hop yet.
+    func start(
+        reverseTraceTarget target: String,
+        results: [GlobalpingReverseTraceService.ProbeTraceResult],
+        confirmedAddress: String? = nil,
+        siblingAddresses: [String: [String: String]] = [:]
+    ) async -> URL? {
         stop()
         pathToken = Self.randomToken()
-        contentMode = .reverseTrace(target: target, results: results)
+        contentMode = .reverseTrace(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
         return await startListener()
     }
 
@@ -212,12 +229,12 @@ final class LocalDiagnosticServer {
                 // Fresh query on every request, not a cached string --
                 // see this type's own doc comment for why.
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderPage(snapshotStore: snapshotStore))
-            case .reverseTrace(let target, let results):
+            case .reverseTrace(let target, let results, let confirmedAddress, let siblingAddresses):
                 // Not regenerated per-request the same way -- see
                 // `start(reverseTraceTarget:results:)`'s own doc comment
                 // for why a live Globalping round trip per page reload
                 // would be the wrong tradeoff here.
-                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: target, results: results))
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses))
             case nil:
                 response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
             }
@@ -360,15 +377,97 @@ final class LocalDiagnosticServer {
         """
     }
 
-    /// One probe's result, rendered as its own table -- deliberately not
-    /// merged into one giant table across probes: each probe's hop
-    /// numbering is its own independent sequence (hop 5 from Buffalo and
-    /// hop 5 from Tokyo aren't comparable rows), so per-probe tables read
-    /// correctly where one merged table wouldn't.
-    private static func renderReverseTracePage(target: String, results: [GlobalpingReverseTraceService.ProbeTraceResult]) -> String {
-        let neutral = "#0F1729", secondary = "#5B6B85"
+    /// The ISP edge specifically is the interesting part — raised
+    /// directly ("the focus is the isp edge router") — so the primary
+    /// view is a comparison table across sources, not a wall of
+    /// per-probe hop lists (kept below, in a collapsed `<details>`, for
+    /// reference, not deleted). Each row is one probe's own "last real
+    /// hop before its own destination" (`TracerouteViewModel
+    /// .lastHopBeforeDestination`, the exact same extraction the
+    /// corroboration check already uses), so convergence/divergence
+    /// across independent vantage points is visible at a glance instead
+    /// of requiring a mental diff across several separate tables.
+    private static func renderReverseTracePage(
+        target: String,
+        results: [GlobalpingReverseTraceService.ProbeTraceResult],
+        confirmedAddress: String?,
+        siblingAddresses: [String: [String: String]]
+    ) -> String {
+        let neutral = "#0F1729", secondary = "#5B6B85", positive = "#1FAA59"
 
-        let probeSectionsHTML = results.map { probe -> String in
+        struct EdgeRow {
+            let probe: GlobalpingReverseTraceService.ProbeTraceResult
+            let hop: GlobalpingReverseTraceService.ProbeTraceResult.Hop?
+            let stem: String?
+        }
+        let edgeRows: [EdgeRow] = results.map { probe in
+            let hop = TracerouteViewModel.lastHopBeforeDestination(probe.hops, destination: probe.resolvedAddress)
+            let stem = hop?.hostname.flatMap { GlobalpingReverseTraceService.deviceStem(fromHostname: $0) }
+            return EdgeRow(probe: probe, hop: hop, stem: stem)
+        }
+
+        let comparisonRowsHTML = edgeRows.map { row -> String in
+            let location = [row.probe.city, row.probe.country].compactMap { $0 }.joined(separator: ", ")
+            let networkLabel = [row.probe.network, row.probe.asn.map { "ASN \($0)" }].compactMap { $0 }.joined(separator: " · ")
+            let address = row.hop?.address ?? "*"
+            let hostname = row.hop?.hostname.map { " (\($0))" } ?? ""
+            let matches = confirmedAddress != nil && row.hop?.address == confirmedAddress
+            let matchCell = confirmedAddress == nil ? "—" : (matches ? "✓" : "")
+            return """
+            <tr>
+              <td>\(escape(location.isEmpty ? "Unknown location" : location))<br><span class="secondary">\(escape(networkLabel))</span></td>
+              <td>\(escape(address))\(escape(hostname))</td>
+              <td style="color: \(matches ? positive : neutral)">\(matchCell)</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+        let comparisonTable = results.isEmpty
+            ? "<p class=\"empty\">No results.</p>"
+            : """
+              <table>
+              <tr><th>Source</th><th>ISP edge candidate</th><th>Matches confirmed hop</th></tr>
+              \(comparisonRowsHTML)
+              </table>
+              """
+
+        // Cross-reference every hop across every probe's *full* path
+        // (not just the edge-candidate row) that shares a device stem
+        // with an edge candidate -- these are addresses already present
+        // in this same run's own data, not guessed. Merged with the
+        // supplementary dig lookups (`siblingAddresses`), which fill in
+        // a couple of patterns confirmed to reliably resolve but not
+        // necessarily hit by any probe's own path.
+        let edgeStems = Set(edgeRows.compactMap(\.stem))
+        let knownAddressesHTML = edgeStems.sorted().map { stem -> String in
+            var seen: [String: String] = [:] // hostname -> address
+            for probe in results {
+                for hop in probe.hops {
+                    guard let hostname = hop.hostname, let address = hop.address,
+                          GlobalpingReverseTraceService.deviceStem(fromHostname: hostname) == stem
+                    else { continue }
+                    seen[hostname] = address
+                }
+            }
+            for (hostname, address) in siblingAddresses[stem] ?? [:] {
+                seen[hostname] = address
+            }
+            let rows = seen.sorted(by: { $0.key < $1.key }).map { hostname, address in
+                "<tr><td>\(escape(hostname))</td><td class=\"secondary\">\(escape(address))</td></tr>"
+            }.joined(separator: "\n")
+            return """
+            <h3>\(escape(stem))</h3>
+            <table>\(rows)</table>
+            """
+        }.joined(separator: "\n")
+        let knownAddressesSection = edgeStems.isEmpty
+            ? ""
+            : """
+              <h2>Known addresses near the edge</h2>
+              <p class="secondary">Every address seen for the same device across this run's own data, plus a couple of confirmed-reliable supplementary lookups (bare device name, its <code>lo0.</code> form) — not a complete inventory, since numbered sibling interfaces (e.g. <code>305.ae0...</code>) can only be cross-referenced when already observed, not guessed.</p>
+              \(knownAddressesHTML)
+              """
+
+        let fullPathsHTML = results.map { probe -> String in
             let location = [probe.city, probe.country].compactMap { $0 }.joined(separator: ", ")
             let networkLabel = [probe.network, probe.asn.map { "ASN \($0)" }].compactMap { $0 }.joined(separator: " · ")
             let hopRowsHTML = probe.hops.map { hop -> String in
@@ -389,18 +488,13 @@ final class LocalDiagnosticServer {
                 ? "<p class=\"empty\">No hops recorded.</p>"
                 : "<table>\n\(hopRowsHTML)\n</table>"
             let statusNote = probe.status == "finished" ? "" : "<p class=\"secondary\">Status: \(escape(probe.status))</p>"
-
             return """
-            <h2>\(escape(location.isEmpty ? "Unknown location" : location))</h2>
+            <h3>\(escape(location.isEmpty ? "Unknown location" : location))</h3>
             <p class="secondary">\(escape(networkLabel))\(probe.resolvedAddress.map { " · resolved \($0)" } ?? "")</p>
             \(statusNote)
             \(hopBody)
             """
         }.joined(separator: "\n")
-
-        let body = results.isEmpty
-            ? "<p class=\"empty\">No results.</p>"
-            : probeSectionsHTML
 
         return """
         <!doctype html>
@@ -412,17 +506,26 @@ final class LocalDiagnosticServer {
           body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #F5F7FB; color: \(neutral); padding: 2rem; }
           h1 { font-size: 1.1rem; }
           h2 { font-size: 0.95rem; margin-top: 2rem; margin-bottom: 0.2rem; }
+          h3 { font-size: 0.85rem; margin-top: 1.2rem; margin-bottom: 0.2rem; }
           .subtitle { color: \(secondary); font-size: 0.85rem; margin-bottom: 1.5rem; }
           table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-top: 0.4rem; }
+          th { text-align: left; padding: 0.3rem 0.75rem 0.3rem 0; color: \(secondary); font-weight: 600; border-bottom: 1px solid rgba(15,23,41,0.15); }
           td { padding: 0.3rem 0.75rem 0.3rem 0; border-bottom: 1px solid rgba(15,23,41,0.08); vertical-align: top; }
           .secondary { color: \(secondary); }
           .empty { color: \(secondary); }
+          summary { cursor: pointer; font-size: 0.9rem; margin-top: 1.5rem; color: \(secondary); }
         </style>
         </head>
         <body>
         <h1>NMS — Path Discovery</h1>
         <p class="subtitle">Reverse traceroute toward \(escape(target)), from \(results.count) external vantage point\(results.count == 1 ? "" : "s") via Globalping. Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — this page is a snapshot of that one run, not live.</p>
-        \(body)
+        <h2>ISP edge, compared across sources</h2>
+        \(comparisonTable)
+        \(knownAddressesSection)
+        <details>
+        <summary>Full path per source</summary>
+        \(fullPathsHTML)
+        </details>
         </body>
         </html>
         """
