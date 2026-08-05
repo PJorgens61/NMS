@@ -154,6 +154,22 @@ checked off as of that date, full reasoning intact.
   for reasonable usage, which makes this considerably more approachable
   than it might sound.
 
+  **Confirmed direction, once Path Discovery actually shipped (see that
+  entry above): reuse it, don't build a second parallel tool.** Raised
+  directly — when this gets built, it should use a local web page for
+  display (`LocalDiagnosticServer`'s reverse-trace content mode, the
+  same mechanism Path Discovery already proved live) and feed its
+  results into the same corroboration/context wiring Path Discovery
+  already has in Path to Internet, not stand alone. Concretely: this is
+  a second `locations` filter mode (`{"network": "<provider>"}` instead
+  of `{"magic": "USA"}`) on the *same* `GlobalpingReverseTraceService`
+  and the *same* Debug Tools window — plausibly a second button
+  ("Path Discovery (near SaaS)…" or a provider picker) rather than new
+  server/service infrastructure. The corroboration math itself doesn't
+  need to change; it's the same "does the last hop before the
+  destination match" check, just against a deliberately SaaS-adjacent
+  vantage point instead of a general geographic one.
+
 - [ ] **Idea: a Share button for diagnostic state, with the interesting
   case being "the network is down, save it and offer to resend once
   it's back."** Raised live (2026-08-04): "mac apps often have a
