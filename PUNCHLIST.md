@@ -12,6 +12,34 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: path discovery toward the specific SaaS services NMS
+  already monitors, sourced from probes hosted on that provider's own
+  network — not just abstract ISP topology.** Raised live (2026-08-04),
+  tying the night's whole reverse-traceroute thread back to something
+  NMS actually does: `SaaSMonitoringViewModel`/`SaaSStatusService`
+  already tracks whether the SaaS a user's work depends on is up —
+  this would add "is a slowdown my network's fault, or something in the
+  path near that specific provider," using the same reverse-traceroute
+  technique but sourced deliberately close to the SaaS provider's own
+  infrastructure instead of a random vantage point.
+  Confirmed feasible live via Globalping (`api.globalping.io`, see
+  `script/diagnostic-exports/reverse-traceroute-home-20260804.md` for
+  the full session): `GET /v1/probes` exposes each probe's hosting
+  provider (`location.network`), and the measurement API accepts
+  `{"network": "<name>"}` as a location filter — real probes exist on
+  Amazon.com, Google, Oracle, DigitalOcean, Akamai Connected Cloud,
+  HUAWEI CLOUDS, among others, out of ~4800 active probes checked.
+  Real caveat, not glossed over: this is "near a major hyperscaler in
+  general," not literally the exact facility a specific SaaS's backend
+  runs in — a real, live, sourceable *approximation*, not precision.
+  Also confirmed the same session: traceroute's per-hop latency numbers
+  are noisy for structural reasons (ICMP reply deprioritization,
+  ECMP/load-balanced path variance) — any implementation here should
+  treat hop *identity*/path convergence as the reliable signal, latency
+  numbers as suggestive at best. Not built — no API auth needed at all
+  for reasonable usage, which makes this considerably more approachable
+  than it might sound.
+
 - [ ] **Idea: a Share button for diagnostic state, with the interesting
   case being "the network is down, save it and offer to resend once
   it's back."** Raised live (2026-08-04): "mac apps often have a
@@ -252,16 +280,33 @@ checked off as of that date, full reasoning intact.
   traceroute artifact, not confirmed either way) are all in
   `script/diagnostic-exports/reverse-traceroute-home-20260804.md`.
 
-  **Idea from the same result**: run the same reverse-trace from
-  *several* different vantage points toward the same target. The last
-  few hops before the destination should converge regardless of
-  starting point — every path funnels through the same last-mile
-  infrastructure (same BNG, same regional core router) to reach one
-  specific home connection, so convergence (or the lack of it) is real
-  topology information near the router, not noise. This is the
-  informal version of the alias-resolution technique already named
-  above (Ally, MIDAR, kapar; CAIDA's Ark project) — arrived at
-  independently here. Not yet tried with a second vantage point.
+  **Idea from the same result, then actually done, same day**: run the
+  same reverse-trace from *several* different vantage points toward the
+  same target — the last few hops before the destination should
+  converge regardless of starting point, since every path funnels
+  through the same last-mile infrastructure to reach one specific home
+  connection. Tried for real via **Globalping** (`api.globalping.io`)
+  instead of RIPE Atlas — **works fully anonymously, no account, no
+  token, no credits at all** (a plain unauthenticated POST to
+  `/v1/measurements` just worked, confirmed live). Ran a traceroute
+  toward the home public IP from 3 simultaneous vantage points (Buffalo
+  NY, Los Angeles CA, Houston TX, auto-picked by `{"locations":
+  [{"magic": "USA"}]}`) — all three, via completely different transit
+  routes, converged on the identical last four hops into Sonic's
+  network, real alias-resolution-style evidence with zero setup cost.
+  Also confirmed the latency anomaly from the HE trace above is real
+  (same hop, inflated in all three independently-routed traces) and
+  solved the public-IP discrepancy (the resolved hostname says
+  `...dynamic.sonic.net` — the address genuinely changes). Full
+  writeup in `script/diagnostic-exports/reverse-traceroute-home-20260804.md`.
+  **This effectively resolves the core capability gap this whole item
+  was chasing** — Globalping is a meaningfully better tool for
+  reverse-traceroute/multi-vantage-point work than RIPE Atlas turned
+  out to be, for anyone without existing RIPE Atlas credits. The RIPE
+  Atlas credit-earning threads above (software probe, cloud hosting)
+  are no longer urgent given this, just left in place as background in
+  case RIPE Atlas's specific probe network (denser/different from
+  Globalping's) is ever needed for something else.
 
   **Refinement, same day:** run the software probe on a free always-on
   cloud host instead of the Mac — "could be any free cloud host," not
