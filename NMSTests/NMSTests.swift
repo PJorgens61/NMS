@@ -1718,4 +1718,307 @@ struct ReverseTraceCorroborationTests {
         let hops = [hop("192.168.1.1"), hop("96.120.90.213"), hop(nil), hop("98.45.206.181")]
         #expect(TracerouteViewModel.reverseTraceCorroborates(hops, destination: "98.45.206.181", confirmedAddress: "96.120.90.213"))
     }
+
+    /// The real scenario this was built from (2026-08-04, live): 4 of 5
+    /// Path Discovery probes showed a BNG as the edge candidate; one
+    /// (Ashburn) showed the switch one hop *before* the BNG instead --
+    /// because that one probe's own packets got no reply from the BNG
+    /// itself, not because it genuinely reached a different device.
+    @Test("hasGapBeforeDestination: a non-responding hop right before the destination is a real gap")
+    func gapDetectedWhenHopBeforeDestinationDidNotReply() {
+        let hops = [hop("192.168.1.1"), hop("198.27.244.58"), hop(nil), hop("192.184.170.5")]
+        #expect(TracerouteViewModel.hasGapBeforeDestination(hops, destination: "192.184.170.5"))
+    }
+
+    @Test("hasGapBeforeDestination: a real reply right before the destination is not a gap")
+    func noGapWhenHopBeforeDestinationReplied() {
+        let hops = [hop("192.168.1.1"), hop("198.27.244.58"), hop("157.131.209.36"), hop("192.184.170.5")]
+        #expect(!TracerouteViewModel.hasGapBeforeDestination(hops, destination: "192.184.170.5"))
+    }
+
+    @Test("hasGapBeforeDestination: the destination as the very first hop (no predecessor at all) is not a gap")
+    func noGapWhenDestinationIsFirstHop() {
+        let hops = [hop("192.184.170.5")]
+        #expect(!TracerouteViewModel.hasGapBeforeDestination(hops, destination: "192.184.170.5"))
+    }
+
+    @Test("hasGapBeforeDestination: destination never reached at all returns false, not a crash")
+    func noGapWhenDestinationNeverReached() {
+        let hops = [hop("192.168.1.1"), hop(nil)]
+        #expect(!TracerouteViewModel.hasGapBeforeDestination(hops, destination: "192.184.170.5"))
+    }
+
+    private func probe(_ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop], resolvedAddress: String) -> GlobalpingReverseTraceService.ProbeTraceResult {
+        GlobalpingReverseTraceService.ProbeTraceResult(city: nil, country: nil, network: nil, asn: nil, status: "finished", resolvedAddress: resolvedAddress, hops: hops)
+    }
+
+    /// Raised directly ("does path discovery help... only in certain
+    /// circumstances?") -- a gapped probe must be excluded from both the
+    /// denominator and the corroborating count, not counted as a
+    /// non-match. Otherwise a reply gap alone (not a real divergence)
+    /// could drag the persisted/logged corroboration numbers down.
+    @Test("corroboratingSummary: a gapped probe is excluded entirely, not counted as a non-match")
+    func gappedProbeExcludedFromSummary() {
+        let matching = probe([hop("192.168.1.1"), hop("198.27.244.58"), hop("192.184.170.5")], resolvedAddress: "192.184.170.5")
+        let gapped = probe([hop("192.168.1.1"), hop("198.27.244.58"), hop(nil), hop("192.184.170.5")], resolvedAddress: "192.184.170.5")
+        let summary = TracerouteViewModel.corroboratingSummary([matching, gapped], confirmedAddress: "198.27.244.58")
+        #expect(summary.effectiveProbeCount == 1)
+        #expect(summary.corroboratingCount == 1)
+    }
+
+    @Test("corroboratingSummary: a genuine non-match (no gap) still counts against corroboration")
+    func genuineNonMatchStillCounts() {
+        let matching = probe([hop("192.168.1.1"), hop("198.27.244.58"), hop("192.184.170.5")], resolvedAddress: "192.184.170.5")
+        let different = probe([hop("192.168.1.1"), hop("203.0.113.9"), hop("192.184.170.5")], resolvedAddress: "192.184.170.5")
+        let summary = TracerouteViewModel.corroboratingSummary([matching, different], confirmedAddress: "198.27.244.58")
+        #expect(summary.effectiveProbeCount == 2)
+        #expect(summary.corroboratingCount == 1)
+    }
+
+    @Test("corroboratingSummary: every probe gapped leaves zero effective probes, not a crash")
+    func allProbesGappedLeavesZeroEffective() {
+        let gapped = probe([hop("192.168.1.1"), hop(nil), hop("192.184.170.5")], resolvedAddress: "192.184.170.5")
+        let summary = TracerouteViewModel.corroboratingSummary([gapped], confirmedAddress: "198.27.244.58")
+        #expect(summary.effectiveProbeCount == 0)
+        #expect(summary.corroboratingCount == 0)
+    }
+}
+
+// MARK: - LocalDiagnosticServer: both sections coexist
+
+/// The real regression this guards: `start(snapshotStore:)` and
+/// `showReverseTrace` each used to unconditionally restart the listener
+/// and mint a fresh token, so opening one debug page silently broke
+/// whichever page was already open in another browser tab (raised
+/// directly, live: "dianostic log webpage didn't work. conflict with
+/// path discovery?"). Fixed by having both sections share one running
+/// listener/token instead of fighting over it. Exercises the actual
+/// `NWListener` over real loopback sockets, not a mock — this is
+/// integration-shaped on purpose, the same way `StoreFallbackTests`
+/// above exercises a real SwiftData store rather than mocking
+/// persistence: the bug was in the plumbing itself, not in logic a mock
+/// would faithfully reproduce.
+/// `.serialized` -- these tests share one real, physical directory
+/// (`script/diagnostic-exports/`, via `exportsHTMLFileToDisk`'s own
+/// before/after snapshot). Swift Testing runs tests within a suite in
+/// parallel by default; two of these racing let one test's own export
+/// land inside another's "newly created since I started" window, seen
+/// live as a real, reproducible failure (`newFiles.count == 2`, not 1)
+/// once enough runs finally got past the unrelated test-host crash
+/// (`SnapshotStore.latestProviderEdge`, confirmed via a real macOS crash
+/// report -- the live app itself, launched as this bundle's test host,
+/// crashing from its own background services; the same category of
+/// test-host race already tracked in the cross-machine sync issue).
+/// In-memory `SnapshotStore` state isn't shared across these tests
+/// either way, so serializing costs nothing beyond wall-clock time.
+@Suite("LocalDiagnosticServer", .serialized)
+@MainActor
+struct LocalDiagnosticServerTests {
+    private func makeSnapshotStore() throws -> SnapshotStore {
+        let schema = Schema([
+            NetworkSnapshot.self, DiscoveredDeviceRecord.self, ConnectivityCheckRecord.self,
+            KnownNetwork.self, PublicIPRecord.self, DHCPLeaseRecord.self, NetworkQualityRecord.self,
+            AppEventRecord.self, ProviderEdgeRecord.self, SNMPDeviceRecord.self,
+            WiFiSampleRecord.self, WiFiStressTestRecord.self
+        ])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
+        return SnapshotStore(context: container.mainContext)
+    }
+
+    private func fetch(_ url: URL) async throws -> (status: Int, body: String) {
+        let (data, response) = try await URLSession.shared.data(from: url)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        return (status, String(data: data, encoding: .utf8) ?? "")
+    }
+
+    /// `showReverseTrace` now always exports a real file to the actual
+    /// project's `script/diagnostic-exports/` (see `exportsHTMLFileToDisk`
+    /// below) -- every test in this suite that calls it needs to clean
+    /// that file back up, or repeated test runs would leave real clutter
+    /// behind on disk (gitignored, but still real files piling up).
+    /// Shared here rather than repeated per test.
+    private var exportsDir: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // NMSTests
+            .deletingLastPathComponent() // project root
+            .appendingPathComponent("script/diagnostic-exports")
+    }
+
+    private func newlyExportedFiles(since before: Set<String>) -> [String] {
+        let after = Set((try? FileManager.default.contentsOfDirectory(atPath: exportsDir.path)) ?? [])
+        return after.subtracting(before).filter { $0.hasPrefix("path-discovery-") && $0.hasSuffix(".html") }
+    }
+
+    private func cleaningUpExports<T>(_ body: () async throws -> T) async rethrows -> T {
+        let before = Set((try? FileManager.default.contentsOfDirectory(atPath: exportsDir.path)) ?? [])
+        defer {
+            for name in newlyExportedFiles(since: before) {
+                try? FileManager.default.removeItem(at: exportsDir.appendingPathComponent(name))
+            }
+        }
+        return try await body()
+    }
+
+    @Test("starting Path Discovery after the diagnostic log doesn't break the log's own URL")
+    func pathDiscoveryDoesNotBreakDiagnosticLog() async throws {
+        try await cleaningUpExports {
+        let server = LocalDiagnosticServer()
+        defer { server.stop() }
+
+        let logURL = try #require(await server.start(snapshotStore: try makeSnapshotStore()))
+        #expect(logURL.lastPathComponent == "log")
+
+        let probe = GlobalpingReverseTraceService.ProbeTraceResult(
+            city: "Ashburn", country: "US", network: "Test Network", asn: 64512,
+            status: "finished", resolvedAddress: "203.0.113.5",
+            hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop(hopNumber: 1, address: "203.0.113.5", hostname: nil, roundTripTimesMs: [])]
+        )
+        let discoveryURL = try #require(await server.showReverseTrace(target: "203.0.113.5", results: [probe]))
+        #expect(discoveryURL.lastPathComponent == "path-discovery")
+
+        // Same listener/token for both -- everything but the final path
+        // component must be identical.
+        #expect(logURL.deletingLastPathComponent() == discoveryURL.deletingLastPathComponent())
+
+        // The actual bug: reload the log URL *after* Path Discovery
+        // started -- it must still work, not connection-refuse.
+        let logResult = try await fetch(logURL)
+        #expect(logResult.status == 200)
+        #expect(logResult.body.contains("Diagnostic Log"))
+
+        let discoveryResult = try await fetch(discoveryURL)
+        #expect(discoveryResult.status == 200)
+        #expect(discoveryResult.body.contains("Path Discovery"))
+        }
+    }
+
+    /// Raised directly ("is their a way for you to see the web page
+    /// automatically? a local copy in nms?") -- every `showReverseTrace`
+    /// call must also drop a plain HTML file in `script/diagnostic-
+    /// exports/`, the same directory `export-diagnostic.sh` already
+    /// writes to, so the result is readable without a working browser
+    /// session.
+    @Test("showReverseTrace also exports a timestamped HTML file to script/diagnostic-exports/")
+    func exportsHTMLFileToDisk() async throws {
+        let before = Set((try? FileManager.default.contentsOfDirectory(atPath: exportsDir.path)) ?? [])
+        try await cleaningUpExports {
+        let server = LocalDiagnosticServer()
+        defer { server.stop() }
+
+        let probe = GlobalpingReverseTraceService.ProbeTraceResult(
+            city: "Ashburn", country: "US", network: "Test Network", asn: 64512,
+            status: "finished", resolvedAddress: "203.0.113.5",
+            hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop(hopNumber: 1, address: "203.0.113.5", hostname: nil, roundTripTimesMs: [])]
+        )
+        _ = try #require(await server.showReverseTrace(target: "203.0.113.5", results: [probe]))
+
+        let newFiles = newlyExportedFiles(since: before)
+        #expect(newFiles.count == 1)
+
+        let filename = try #require(newFiles.first)
+        let content = try? String(contentsOf: exportsDir.appendingPathComponent(filename), encoding: .utf8)
+        #expect(content?.contains("Path Discovery") == true)
+        #expect(content?.contains("203.0.113.5") == true)
+        }
+    }
+
+    @Test("each page links to the other so either can be reached without going back through Debug Tools")
+    func pagesCrossLinkToEachOther() async throws {
+        try await cleaningUpExports {
+        let server = LocalDiagnosticServer()
+        defer { server.stop() }
+
+        let logURL = try #require(await server.start(snapshotStore: try makeSnapshotStore()))
+        let logResult = try await fetch(logURL)
+        #expect(logResult.body.contains("href=\"log\"") || logResult.body.contains("path-discovery"))
+
+        let probe = GlobalpingReverseTraceService.ProbeTraceResult(
+            city: nil, country: nil, network: nil, asn: nil,
+            status: "finished", resolvedAddress: "203.0.113.5", hops: []
+        )
+        let discoveryURL = try #require(await server.showReverseTrace(target: "203.0.113.5", results: [probe]))
+        let discoveryResult = try await fetch(discoveryURL)
+        #expect(discoveryResult.body.contains("href=\"log\""))
+        }
+    }
+}
+
+// MARK: - SnapshotStore.recordPathDiscoveryRun event logging
+
+/// Raised directly ("can we flag them to the event log? only in certain
+/// circumstances?") -- covers the "genuine transition, not every run"
+/// logging rule and the CGNAT suppression for the negative kind.
+@Suite("SnapshotStore.recordPathDiscoveryRun")
+@MainActor
+struct PathDiscoveryEventLoggingTests {
+    private func makeStore() throws -> SnapshotStore {
+        let schema = Schema([
+            NetworkSnapshot.self, DiscoveredDeviceRecord.self, ConnectivityCheckRecord.self,
+            KnownNetwork.self, PublicIPRecord.self, DHCPLeaseRecord.self, NetworkQualityRecord.self,
+            AppEventRecord.self, ProviderEdgeRecord.self, SNMPDeviceRecord.self,
+            WiFiSampleRecord.self, WiFiStressTestRecord.self
+        ])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
+        return SnapshotStore(context: container.mainContext)
+    }
+
+    private func loggedKinds(_ store: SnapshotStore) -> [AppEventKind] {
+        store.fetchRecentEvents().compactMap { AppEventKind(rawValue: $0.kind) }
+    }
+
+    @Test("the very first run logs .pathDiscoveryCorroborated -- a deliberate manual click is new information, not \"just where you already are\"")
+    func firstRunCorroboratedLogs() throws {
+        let store = try makeStore()
+        store.recordProviderEdgeIfChanged(address: "96.120.90.213", hostname: nil)
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 4, corroboratingCount: 3, isKnownComplexTopology: false)
+        #expect(loggedKinds(store) == [.pathDiscoveryCorroborated])
+    }
+
+    @Test("the very first run, not corroborated, not a complex topology: logs .pathDiscoveryNotCorroborated")
+    func firstRunNotCorroboratedLogsWhenSimple() throws {
+        let store = try makeStore()
+        store.recordProviderEdgeIfChanged(address: "96.120.90.213", hostname: nil)
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 4, corroboratingCount: 0, isKnownComplexTopology: false)
+        #expect(loggedKinds(store) == [.pathDiscoveryNotCorroborated])
+    }
+
+    /// Under confirmed CGNAT, divergence across external vantage points
+    /// is expected, not news -- logging it would misrepresent normal
+    /// multi-path topology as a problem.
+    @Test("not corroborated under a known-complex (CGNAT) topology: logs nothing")
+    func notCorroboratedSuppressedUnderComplexTopology() throws {
+        let store = try makeStore()
+        store.recordProviderEdgeIfChanged(address: "96.120.90.213", hostname: nil)
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 4, corroboratingCount: 0, isKnownComplexTopology: true)
+        #expect(loggedKinds(store).isEmpty)
+    }
+
+    @Test("every probe gapped (zero effective probes): logs nothing, regardless of topology")
+    func zeroEffectiveProbesLogsNothing() throws {
+        let store = try makeStore()
+        store.recordProviderEdgeIfChanged(address: "96.120.90.213", hostname: nil)
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 0, corroboratingCount: 0, isKnownComplexTopology: false)
+        #expect(loggedKinds(store).isEmpty)
+    }
+
+    @Test("the same result on a repeat run logs nothing a second time -- not a per-run log")
+    func repeatedSameResultDoesNotReLog() throws {
+        let store = try makeStore()
+        store.recordProviderEdgeIfChanged(address: "96.120.90.213", hostname: nil)
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 4, corroboratingCount: 3, isKnownComplexTopology: false)
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 5, corroboratingCount: 2, isKnownComplexTopology: false)
+        #expect(loggedKinds(store) == [.pathDiscoveryCorroborated])
+    }
+
+    @Test("a genuine transition from corroborated to not corroborated logs the new state")
+    func transitionFromCorroboratedToNot() throws {
+        let store = try makeStore()
+        store.recordProviderEdgeIfChanged(address: "96.120.90.213", hostname: nil)
+        // Explicit, distinct timestamps -- `fetchRecentEvents` sorts by
+        // `occurredAt` descending, and two back-to-back `Date()` calls in
+        // a fast test could theoretically tie.
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 4, corroboratingCount: 3, isKnownComplexTopology: false, at: Date(timeIntervalSince1970: 1000))
+        store.recordPathDiscoveryRun(address: "96.120.90.213", probeCount: 4, corroboratingCount: 0, isKnownComplexTopology: false, at: Date(timeIntervalSince1970: 2000))
+        #expect(loggedKinds(store) == [.pathDiscoveryNotCorroborated, .pathDiscoveryCorroborated])
+    }
 }

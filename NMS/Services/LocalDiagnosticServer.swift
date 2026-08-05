@@ -45,32 +45,29 @@ import Network
 /// `script/export-diagnostic.sh` already makes, not expensive queries.
 @MainActor
 final class LocalDiagnosticServer {
-    /// Which page this server is currently serving — the diagnostic log
-    /// (`SnapshotStore`-backed) or a Path Discovery reverse-trace result
-    /// set. Never both: `start(...)` always calls `stop()` first (see
-    /// below), so starting one flavor stops whichever was previously
-    /// running, same "only one on-demand debug page at a time" shape
-    /// this whole type already has (one listener, one token). Reuses the
-    /// exact same `NWListener`/loopback/token/idle-timeout plumbing for
-    /// both — this is the second content generator the original
-    /// `PUNCHLIST.md` server item explicitly left open ("whether this
-    /// becomes a small shared internal service both features route
-    /// through... worth deciding once [a next] feature is actually being
-    /// built"), decided here in favor of reuse over a third parallel
-    /// `NWListener` implementation.
-    private enum ContentMode {
-        case diagnosticLog(SnapshotStore)
-        case reverseTrace(
-            target: String,
-            results: [GlobalpingReverseTraceService.ProbeTraceResult],
-            confirmedAddress: String?,
-            siblingAddresses: [String: [String: String]]
-        )
+    /// The diagnostic log (`SnapshotStore`-backed) and a Path Discovery
+    /// reverse-trace result set are two *sections* of the one server, not
+    /// two competing modes. Previously each had its own `start(...)` that
+    /// unconditionally tore down the listener and minted a fresh token —
+    /// which meant opening one silently broke whichever page was already
+    /// open in another browser tab (raised directly, live: "dianostic log
+    /// webpage didn't work. conflict with path discovery?"). Now the
+    /// listener/token, once started, stays up and serves both sections —
+    /// `/log` and `/path-discovery` — with in-page navigation between
+    /// them ("should the webpage selection be builtin to a single webpage
+    /// instead?"), so starting either one doesn't disturb a tab already
+    /// open on the other.
+    private struct ReverseTraceContent {
+        let target: String
+        let results: [GlobalpingReverseTraceService.ProbeTraceResult]
+        let confirmedAddress: String?
+        let siblingAddresses: [String: [String: String]]
     }
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
-    private var contentMode: ContentMode?
+    private var snapshotStore: SnapshotStore?
+    private var reverseTraceContent: ReverseTraceContent?
     private var pathToken = ""
     private var idleTimer: Timer?
 
@@ -78,19 +75,19 @@ final class LocalDiagnosticServer {
 
     var isRunning: Bool { listener != nil }
 
-    /// Starts the server (replacing any already running) and returns the
-    /// URL to open, once the listener is actually bound and its ephemeral
-    /// port is known. `nil` on failure -- logged, not thrown, since this
-    /// is a debug convenience, not a code path anything else depends on.
+    /// Makes the diagnostic log available and returns the URL to open it
+    /// directly. Starts the server if it isn't already running; if it is
+    /// (e.g. Path Discovery started it first), reuses the same listener
+    /// and token rather than restarting — restarting would invalidate the
+    /// token any other already-open tab is using.
     func start(snapshotStore: SnapshotStore) async -> URL? {
-        stop()
-        pathToken = Self.randomToken()
-        contentMode = .diagnosticLog(snapshotStore)
-        return await startListener()
+        self.snapshotStore = snapshotStore
+        guard let base = await ensureRunning() else { return nil }
+        return base.appendingPathComponent("log")
     }
 
-    /// Starts the server showing a Path Discovery reverse-trace result
-    /// set instead of the diagnostic log. The Globalping network calls
+    /// Makes a Path Discovery reverse-trace result set available and
+    /// returns the URL to open it directly. The Globalping network calls
     /// themselves (`GlobalpingReverseTraceService.createMeasurement`/
     /// `fetchResult`) already happened by the time this is called — this
     /// server only renders already-fetched results, it doesn't make its
@@ -106,21 +103,70 @@ final class LocalDiagnosticServer {
     /// `DebugToolsView.lookUpSiblingAddresses`) -- both optional/empty by
     /// default so this stays callable the same simple way for a plain
     /// run with no confirmed hop yet.
-    func start(
-        reverseTraceTarget target: String,
+    func showReverseTrace(
+        target: String,
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String? = nil,
         siblingAddresses: [String: [String: String]] = [:]
     ) async -> URL? {
+        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
+        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
+        guard let base = await ensureRunning() else { return nil }
+        return base.appendingPathComponent("path-discovery")
+    }
+
+    /// Also written to disk on every run, automatically — raised directly
+    /// ("is their a way for you to see the web page automatically? a
+    /// local copy in nms?"): browser automation has been unreliable this
+    /// session, so a plain file on disk can just be read directly instead
+    /// of needing a working browser session. Same directory
+    /// `export-diagnostic.sh` already writes to (gitignored, local-only,
+    /// same `<name>-<yyyyMMdd-HHmmss>` naming). `#filePath` is this
+    /// source file's own on-disk location at compile time -- a Debug
+    /// build always compiles straight from the local checkout it's part
+    /// of, so walking up from it to the project root is more portable
+    /// than hardcoding this machine's path, and it's the only signal
+    /// available at all: a compiled app bundle has no other way to know
+    /// where its own source checkout lives.
+    private static func exportReverseTraceHTML(
+        target: String,
+        results: [GlobalpingReverseTraceService.ProbeTraceResult],
+        confirmedAddress: String?,
+        siblingAddresses: [String: [String: String]]
+    ) {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // NMS/Services
+            .deletingLastPathComponent() // NMS
+            .deletingLastPathComponent() // project root
+        let dir = projectRoot.appendingPathComponent("script/diagnostic-exports")
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let file = dir.appendingPathComponent("path-discovery-\(formatter.string(from: Date())).html")
+
+        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try html.write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            print("LocalDiagnosticServer: failed to export Path Discovery page: \(error)")
+        }
+    }
+
+    /// Returns the base `http://127.0.0.1:<port>/<token>` URL, starting
+    /// the listener first if it isn't already up. Reuses an already-ready
+    /// listener as-is instead of restarting it, which is the actual fix
+    /// for the "starting one page kills the other" bug above.
+    private func ensureRunning() async -> URL? {
+        if let listener, listener.state == .ready, let port = listener.port {
+            return URL(string: "http://127.0.0.1:\(port.rawValue)/\(pathToken)")
+        }
         stop()
         pathToken = Self.randomToken()
-        contentMode = .reverseTrace(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
         return await startListener()
     }
 
-    /// The actual `NWListener` setup, shared by both `start` overloads
-    /// above -- factored out once a second content mode needed the exact
-    /// same plumbing, rather than copying it a second time.
+    /// The actual `NWListener` setup.
     private func startListener() async -> URL? {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
@@ -177,7 +223,8 @@ final class LocalDiagnosticServer {
         listener = nil
         connections.values.forEach { $0.cancel() }
         connections.removeAll()
-        contentMode = nil
+        snapshotStore = nil
+        reverseTraceContent = nil
     }
 
     private func scheduleIdleTimeout() {
@@ -221,30 +268,47 @@ final class LocalDiagnosticServer {
     private func respond(to request: String, on connection: NWConnection) {
         let requestLine = request.split(separator: "\r\n").first.map(String.init) ?? ""
         let path = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? ""
+        let prefix = "/\(pathToken)"
+        let section = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
 
         let response: Data
-        if path == "/\(pathToken)" || path == "/\(pathToken)/" {
-            switch contentMode {
-            case .diagnosticLog(let snapshotStore):
+        switch section {
+        case "":
+            // Redirect to the trailing-slash form so the index page's own
+            // relative nav links ("log", "path-discovery") resolve against
+            // the token as a path segment, not get merged over it.
+            response = Self.redirectResponse(to: "\(prefix)/")
+        case "/":
+            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderIndexPage(hasReverseTrace: reverseTraceContent != nil))
+        case "/log":
+            if let snapshotStore {
                 // Fresh query on every request, not a cached string --
                 // see this type's own doc comment for why.
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderPage(snapshotStore: snapshotStore))
-            case .reverseTrace(let target, let results, let confirmedAddress, let siblingAddresses):
-                // Not regenerated per-request the same way -- see
-                // `start(reverseTraceTarget:results:)`'s own doc comment
-                // for why a live Globalping round trip per page reload
-                // would be the wrong tradeoff here.
-                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses))
-            case nil:
-                response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
+            } else {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Diagnostic Log", message: "Not started yet — click \u{201c}Diagnostic Log\u{2026}\u{201d} in Debug Tools."))
             }
-        } else {
+        case "/path-discovery":
+            if let content = reverseTraceContent {
+                // Not regenerated per-request the same way -- see
+                // `showReverseTrace`'s own doc comment for why a live
+                // Globalping round trip per page reload would be the
+                // wrong tradeoff here.
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses))
+            } else {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Path Discovery", message: "No run yet — click \u{201c}Path Discovery\u{2026}\u{201d} in Debug Tools."))
+            }
+        default:
             response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
         }
 
         connection.send(content: response, completion: .contentProcessed { _ in
             connection.cancel()
         })
+    }
+
+    private static func redirectResponse(to location: String) -> Data {
+        Data("HTTP/1.1 302 Found\r\nLocation: \(location)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
     }
 
     private static func httpResponse(status: String, contentType: String, body: String) -> Data {
@@ -256,6 +320,61 @@ final class LocalDiagnosticServer {
     private static func randomToken() -> String {
         (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
     }
+
+    /// One shared stylesheet for all four pages this server renders —
+    /// raised directly ("can we make the webpage ui more 'mac-like'?
+    /// similar buttons?"): system font instead of all-monospace, a
+    /// native macOS color palette (incl. dark mode via
+    /// `prefers-color-scheme`), card-style panels, and the nav rendered
+    /// as a real segmented-control-style button group instead of plain
+    /// text links — the same widget shape across all four pages, not
+    /// just visually similar by coincidence. CSS custom properties so
+    /// the semantic per-row colors (`var(--positive)` etc.) used inline
+    /// by both `renderPage` and `renderReverseTracePage` stay in sync
+    /// with light/dark mode automatically, rather than each page
+    /// hardcoding its own hex values.
+    private static let sharedCSS = """
+    :root {
+      --bg: #F5F5F7; --card: #FFFFFF; --label: #1D1D1F; --secondary: #6E6E73;
+      --separator: rgba(0,0,0,0.08); --accent: #007AFF; --positive: #34C759;
+      --negative: #FF3B30; --warning: #C77800; --nav-bg: rgba(120,120,128,0.16);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1C1C1E; --card: #2C2C2E; --label: #F5F5F7; --secondary: #98989D;
+        --separator: rgba(255,255,255,0.12); --accent: #0A84FF; --positive: #30D158;
+        --negative: #FF453A; --warning: #FF9F0A; --nav-bg: rgba(120,120,128,0.28);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      background: var(--bg); color: var(--label); margin: 0; padding: 2.5rem;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 4px; }
+    h2 { font-size: 0.95rem; font-weight: 600; margin: 1.75rem 0 0.5rem; }
+    h3 { font-size: 0.8rem; font-weight: 600; margin: 1.1rem 0 0.3rem; color: var(--secondary); }
+    .subtitle { color: var(--secondary); font-size: 0.85rem; margin: 0 0 1.5rem; }
+    .empty { color: var(--secondary); font-size: 0.85rem; }
+
+    .segmented { display: inline-flex; gap: 2px; background: var(--nav-bg); border-radius: 8px; padding: 2px; margin: 0 0 1.5rem; }
+    .segmented a { padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--label); }
+    .segmented a.active { background: var(--card); color: var(--accent); box-shadow: 0 1px 1px rgba(0,0,0,0.15); }
+
+    .card { background: var(--card); border-radius: 12px; padding: 0.25rem 1.25rem; box-shadow: 0 1px 2px rgba(0,0,0,0.06); margin-bottom: 1rem; }
+
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; color: var(--secondary); font-weight: 600; border-bottom: 1px solid var(--separator); }
+    td { padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--separator); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .ts { color: var(--secondary); white-space: nowrap; }
+    .secondary { color: var(--secondary); }
+
+    summary { cursor: pointer; font-size: 0.85rem; margin-top: 1.25rem; color: var(--secondary); font-weight: 500; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--nav-bg); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+    """
 
     /// One row of the merged chronological log -- built from three
     /// different record types (`AppEventRecord`, `NetworkQualityRecord`,
@@ -274,7 +393,7 @@ final class LocalDiagnosticServer {
     /// stylesheet or script, matching the "no dependencies" posture at
     /// the page level too.
     private static func renderPage(snapshotStore: SnapshotStore) -> String {
-        let neutral = "#0F1729", positive = "#1FAA59", negative = "#E0453A", secondary = "#5B6B85"
+        let neutral = "var(--label)", positive = "var(--positive)", negative = "var(--negative)"
 
         var rows: [LogRow] = snapshotStore.fetchRecentEvents(limit: 200).map { event in
             let kind = AppEventKind(rawValue: event.kind)
@@ -327,7 +446,7 @@ final class LocalDiagnosticServer {
 
         let logBody = rows.isEmpty
             ? "<p class=\"empty\">Nothing recorded yet.</p>"
-            : "<table>\n\(logRowsHTML)\n</table>"
+            : "<div class=\"card\"><table>\n\(logRowsHTML)\n</table></div>"
 
         // SNMP devices are a standing inventory, not a time series --
         // same "every device is relevant context, not just the newest
@@ -346,7 +465,7 @@ final class LocalDiagnosticServer {
         }.joined(separator: "\n")
         let deviceBody = devices.isEmpty
             ? "<p class=\"empty\">No SNMP devices recorded.</p>"
-            : "<table>\n\(deviceRowsHTML)\n</table>"
+            : "<div class=\"card\"><table>\n\(deviceRowsHTML)\n</table></div>"
 
         return """
         <!doctype html>
@@ -354,20 +473,11 @@ final class LocalDiagnosticServer {
         <head>
         <meta charset="utf-8">
         <title>NMS — Diagnostic Log</title>
-        <style>
-          body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #F5F7FB; color: \(neutral); padding: 2rem; }
-          h1 { font-size: 1.1rem; }
-          h2 { font-size: 0.95rem; margin-top: 2rem; }
-          .subtitle { color: \(secondary); font-size: 0.85rem; margin-bottom: 1.5rem; }
-          table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-          td { padding: 0.35rem 0.75rem 0.35rem 0; border-bottom: 1px solid rgba(15,23,41,0.08); vertical-align: top; }
-          .ts { color: \(secondary); white-space: nowrap; }
-          .secondary { color: \(secondary); }
-          .empty { color: \(secondary); }
-        </style>
+        <style>\(sharedCSS)</style>
         </head>
         <body>
         <h1>NMS — Diagnostic Log</h1>
+        \(navHTML(current: "log"))
         <p class="subtitle">Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — reload this page to see anything that's happened since.</p>
         \(logBody)
         <h2>SNMP Devices</h2>
@@ -393,17 +503,19 @@ final class LocalDiagnosticServer {
         confirmedAddress: String?,
         siblingAddresses: [String: [String: String]]
     ) -> String {
-        let neutral = "#0F1729", secondary = "#5B6B85", positive = "#1FAA59"
+        let neutral = "var(--label)", positive = "var(--positive)", warning = "var(--warning)"
 
         struct EdgeRow {
             let probe: GlobalpingReverseTraceService.ProbeTraceResult
             let hop: GlobalpingReverseTraceService.ProbeTraceResult.Hop?
             let stem: String?
+            let hasGap: Bool
         }
         let edgeRows: [EdgeRow] = results.map { probe in
             let hop = TracerouteViewModel.lastHopBeforeDestination(probe.hops, destination: probe.resolvedAddress)
             let stem = hop?.hostname.flatMap { GlobalpingReverseTraceService.deviceStem(fromHostname: $0) }
-            return EdgeRow(probe: probe, hop: hop, stem: stem)
+            let hasGap = TracerouteViewModel.hasGapBeforeDestination(probe.hops, destination: probe.resolvedAddress)
+            return EdgeRow(probe: probe, hop: hop, stem: stem, hasGap: hasGap)
         }
 
         let comparisonRowsHTML = edgeRows.map { row -> String in
@@ -412,22 +524,45 @@ final class LocalDiagnosticServer {
             let address = row.hop?.address ?? "*"
             let hostname = row.hop?.hostname.map { " (\($0))" } ?? ""
             let matches = confirmedAddress != nil && row.hop?.address == confirmedAddress
-            let matchCell = confirmedAddress == nil ? "—" : (matches ? "✓" : "")
+            // A gap means the real last hop is unknown -- not a confident
+            // "confirmed different device," and not a confident match
+            // either. Flagged distinctly rather than silently read as a
+            // divergence, per the real Ashburn case this was built from:
+            // the usual edge device just didn't reply to that probe, the
+            // path likely continued past what's shown here.
+            let matchCell: String
+            let matchColor: String
+            if row.hasGap {
+                matchCell = "likely continues — no reply"
+                matchColor = warning
+            } else if confirmedAddress == nil {
+                matchCell = "—"
+                matchColor = neutral
+            } else if matches {
+                matchCell = "✓"
+                matchColor = positive
+            } else {
+                matchCell = ""
+                matchColor = neutral
+            }
+            let gapNote = row.hasGap ? " <span style=\"color: \(warning)\">(likely continues past here — this hop is the last one that replied, not necessarily the edge)</span>" : ""
             return """
             <tr>
               <td>\(escape(location.isEmpty ? "Unknown location" : location))<br><span class="secondary">\(escape(networkLabel))</span></td>
-              <td>\(escape(address))\(escape(hostname))</td>
-              <td style="color: \(matches ? positive : neutral)">\(matchCell)</td>
+              <td>\(escape(address))\(escape(hostname))\(gapNote)</td>
+              <td style="color: \(matchColor)">\(matchCell)</td>
             </tr>
             """
         }.joined(separator: "\n")
         let comparisonTable = results.isEmpty
             ? "<p class=\"empty\">No results.</p>"
             : """
+              <div class="card">
               <table>
               <tr><th>Source</th><th>ISP edge candidate</th><th>Matches confirmed hop</th></tr>
               \(comparisonRowsHTML)
               </table>
+              </div>
               """
 
         // Cross-reference every hop across every probe's *full* path
@@ -456,7 +591,7 @@ final class LocalDiagnosticServer {
             }.joined(separator: "\n")
             return """
             <h3>\(escape(stem))</h3>
-            <table>\(rows)</table>
+            <div class="card"><table>\(rows)</table></div>
             """
         }.joined(separator: "\n")
         let knownAddressesSection = edgeStems.isEmpty
@@ -486,7 +621,7 @@ final class LocalDiagnosticServer {
             }.joined(separator: "\n")
             let hopBody = probe.hops.isEmpty
                 ? "<p class=\"empty\">No hops recorded.</p>"
-                : "<table>\n\(hopRowsHTML)\n</table>"
+                : "<div class=\"card\"><table>\n\(hopRowsHTML)\n</table></div>"
             let statusNote = probe.status == "finished" ? "" : "<p class=\"secondary\">Status: \(escape(probe.status))</p>"
             return """
             <h3>\(escape(location.isEmpty ? "Unknown location" : location))</h3>
@@ -502,22 +637,11 @@ final class LocalDiagnosticServer {
         <head>
         <meta charset="utf-8">
         <title>NMS — Path Discovery</title>
-        <style>
-          body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #F5F7FB; color: \(neutral); padding: 2rem; }
-          h1 { font-size: 1.1rem; }
-          h2 { font-size: 0.95rem; margin-top: 2rem; margin-bottom: 0.2rem; }
-          h3 { font-size: 0.85rem; margin-top: 1.2rem; margin-bottom: 0.2rem; }
-          .subtitle { color: \(secondary); font-size: 0.85rem; margin-bottom: 1.5rem; }
-          table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-top: 0.4rem; }
-          th { text-align: left; padding: 0.3rem 0.75rem 0.3rem 0; color: \(secondary); font-weight: 600; border-bottom: 1px solid rgba(15,23,41,0.15); }
-          td { padding: 0.3rem 0.75rem 0.3rem 0; border-bottom: 1px solid rgba(15,23,41,0.08); vertical-align: top; }
-          .secondary { color: \(secondary); }
-          .empty { color: \(secondary); }
-          summary { cursor: pointer; font-size: 0.9rem; margin-top: 1.5rem; color: \(secondary); }
-        </style>
+        <style>\(sharedCSS)</style>
         </head>
         <body>
         <h1>NMS — Path Discovery</h1>
+        \(navHTML(current: "path-discovery"))
         <p class="subtitle">Reverse traceroute toward \(escape(target)), from \(results.count) external vantage point\(results.count == 1 ? "" : "s") via Globalping. Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — this page is a snapshot of that one run, not live.</p>
         <h2>ISP edge, compared across sources</h2>
         \(comparisonTable)
@@ -526,6 +650,60 @@ final class LocalDiagnosticServer {
         <summary>Full path per source</summary>
         \(fullPathsHTML)
         </details>
+        </body>
+        </html>
+        """
+    }
+
+    /// Shared nav shown atop every page, so any one of them can jump to
+    /// another without going back through Debug Tools -- the actual
+    /// "single webpage with built-in selection" fix, not just pages that
+    /// happen to share a server. Rendered as a real segmented-control
+    /// button group (`.segmented`, styled in `sharedCSS`) rather than
+    /// plain text links -- raised directly ("more mac-like? similar
+    /// buttons?"). `current` is `"log"`/`"path-discovery"`/`nil`
+    /// (index), and marks that segment active.
+    private static func navHTML(current: String?) -> String {
+        func segment(_ href: String, _ label: String) -> String {
+            "<a href=\"\(href)\" class=\"\(href == current ? "active" : "")\">\(label)</a>"
+        }
+        return """
+        <div class="segmented">\(segment("log", "Diagnostic Log"))\(segment("path-discovery", "Path Discovery"))</div>
+        """
+    }
+
+    private static func renderIndexPage(hasReverseTrace: Bool) -> String {
+        """
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>NMS — Debug Tools</title>
+        <style>\(sharedCSS)</style>
+        </head>
+        <body>
+        <h1>NMS — Debug Tools</h1>
+        \(navHTML(current: nil))
+        <p class="subtitle">\(hasReverseTrace ? "Path Discovery has results from the last run." : "Path Discovery hasn\u{2019}t been run yet this session.")</p>
+        </body>
+        </html>
+        """
+    }
+
+    private static func renderNotYetAvailablePage(title: String, message: String) -> String {
+        let current = title == "Diagnostic Log" ? "log" : "path-discovery"
+        return """
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>NMS — \(escape(title))</title>
+        <style>\(sharedCSS)</style>
+        </head>
+        <body>
+        <h1>NMS — \(escape(title))</h1>
+        \(navHTML(current: current))
+        <p class="empty">\(escape(message))</p>
         </body>
         </html>
         """

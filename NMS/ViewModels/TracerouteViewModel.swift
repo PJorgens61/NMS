@@ -221,12 +221,59 @@ final class TracerouteViewModel {
         hops.last(where: { $0.address != nil && $0.address != destination })
     }
 
+    /// Whether the hop *immediately before* the destination (by array
+    /// position, not by "last one that replied") simply didn't reply —
+    /// found live (2026-08-04): one probe's own edge candidate looked
+    /// like a genuinely different device than four others', but the
+    /// device it landed on had shown up as the *known predecessor* of
+    /// the majority device in every other trace that same session. The
+    /// real explanation: the usual edge device just didn't answer that
+    /// one probe's packets, so `lastHopBeforeDestination` correctly fell
+    /// back one hop earlier — not a real topology divergence, a gap in
+    /// the reply chain. When this is `true`, whatever
+    /// `lastHopBeforeDestination` returns should be shown as "likely
+    /// continues past here, no reply" rather than presented as a
+    /// confident final answer.
+    nonisolated static func hasGapBeforeDestination(
+        _ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop],
+        destination: String?
+    ) -> Bool {
+        guard let destination,
+              let destinationIndex = hops.firstIndex(where: { $0.address == destination }),
+              destinationIndex > 0
+        else { return false }
+        return hops[destinationIndex - 1].address == nil
+    }
+
     nonisolated static func reverseTraceCorroborates(
         _ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop],
         destination: String?,
         confirmedAddress: String
     ) -> Bool {
         lastHopBeforeDestination(hops, destination: destination)?.address == confirmedAddress
+    }
+
+    /// Gap-aware summary across a full Path Discovery run. Probes with a
+    /// reply gap right before their own destination
+    /// (`hasGapBeforeDestination`) are excluded entirely — not counted
+    /// against corroboration — since a gap means that probe's real edge
+    /// candidate is unknown, not that it saw a genuinely different
+    /// device. Before this, `DebugToolsView.runPathDiscovery` counted
+    /// gapped probes as plain non-matches, so the persisted
+    /// `ProviderEdgeRecord.pathDiscoveryProbeCount`/
+    /// `pathDiscoveryCorroboratingCount` (and anything logged from them)
+    /// could understate corroboration purely from a reply gap — the same
+    /// false-negative shape as the real Ashburn case above, just in the
+    /// persisted numbers instead of the results-table UI.
+    nonisolated static func corroboratingSummary(
+        _ results: [GlobalpingReverseTraceService.ProbeTraceResult],
+        confirmedAddress: String
+    ) -> (effectiveProbeCount: Int, corroboratingCount: Int) {
+        let effective = results.filter { !hasGapBeforeDestination($0.hops, destination: $0.resolvedAddress) }
+        let corroborating = effective.filter {
+            reverseTraceCorroborates($0.hops, destination: $0.resolvedAddress, confirmedAddress: confirmedAddress)
+        }.count
+        return (effective.count, corroborating)
     }
     #endif
 

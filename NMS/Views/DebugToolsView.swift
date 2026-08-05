@@ -92,10 +92,17 @@ struct DebugToolsView: View {
                 var confirmedAddress: String?
                 if let address = traceroute.monitoredHopAddress {
                     confirmedAddress = address
-                    let corroboratingCount = results.filter {
-                        TracerouteViewModel.reverseTraceCorroborates($0.hops, destination: $0.resolvedAddress, confirmedAddress: address)
-                    }.count
-                    snapshotStore.recordPathDiscoveryRun(address: address, probeCount: results.count, corroboratingCount: corroboratingCount)
+                    // Gap-aware -- see `corroboratingSummary`'s own doc
+                    // comment: a probe that hit a reply gap right before
+                    // its destination is excluded, not counted as a
+                    // non-match.
+                    let summary = TracerouteViewModel.corroboratingSummary(results, confirmedAddress: address)
+                    snapshotStore.recordPathDiscoveryRun(
+                        address: address,
+                        probeCount: summary.effectiveProbeCount,
+                        corroboratingCount: summary.corroboratingCount,
+                        isKnownComplexTopology: TracerouteViewModel.includesConfirmedCGNAT(traceroute.hops)
+                    )
                 }
 
                 // The focus, raised directly, is the ISP edge specifically
@@ -109,8 +116,8 @@ struct DebugToolsView: View {
                 })
                 let siblingAddresses = await lookUpSiblingAddresses(deviceStems: edgeStems)
 
-                if let url = await diagnosticServer.start(
-                    reverseTraceTarget: target,
+                if let url = await diagnosticServer.showReverseTrace(
+                    target: target,
                     results: results,
                     confirmedAddress: confirmedAddress,
                     siblingAddresses: siblingAddresses
