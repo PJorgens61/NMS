@@ -635,11 +635,11 @@
       <div>
         <h2>Lost in the woods? NMS can set you straight.</h2>
         <p class="sub-hook">Ever wonder how your network connects to the world? See it now.</p>
-        <p class="lede">"The ISP" isn't one faceless blob — it's a real chain of routers, and Path Discovery draws it. It merges this Mac's own outbound trace with reverse traces run from several outside vantage points simultaneously (via Globalping, free and unauthenticated), so you see where every path converges on the same infrastructure, not just your own one-sided view of it.</p>
+        <p class="lede">They say the internet is a "network of networks." See for yourself.</p>
         <ul class="feat-list">
-          <li><span class="mark">→</span> Confirms whether the "ISP Edge Router" hop really is your ISP's edge — a majority of outside vantage points agreeing is real evidence, not a guess.</li>
-          <li><span class="mark">→</span> Every interface's DNS name and IP address, not just one — a single router can answer to more names than you'd expect.</li>
-          <li><span class="mark">→</span> Vantage points aren't fixed at five, and aren't limited to the US — dial the count up or mix in other countries to see your path from further away.</li>
+          <li><span class="mark">→</span> Finds your true ISP Edge Router even in complex topologies — CGNAT, enterprise WANs, whatever's in the way.</li>
+          <li><span class="mark">→</span> ISP routers have lots of interfaces, each with its own DNS name — NMS sorts them all out for you.</li>
+          <li><span class="mark">→</span> Path Discovery uses the Globalping server network to run remote traceroutes, surfacing the "backside" info you can't get directly from your Mac.</li>
         </ul>
       </div>
       <div class="panel topo-panel">
@@ -774,13 +774,14 @@
     <div class="hop-trace"><span class="n">8</span> swift-programmers <span class="rtt">6.1 ms</span></div>
     <div class="hop-grid">
       <div>
-        <h2>Built the way you'd want a Mac utility built.</h2>
-        <p class="lede">SwiftUI for the interface, SwiftData for local persistence, and nothing else — no third-party dependencies at all. Where macOS already ships a tool that does the job right, NMS shells out to it instead of reinventing it.</p>
+        <h2>Windows has lots of network apps. For the Mac, it's crickets — until now.</h2>
+        <p class="lede">NMS is built for the way networks actually work today — Wi-Fi, the internet, SaaS services, Zoom calls — not file shares on a LAN. It's SwiftUI and SwiftData under the hood, no third-party dependencies at all, built with <a href="https://claude.com" target="_blank" rel="noopener">Claude</a> by one person. If you'd rather run Windows, go ahead and port it — it's open source, MIT-licensed, and Claude can help with that too.</p>
         <ul class="feat-list">
           <li><span class="mark">→</span> Modern Apple technologies for the interface and logic — SwiftUI, SwiftData, Swift concurrency throughout.</li>
           <li><span class="mark">→</span> The actual backend is ping and traceroute — the same BSD tools Darwin inherited from 4.2BSD networking — plus dig for DNS lookups and Net-SNMP, the open-source SNMP toolkit with roots in Carnegie Mellon's early-90s CMU SNMP project.</li>
           <li><span class="mark">→</span><span>The bufferbloat/responsiveness test is Apple's own networkQuality — an implementation of <a href="https://datatracker.ietf.org/doc/html/draft-ietf-ippm-responsiveness" target="_blank" rel="noopener">draft-ietf-ippm-responsiveness</a>, a draft IETF standard, not something we invented.</span></li>
           <li><span class="mark">→</span> No dependencies. None. Not one third-party package.</li>
+          <li><span class="mark">→</span> <a href="https://github.com/PJorgens61/NMS" target="_blank" rel="noopener">We'd genuinely welcome a Windows port</a> — same idea, same honesty about what's actually broken, on the platform that's had a hundred network apps and never quite gotten this one.</li>
         </ul>
       </div>
       <div class="panel">
@@ -792,16 +793,6 @@
         <div>}</div>
       </div>
     </div>
-  </section>
-
-  <section class="gap">
-    <p class="eyebrow">The gap</p>
-    <h2>Windows has a hundred network apps. Mac doesn't have one — until now.</h2>
-    <p class="lede">NMS is modern in every sense: built with <a href="https://claude.com" target="_blank" rel="noopener">Claude</a>, by one person, for the problem people actually have today — flaky Wi-Fi, ISP handoffs, the SaaS your work runs on going down instead of your LAN. Much of what exists for Windows is from the before times — before Wi-Fi was the default, before "the internet" was the everyday point of failure, before an AI coding assistant made it possible for one person to ship something like this in weeks instead of years with an enterprise budget. This started as a Mac app because that's what the author uses, not because Windows doesn't deserve a modern one too.</p>
-    <ul class="feat-list">
-      <li><span class="mark">→</span> <a href="https://github.com/PJorgens61/NMS" target="_blank" rel="noopener">We'd genuinely welcome a Windows port</a> — same idea, same honesty about what's actually broken, on the platform that's had a hundred network apps and never quite gotten this one.</li>
-      <li><span class="mark">→</span> The problem NMS solves — flaky Wi-Fi, ISP handoffs, DNS/DHCP weirdness — is the modern home and hybrid-work network. A lot of what's out there for Windows still assumes the LAN-and-file-shares problem from a different decade.</li>
-    </ul>
   </section>
 
   <section class="hop" id="hop-9">
