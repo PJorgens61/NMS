@@ -981,6 +981,23 @@ final class SnapshotStore {
     /// shouldn't count as "the previous edge" for change detection, or
     /// show as this network's fallback ping target
     /// (`TracerouteViewModel.monitoredHopAddress`).
+    ///
+    /// **A real crash was chased here and NOT fixed by rewriting this
+    /// query** — see `PathDiscoveryEventLoggingTests`' own doc comment
+    /// and the cross-machine sync issue for the live findings. Confirmed
+    /// on two machines that calling this from a fresh in-memory
+    /// `ModelContainer` traps deep inside `SwiftData.framework` itself —
+    /// and confirmed here that removing the `#Predicate`, the
+    /// `SortDescriptor`, and the `fetchLimit` in turn (a fully bare
+    /// `context.fetch(FetchDescriptor<ProviderEdgeRecord>())`, no
+    /// modifiers at all) still crashes identically. So this is back to
+    /// its original, simplest form — rewriting the query further didn't
+    /// help and only adds risk to code this app has otherwise relied on
+    /// correctly for weeks against the real on-disk store. Left as a
+    /// real open question whether this is specific to the ephemeral
+    /// in-memory test configuration (most likely, given production
+    /// hasn't shown this) or something that could affect the real store
+    /// too — not yet ruled out either way.
     func latestProviderEdge() -> ProviderEdgeRecord? {
         let fingerprint = currentNetworkFingerprint
         var descriptor = FetchDescriptor<ProviderEdgeRecord>(
