@@ -668,7 +668,7 @@
              legible size instead of being squashed to the panel's
              width. -->
         <div class="topo-scroll">
-<svg class="mini-topo real-topo" viewBox="0 0 2807 1415" width="1684" height="849" role="img" aria-label="ISP topology diagram: this Mac at top, expanding down through router and ISP hops, to ten external vantage points at bottom that corroborate the path.">
+<svg class="mini-topo real-topo" viewBox="0 0 2807 1415" width="2807" height="1415" role="img" aria-label="ISP topology diagram: this Mac at top, expanding down through router and ISP hops, to ten external vantage points at bottom that corroborate the path.">
 <path class="topo-line" d="M1403.5,65.0 C1403.5,100.0 1403.5,100.0 1403.5,135.0"/>
 <path class="topo-line" d="M1403.5,185.0 C1403.5,220.0 1403.5,220.0 1403.5,255.0"/>
 <path class="topo-line" d="M1403.5,350.0 C1403.5,385.0 1233.5,385.0 1233.5,420.0"/>
@@ -881,6 +881,21 @@
       });
     }, { rootMargin: '-45% 0px -50% 0px', threshold: 0 });
     hops.forEach((hop) => spy.observe(hop));
+  }
+
+  // Real diagram renders at native pixel size (raised directly -- "the
+  // topology diagram won't enlarge, it's too small to read by default":
+  // it had been scaled down 40% to fit the box, shrinking the text past
+  // legible). At native size the diagram is much wider than the box, and
+  // its content is horizontally centered within that width, so the
+  // default top-left scroll position opens on empty space instead of
+  // "This Mac." Center the initial horizontal scroll on the content
+  // instead -- vertical scroll (top-to-bottom, "This Mac" first) still
+  // starts at 0 as intended.
+  const topoScroll = document.querySelector('.topo-scroll');
+  const topoSvg = topoScroll?.querySelector('svg');
+  if (topoScroll && topoSvg) {
+    topoScroll.scrollLeft = (topoSvg.clientWidth - topoScroll.clientWidth) / 2;
   }
 </script>
 </body>
