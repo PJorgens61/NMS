@@ -39,19 +39,69 @@ struct GlobalpingReverseTraceService {
 
     private static let baseURL = "https://api.globalping.io/v1/measurements"
 
+    /// Vantage-point count and location filter for the reverse-trace
+    /// measurement, pulled from `config.json` (see `loadConfig`) rather
+    /// than hardcoded — raised directly ("can the configuration options
+    /// be broken out into a file that could be changed at runtime so
+    /// that we can test options without rebuilding nms?"), same
+    /// reasoning `LocalDiagnosticServer`'s `readAsset` already
+    /// established for the diagram's CSS/JS. `locations` is a list of
+    /// Globalping "magic" strings (country/continent/"world"/etc,
+    /// whatever the API's own magic matcher accepts) — each becomes its
+    /// own `{"magic": ...}` location object, so e.g. `["USA", "Germany"]`
+    /// mixes probes from both rather than requiring a single value.
+    struct Config: Decodable {
+        var probeCount: Int
+        var locations: [String]
+    }
+
+    private static let defaultConfig = Config(probeCount: 5, locations: ["USA"])
+
+    /// `#filePath`-anchored project-root resolution — same pattern
+    /// established in `LocalDiagnosticServer.projectRoot()`, duplicated
+    /// here rather than shared since the two services have no other
+    /// reason to depend on each other.
+    private static func projectRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // NMS/Services
+            .deletingLastPathComponent() // NMS
+            .deletingLastPathComponent() // project root
+    }
+
+    /// Reads `config.json` fresh from
+    /// `GlobalpingReverseTraceServiceAssets/` on every call, not compiled
+    /// into the binary — edit the file and rerun Path Discovery to see
+    /// the new probe count/locations, no rebuild needed. Falls back to
+    /// `defaultConfig` if the file's missing, unreadable, or fails to
+    /// parse (e.g. a typo mid-edit) rather than failing the whole run.
+    static func loadConfig() -> Config {
+        let url = projectRoot()
+            .appendingPathComponent("NMS/Services/GlobalpingReverseTraceServiceAssets")
+            .appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: url),
+              let config = try? JSONDecoder().decode(Config.self, from: data) else {
+            print("GlobalpingReverseTraceService: couldn't read config.json, using built-in defaults")
+            return defaultConfig
+        }
+        return config
+    }
+
     /// Creates a one-off traceroute measurement toward `target`, sourced
-    /// from `probeCount` geographically diverse US vantage points by
-    /// default (`{"magic": "USA"}`) — the simplest pattern confirmed live
-    /// to work well across several rounds the same session. No
-    /// ASN/provider-specific targeting here deliberately — that was
-    /// useful for manual investigation but is over-scoped for this
-    /// button's first version; stays as a manual `curl` technique for
-    /// now (see `PUNCHLIST.md`). Returns the measurement ID to poll via
-    /// `fetchResult`.
-    func createMeasurement(target: String, probeCount: Int = 5) async throws -> String {
+    /// from `config.json`'s `probeCount` vantage points across its
+    /// `locations` by default — the simplest pattern confirmed live to
+    /// work well across several rounds the same session. `probeCount`
+    /// stays as an explicit override for callers that want one (e.g.
+    /// tests); pass `nil` (the default) to use whatever's currently in
+    /// the config file. No ASN/provider-specific targeting here
+    /// deliberately — that was useful for manual investigation but is
+    /// over-scoped for this button's first version; stays as a manual
+    /// `curl` technique for now (see `PUNCHLIST.md`). Returns the
+    /// measurement ID to poll via `fetchResult`.
+    func createMeasurement(target: String, probeCount: Int? = nil) async throws -> String {
         guard let url = URL(string: Self.baseURL) else {
             throw GlobalpingError.unexpectedResponse
         }
+        let config = Self.loadConfig()
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -63,8 +113,8 @@ struct GlobalpingReverseTraceService {
         let body: [String: Any] = [
             "type": "traceroute",
             "target": target,
-            "locations": [["magic": "USA"]],
-            "limit": probeCount
+            "locations": config.locations.map { ["magic": $0] },
+            "limit": probeCount ?? config.probeCount
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
