@@ -39,23 +39,38 @@ struct GlobalpingReverseTraceService {
 
     private static let baseURL = "https://api.globalping.io/v1/measurements"
 
-    /// Vantage-point count and location filter for the reverse-trace
-    /// measurement, pulled from `config.json` (see `loadConfig`) rather
-    /// than hardcoded — raised directly ("can the configuration options
-    /// be broken out into a file that could be changed at runtime so
-    /// that we can test options without rebuilding nms?"), same
-    /// reasoning `LocalDiagnosticServer`'s `readAsset` already
-    /// established for the diagram's CSS/JS. `locations` is a list of
-    /// Globalping "magic" strings (country/continent/"world"/etc,
-    /// whatever the API's own magic matcher accepts) — each becomes its
-    /// own `{"magic": ...}` location object, so e.g. `["USA", "Germany"]`
-    /// mixes probes from both rather than requiring a single value.
+    /// Every operational knob for the reverse-trace measurement, pulled
+    /// from `config.json` (see `loadConfig`) rather than hardcoded —
+    /// raised directly ("can the configuration options be broken out
+    /// into a file that could be changed at runtime so that we can test
+    /// options without rebuilding nms?", then again "put all config
+    /// parameters in the config file to avoid builds" once
+    /// `maxAttempts`/`delaySeconds`/`timeoutSeconds` turned up still
+    /// hardcoded as function-default parameters) — same reasoning
+    /// `LocalDiagnosticServer`'s `readAsset` already established for the
+    /// diagram's CSS/JS. `locations` is a list of Globalping "magic"
+    /// strings (country/continent/"world"/etc, whatever the API's own
+    /// magic matcher accepts) — each becomes its own `{"magic": ...}`
+    /// location object, so e.g. `["USA", "Germany"]` mixes probes from
+    /// both rather than requiring a single value. `maxAttempts`/
+    /// `delaySeconds` control `fetchResult`'s poll loop; `timeoutSeconds`
+    /// is the per-request `URLRequest.timeoutInterval`, shared by both
+    /// `createMeasurement` and `fetchResult`.
     struct Config: Decodable {
         var probeCount: Int
         var locations: [String]
+        var maxAttempts: Int
+        var delaySeconds: Int
+        var timeoutSeconds: Double
     }
 
-    private static let defaultConfig = Config(probeCount: 5, locations: ["USA"])
+    private static let defaultConfig = Config(
+        probeCount: 5,
+        locations: ["USA"],
+        maxAttempts: 6,
+        delaySeconds: 2,
+        timeoutSeconds: 10
+    )
 
     /// `#filePath`-anchored project-root resolution — same pattern
     /// established in `LocalDiagnosticServer.projectRoot()`, duplicated
@@ -109,7 +124,7 @@ struct GlobalpingReverseTraceService {
         // (HTTPCheckService/SaaSStatusService/ISPIdentityService): a
         // stale cached response would defeat the point of a fresh check.
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.timeoutInterval = 10
+        request.timeoutInterval = config.timeoutSeconds
         let body: [String: Any] = [
             "type": "traceroute",
             "target": target,
@@ -143,17 +158,23 @@ struct GlobalpingReverseTraceService {
     /// Throws `.measurementFailed` immediately if Globalping itself
     /// reports the measurement failed, rather than polling out the full
     /// `maxAttempts` for something that's never going to finish.
-    func fetchResult(measurementID: String, maxAttempts: Int = 6, delaySeconds: UInt64 = 2) async throws -> [ProbeTraceResult] {
+    /// `maxAttempts`/`delaySeconds` default to `config.json`'s values
+    /// (`nil` means "use whatever's currently configured"); both stay as
+    /// explicit overrides for callers that want one, e.g. tests.
+    func fetchResult(measurementID: String, maxAttempts: Int? = nil, delaySeconds: Int? = nil) async throws -> [ProbeTraceResult] {
+        let config = Self.loadConfig()
+        let maxAttempts = maxAttempts ?? config.maxAttempts
+        let delayNanoseconds = UInt64(delaySeconds ?? config.delaySeconds) * 1_000_000_000
         guard let url = URL(string: "\(Self.baseURL)/\(measurementID)") else {
             throw GlobalpingError.unexpectedResponse
         }
         for attempt in 0..<maxAttempts {
             if attempt > 0 {
-                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+                try await Task.sleep(nanoseconds: delayNanoseconds)
             }
             var request = URLRequest(url: url)
             request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            request.timeoutInterval = 10
+            request.timeoutInterval = config.timeoutSeconds
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 throw GlobalpingError.unexpectedResponse
