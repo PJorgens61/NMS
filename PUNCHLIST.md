@@ -7,66 +7,11 @@ tasks, and decisions. Check items off or delete them as they land; add
 new ones as they come up.
 
 Resolved items are moved out to keep this file scannable, not deleted —
-see `docs/archive/PUNCHLIST-resolved-2026-08-04.md` for everything
-checked off as of that date, full reasoning intact.
+see `docs/archive/PUNCHLIST-resolved-2026-08-04.md` and
+`docs/archive/PUNCHLIST-resolved-2026-08-05.md` for everything checked
+off as of those dates, full reasoning intact.
 
 ## Open
-
-- [ ] **Website copy revisions, raised directly (2026-08-04) — not yet
-  applied.** All against `website-v2`'s `index.html`. Verbatim as given;
-  apply as-is or refine further when actually implementing.
-
-  **Structural: combine `hop-8` ("swift-programmers", line ~774) with
-  "The Gap" section (line ~799) and condense** — two sections making a
-  related pitch (built with modern Apple tech / no Windows equivalent
-  yet) read as one, tighter section instead of two.
-
-  Headline (currently The Gap's `<h2>`):
-  - old: "Windows has a hundred network apps. Mac doesn't have one —
-    until now."
-  - new: "Windows has lots of network apps — For the Mac it's
-    crickets — until now"
-
-  Body copy (replaces/condenses swift-programmers' + Gap's `<p
-  class="lede">`s):
-  - old (paraphrased combination of both sections' current copy):
-    Windows network apps monitor LANs and local servers; SwiftUI/
-    SwiftData under the hood; no Windows port.
-  - new: "NMS is built for the way that networks work today — WiFi,
-    the Internet, SaaS services, Zoom calls. If you prefer to run
-    Windows go ahead and port it. It's open source with MIT license.
-    Claude can help with that."
-
-  **Path Discovery section (line ~638), lede:**
-  - old: "'The ISP' isn't one faceless blob — it's a real chain of
-    routers, and Path Discovery draws it. It merges this Mac's own
-    outbound trace with reverse traces run from several outside
-    vantage points simultaneously (via Globalping, free and
-    unauthenticated), so you see where every path converges on the
-    same infrastructure, not just your own one-sided view of it."
-  - new: "They say the Internet is a 'network of networks'. See for
-    yourself."
-
-  **Path Discovery section, bullet 1 (ISP Edge Router confirmation):**
-  - old: "Confirms whether the 'ISP Edge Router' hop really is your
-    ISP's edge — a majority of outside vantage points agreeing is
-    real evidence, not a guess."
-  - new: "Finds your true ISP Edge Router even in complex topologies
-    using CGNAT or Enterprise WANs"
-
-  **Path Discovery section, bullet 2 (interface DNS names):**
-  - old: "Every interface's DNS name and IP address, not just one —
-    a single router can answer to more names than you'd expect."
-  - new: "ISP routers have lots of interfaces each with it's own DNS
-    name. — NMS sorts them out for you."
-
-  **Path Discovery section, bullet 3 (vantage point count):**
-  - old: "Vantage points aren't fixed at five, and aren't limited to
-    the US — dial the count up or mix in other countries to see your
-    path from further away."
-  - new: "Path Discovery uses the globalPing server network to
-    generate remote Traceroutes to discover the 'backside' info that
-    you can't discover directly from your mac."
 
 - [ ] **Give NMS a real (free Personal Team) code-signing identity —
   approved, deferred to a later session ("yes, but tomorrow").** Currently
