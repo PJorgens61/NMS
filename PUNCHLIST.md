@@ -50,6 +50,110 @@ checked off as of that date, full reasoning intact.
   is the more broadly applicable fallback of the two for LAN targets,
   DNS mattering more for the existing WAN-facing DNS-server check).
 
+- [x] **Path Discovery, built and shipped**: a debug-only "Path
+  Discovery…" button (new "Debug Tools" window, alongside Diagnostic
+  Log — see that window's own entry below for why debug buttons moved
+  out of the main footer) runs a real multi-source reverse traceroute
+  via Globalping toward this Mac's own public IP, opens the result as a
+  local web page, and — the actual point, raised directly ("the info
+  collected should inform the path to internet function") — feeds back
+  into Path to Internet: whenever a probe's last hop before reaching
+  this Mac matches the confirmed ISP edge hop, that's recorded
+  (`ProviderEdgeRecord.externallyCorroboratedAt`/
+  `pathDiscoveryProbeCount`/`pathDiscoveryCorroboratingCount`) and shown
+  as a small corroboration line under the confirmed hop. New service:
+  `GlobalpingReverseTraceService` (debug-only, unauthenticated, matches
+  `ISPIdentityService`'s house style for a simple JSON-API client).
+  Planned via `EnterPlanMode`, built, tested (7 new tests, full suite
+  131/131), verified live end-to-end including a real Release-build
+  check confirming the whole feature compiles out cleanly.
+
+- [ ] **Path Discovery's corroboration check is exact-address-only, and
+  the very first live use already hit the reason that matters: a
+  router's loopback interface vs. its physical interface.** Built and
+  shipped (see the "Path Discovery" entry below), then immediately
+  exercised live: the confirmed ISP edge hop resolved to a `lo0.bng3...`
+  hostname (a Sonic BNG's loopback interface — a virtual, link-less
+  interface routers commonly use specifically because it's reachable
+  regardless of which physical port is up); Path Discovery's own
+  Globalping traces from earlier the same night showed `ae0.bng3...`
+  (the same BNG's aggregated-Ethernet interface, the one actually
+  carrying traffic) as the last hop before reaching the destination.
+  Same physical device, two real, different addresses — the exact-match
+  corroboration check correctly reported 0/5, which is honest given
+  what it can prove, but doesn't mean the confirmed hop is wrong.
+  Raised directly, and worth distinguishing from a similar-sounding but
+  mechanically different finding earlier the same night: this isn't the
+  near-side/far-side-of-one-link issue (a hop's reply address vs. the
+  far side of the same physical link) — a loopback isn't one side of a
+  link at all, it's a separate virtual interface with no physical link.
+  This is squarely the alias-resolution problem already named in the
+  Reverse-traceroute entry below (Ally, MIDAR, kapar; CAIDA's Ark
+  project) — proving two different addresses belong to the same device,
+  not something a plain equality check can do.
+  Fixed for now: the tooltip explains the limitation honestly (a low/
+  zero count doesn't mean the hop is wrong) rather than reading as a
+  warning. Not fixed: the actual corroboration logic still can't detect
+  this case. Full alias resolution (cryptographic-strength proof two
+  addresses are the same device — IP-ID/timing correlation, Ally/MIDAR/
+  kapar) stays a real research-grade follow-up, not a quick win.
+
+  **A real, cheaper, live-confirmed technique found the same night,
+  worth building before the full research-grade version**: `dig` forward
+  lookups of *guessed sibling hostnames* on the same device stem.
+  Starting from one PTR result (`lo0.bng3.snfcca05.sonic.net`), tried
+  forward-resolving plausible sibling interfaces on that same
+  `bng3.snfcca05` device — confirmed live, not assumed: the bare device
+  name with no interface prefix at all resolves to the *identical*
+  address as `lo0` (real evidence `lo0` is this device's default/
+  identity address in Sonic's own convention, not something
+  semantically separate); `ae0.bng3...` with no numeric prefix doesn't
+  resolve at all, but `305.ae0.bng3...` and `304.ae0.bng3...` (a
+  VLAN/sub-interface-style numeric prefix) both do, to two different
+  real addresses — meaning this one device has multiple distinct
+  customer-facing sub-interfaces, each independently discoverable via
+  forward DNS, with zero live traceroute probes needed to stumble onto
+  each one.
+  Not full alias resolution (doesn't *prove* the addresses are the same
+  physical box the way IP-ID/timing correlation would — still worth
+  being honest about that gap), but real, immediately actionable
+  circumstantial evidence, cheap (a handful of `dig` calls, no network
+  measurement infrastructure), and it just worked on a real device
+  tonight. Same interface-naming-convention caveat as before still
+  applies for *generalizing* this across other ISPs (Sonic's own
+  `lo0`/`ae0`/numeric-prefix scheme won't match another operator's), but
+  as a manual, one-ISP-at-a-time investigative technique (not an
+  automated cross-ISP parser) it's genuinely useful today, not just a
+  future research direction.
+
+- [ ] **Idea: path discovery toward the specific SaaS services NMS
+  already monitors, sourced from probes hosted on that provider's own
+  network — not just abstract ISP topology.** Raised live (2026-08-04),
+  tying the night's whole reverse-traceroute thread back to something
+  NMS actually does: `SaaSMonitoringViewModel`/`SaaSStatusService`
+  already tracks whether the SaaS a user's work depends on is up —
+  this would add "is a slowdown my network's fault, or something in the
+  path near that specific provider," using the same reverse-traceroute
+  technique but sourced deliberately close to the SaaS provider's own
+  infrastructure instead of a random vantage point.
+  Confirmed feasible live via Globalping (`api.globalping.io`, see
+  `script/diagnostic-exports/reverse-traceroute-home-20260804.md` for
+  the full session): `GET /v1/probes` exposes each probe's hosting
+  provider (`location.network`), and the measurement API accepts
+  `{"network": "<name>"}` as a location filter — real probes exist on
+  Amazon.com, Google, Oracle, DigitalOcean, Akamai Connected Cloud,
+  HUAWEI CLOUDS, among others, out of ~4800 active probes checked.
+  Real caveat, not glossed over: this is "near a major hyperscaler in
+  general," not literally the exact facility a specific SaaS's backend
+  runs in — a real, live, sourceable *approximation*, not precision.
+  Also confirmed the same session: traceroute's per-hop latency numbers
+  are noisy for structural reasons (ICMP reply deprioritization,
+  ECMP/load-balanced path variance) — any implementation here should
+  treat hop *identity*/path convergence as the reliable signal, latency
+  numbers as suggestive at best. Not built — no API auth needed at all
+  for reasonable usage, which makes this considerably more approachable
+  than it might sound.
+
 - [ ] **Idea: a Share button for diagnostic state, with the interesting
   case being "the network is down, save it and offer to resend once
   it's back."** Raised live (2026-08-04): "mac apps often have a
@@ -290,16 +394,33 @@ checked off as of that date, full reasoning intact.
   traceroute artifact, not confirmed either way) are all in
   `script/diagnostic-exports/reverse-traceroute-home-20260804.md`.
 
-  **Idea from the same result**: run the same reverse-trace from
-  *several* different vantage points toward the same target. The last
-  few hops before the destination should converge regardless of
-  starting point — every path funnels through the same last-mile
-  infrastructure (same BNG, same regional core router) to reach one
-  specific home connection, so convergence (or the lack of it) is real
-  topology information near the router, not noise. This is the
-  informal version of the alias-resolution technique already named
-  above (Ally, MIDAR, kapar; CAIDA's Ark project) — arrived at
-  independently here. Not yet tried with a second vantage point.
+  **Idea from the same result, then actually done, same day**: run the
+  same reverse-trace from *several* different vantage points toward the
+  same target — the last few hops before the destination should
+  converge regardless of starting point, since every path funnels
+  through the same last-mile infrastructure to reach one specific home
+  connection. Tried for real via **Globalping** (`api.globalping.io`)
+  instead of RIPE Atlas — **works fully anonymously, no account, no
+  token, no credits at all** (a plain unauthenticated POST to
+  `/v1/measurements` just worked, confirmed live). Ran a traceroute
+  toward the home public IP from 3 simultaneous vantage points (Buffalo
+  NY, Los Angeles CA, Houston TX, auto-picked by `{"locations":
+  [{"magic": "USA"}]}`) — all three, via completely different transit
+  routes, converged on the identical last four hops into Sonic's
+  network, real alias-resolution-style evidence with zero setup cost.
+  Also confirmed the latency anomaly from the HE trace above is real
+  (same hop, inflated in all three independently-routed traces) and
+  solved the public-IP discrepancy (the resolved hostname says
+  `...dynamic.sonic.net` — the address genuinely changes). Full
+  writeup in `script/diagnostic-exports/reverse-traceroute-home-20260804.md`.
+  **This effectively resolves the core capability gap this whole item
+  was chasing** — Globalping is a meaningfully better tool for
+  reverse-traceroute/multi-vantage-point work than RIPE Atlas turned
+  out to be, for anyone without existing RIPE Atlas credits. The RIPE
+  Atlas credit-earning threads above (software probe, cloud hosting)
+  are no longer urgent given this, just left in place as background in
+  case RIPE Atlas's specific probe network (denser/different from
+  Globalping's) is ever needed for something else.
 
   **Refinement, same day:** run the software probe on a free always-on
   cloud host instead of the Mac — "could be any free cloud host," not

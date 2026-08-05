@@ -1576,3 +1576,118 @@ struct DDNSSyncStateTests {
         #expect(state == .blockedByCGNAT)
     }
 }
+
+@Suite("GlobalpingReverseTraceService parsers")
+struct GlobalpingReverseTraceServiceTests {
+    /// The real shape of a measurement-creation response, confirmed live
+    /// (2026-08-04) — just an id and a probe count, no status field at
+    /// all (that only appears once you GET the measurement back).
+    @Test("parseMeasurementID: real creation-response shape")
+    func parseMeasurementIDRealShape() throws {
+        let json = Data(#"{"id": "2fv6c0x86ERjBjOBs00020tBS", "probesCount": 3}"#.utf8)
+        #expect(try GlobalpingReverseTraceService.parseMeasurementID(json) == "2fv6c0x86ERjBjOBs00020tBS")
+    }
+
+    /// A trimmed-down but structurally real fixture, based directly on a
+    /// real finished measurement toward a home network's public IP
+    /// (2026-08-04) — two probes, one with a non-responding hop (`null`
+    /// address/hostname, empty `timings`) in the middle of an otherwise
+    /// resolved path, one ending with multiple timings for its final
+    /// hop. Confirmed directly that a skipped hop is a real entry in
+    /// `hops[]` at its correct position, not omitted — this fixture
+    /// pins that shape.
+    @Test("parseMeasurement: real finished-measurement shape, including a non-responding hop")
+    func parseMeasurementRealShape() throws {
+        let json = Data(#"""
+        {
+          "id": "2fv6c0x86ERjBjOBs00020tBS",
+          "type": "traceroute",
+          "status": "finished",
+          "target": "192.184.170.5",
+          "results": [
+            {
+              "probe": { "continent": "NA", "country": "US", "state": "NY", "city": "Buffalo", "asn": 36352, "network": "HostPapa" },
+              "result": {
+                "status": "finished",
+                "resolvedAddress": "192.184.170.5",
+                "hops": [
+                  { "resolvedAddress": "107.172.199.129", "resolvedHostname": "_gateway", "timings": [{"rtt": 6.57}] },
+                  { "resolvedAddress": null, "resolvedHostname": null, "timings": [] },
+                  { "resolvedAddress": "192.184.170.5", "resolvedHostname": "192-184-170-5.fiber.dynamic.sonic.net", "timings": [{"rtt": 67.6}, {"rtt": 68.4}] }
+                ]
+              }
+            },
+            {
+              "probe": { "continent": "NA", "country": "US", "state": "TX", "city": "Houston", "asn": 399646, "network": "Snaju Development" },
+              "result": {
+                "status": "finished",
+                "resolvedAddress": "192.184.170.5",
+                "hops": [
+                  { "resolvedAddress": "23.26.125.1", "resolvedHostname": "_gateway", "timings": [{"rtt": 1.07}] }
+                ]
+              }
+            }
+          ]
+        }
+        """#.utf8)
+        let (status, results) = try GlobalpingReverseTraceService.parseMeasurement(json)
+        #expect(status == "finished")
+        #expect(results.count == 2)
+
+        let buffalo = try #require(results.first { $0.city == "Buffalo" })
+        #expect(buffalo.network == "HostPapa")
+        #expect(buffalo.asn == 36352)
+        #expect(buffalo.resolvedAddress == "192.184.170.5")
+        #expect(buffalo.hops.count == 3)
+        // The skipped hop is a real entry, not omitted -- position 2 (hop
+        // number 2), address/hostname nil, no timings.
+        #expect(buffalo.hops[1].hopNumber == 2)
+        #expect(buffalo.hops[1].address == nil)
+        #expect(buffalo.hops[1].roundTripTimesMs.isEmpty)
+        // The final hop can carry more than one timing (multiple probe
+        // packets) -- both preserved, not just the first.
+        #expect(buffalo.hops[2].roundTripTimesMs == [67.6, 68.4])
+
+        let houston = try #require(results.first { $0.city == "Houston" })
+        #expect(houston.hops.count == 1)
+    }
+
+    @Test("parseMeasurement: an in-progress measurement has no results yet, doesn't throw")
+    func parseMeasurementInProgress() throws {
+        let json = Data(#"{"id": "abc", "type": "traceroute", "status": "in-progress", "target": "192.184.170.5"}"#.utf8)
+        let (status, results) = try GlobalpingReverseTraceService.parseMeasurement(json)
+        #expect(status == "in-progress")
+        #expect(results.isEmpty)
+    }
+}
+
+@Suite("TracerouteViewModel.reverseTraceCorroborates")
+struct ReverseTraceCorroborationTests {
+    private func hop(_ address: String?) -> GlobalpingReverseTraceService.ProbeTraceResult.Hop {
+        GlobalpingReverseTraceService.ProbeTraceResult.Hop(hopNumber: 1, address: address, hostname: nil, roundTripTimesMs: [])
+    }
+
+    @Test("the last hop before the destination matches the confirmed address: corroborates")
+    func matchingLastHopBeforeDestination() {
+        let hops = [hop("192.168.1.1"), hop("10.1.10.1"), hop("96.120.90.213"), hop("98.45.206.181")]
+        #expect(TracerouteViewModel.reverseTraceCorroborates(hops, destination: "98.45.206.181", confirmedAddress: "96.120.90.213"))
+    }
+
+    @Test("the destination itself is excluded -- a confirmed address matching only the destination doesn't corroborate")
+    func destinationItselfDoesNotCount() {
+        let hops = [hop("192.168.1.1"), hop("98.45.206.181")]
+        #expect(!TracerouteViewModel.reverseTraceCorroborates(hops, destination: "98.45.206.181", confirmedAddress: "98.45.206.181"))
+    }
+
+    @Test("a non-matching last hop before the destination: does not corroborate")
+    func nonMatchingHop() {
+        let hops = [hop("192.168.1.1"), hop("96.120.90.213"), hop("98.45.206.181")]
+        #expect(!TracerouteViewModel.reverseTraceCorroborates(hops, destination: "98.45.206.181", confirmedAddress: "some-other-address"))
+    }
+
+    @Test("a trailing non-responding hop (nil address) is skipped, not treated as the last real hop")
+    func trailingNilHopSkipped() {
+        let hops = [hop("192.168.1.1"), hop("96.120.90.213"), hop(nil), hop("98.45.206.181")]
+        #expect(TracerouteViewModel.reverseTraceCorroborates(hops, destination: "98.45.206.181", confirmedAddress: "96.120.90.213"))
+    }
+}

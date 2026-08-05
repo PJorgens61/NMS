@@ -45,9 +45,27 @@ import Network
 /// `script/export-diagnostic.sh` already makes, not expensive queries.
 @MainActor
 final class LocalDiagnosticServer {
+    /// Which page this server is currently serving — the diagnostic log
+    /// (`SnapshotStore`-backed) or a Path Discovery reverse-trace result
+    /// set. Never both: `start(...)` always calls `stop()` first (see
+    /// below), so starting one flavor stops whichever was previously
+    /// running, same "only one on-demand debug page at a time" shape
+    /// this whole type already has (one listener, one token). Reuses the
+    /// exact same `NWListener`/loopback/token/idle-timeout plumbing for
+    /// both — this is the second content generator the original
+    /// `PUNCHLIST.md` server item explicitly left open ("whether this
+    /// becomes a small shared internal service both features route
+    /// through... worth deciding once [a next] feature is actually being
+    /// built"), decided here in favor of reuse over a third parallel
+    /// `NWListener` implementation.
+    private enum ContentMode {
+        case diagnosticLog(SnapshotStore)
+        case reverseTrace(target: String, results: [GlobalpingReverseTraceService.ProbeTraceResult])
+    }
+
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
-    private var snapshotStore: SnapshotStore?
+    private var contentMode: ContentMode?
     private var pathToken = ""
     private var idleTimer: Timer?
 
@@ -61,10 +79,32 @@ final class LocalDiagnosticServer {
     /// is a debug convenience, not a code path anything else depends on.
     func start(snapshotStore: SnapshotStore) async -> URL? {
         stop()
-
         pathToken = Self.randomToken()
-        self.snapshotStore = snapshotStore
+        contentMode = .diagnosticLog(snapshotStore)
+        return await startListener()
+    }
 
+    /// Starts the server showing a Path Discovery reverse-trace result
+    /// set instead of the diagnostic log. The Globalping network calls
+    /// themselves (`GlobalpingReverseTraceService.createMeasurement`/
+    /// `fetchResult`) already happened by the time this is called — this
+    /// server only renders already-fetched results, it doesn't make its
+    /// own network calls per-request the way the diagnostic log re-reads
+    /// `SnapshotStore` on every request. A live multi-second Globalping
+    /// round trip on every page reload would be a worse experience than
+    /// showing one run's results until a fresh "Path Discovery…" click
+    /// replaces them.
+    func start(reverseTraceTarget target: String, results: [GlobalpingReverseTraceService.ProbeTraceResult]) async -> URL? {
+        stop()
+        pathToken = Self.randomToken()
+        contentMode = .reverseTrace(target: target, results: results)
+        return await startListener()
+    }
+
+    /// The actual `NWListener` setup, shared by both `start` overloads
+    /// above -- factored out once a second content mode needed the exact
+    /// same plumbing, rather than copying it a second time.
+    private func startListener() async -> URL? {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
 
@@ -120,7 +160,7 @@ final class LocalDiagnosticServer {
         listener = nil
         connections.values.forEach { $0.cancel() }
         connections.removeAll()
-        snapshotStore = nil
+        contentMode = nil
     }
 
     private func scheduleIdleTimeout() {
@@ -166,10 +206,21 @@ final class LocalDiagnosticServer {
         let path = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? ""
 
         let response: Data
-        if (path == "/\(pathToken)" || path == "/\(pathToken)/"), let snapshotStore {
-            // Fresh query on every request, not a cached string -- see
-            // this type's own doc comment for why.
-            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderPage(snapshotStore: snapshotStore))
+        if path == "/\(pathToken)" || path == "/\(pathToken)/" {
+            switch contentMode {
+            case .diagnosticLog(let snapshotStore):
+                // Fresh query on every request, not a cached string --
+                // see this type's own doc comment for why.
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderPage(snapshotStore: snapshotStore))
+            case .reverseTrace(let target, let results):
+                // Not regenerated per-request the same way -- see
+                // `start(reverseTraceTarget:results:)`'s own doc comment
+                // for why a live Globalping round trip per page reload
+                // would be the wrong tradeoff here.
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: target, results: results))
+            case nil:
+                response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
+            }
         } else {
             response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
         }
@@ -304,6 +355,74 @@ final class LocalDiagnosticServer {
         \(logBody)
         <h2>SNMP Devices</h2>
         \(deviceBody)
+        </body>
+        </html>
+        """
+    }
+
+    /// One probe's result, rendered as its own table -- deliberately not
+    /// merged into one giant table across probes: each probe's hop
+    /// numbering is its own independent sequence (hop 5 from Buffalo and
+    /// hop 5 from Tokyo aren't comparable rows), so per-probe tables read
+    /// correctly where one merged table wouldn't.
+    private static func renderReverseTracePage(target: String, results: [GlobalpingReverseTraceService.ProbeTraceResult]) -> String {
+        let neutral = "#0F1729", secondary = "#5B6B85"
+
+        let probeSectionsHTML = results.map { probe -> String in
+            let location = [probe.city, probe.country].compactMap { $0 }.joined(separator: ", ")
+            let networkLabel = [probe.network, probe.asn.map { "ASN \($0)" }].compactMap { $0 }.joined(separator: " · ")
+            let hopRowsHTML = probe.hops.map { hop -> String in
+                let address = hop.address ?? "*"
+                let hostname = hop.hostname.map { " (\($0))" } ?? ""
+                let rtt = hop.roundTripTimesMs.isEmpty
+                    ? "—"
+                    : hop.roundTripTimesMs.map { String(format: "%.1f ms", $0) }.joined(separator: " / ")
+                return """
+                <tr>
+                  <td class="secondary">\(hop.hopNumber)</td>
+                  <td>\(escape(address))\(escape(hostname))</td>
+                  <td class="secondary">\(escape(rtt))</td>
+                </tr>
+                """
+            }.joined(separator: "\n")
+            let hopBody = probe.hops.isEmpty
+                ? "<p class=\"empty\">No hops recorded.</p>"
+                : "<table>\n\(hopRowsHTML)\n</table>"
+            let statusNote = probe.status == "finished" ? "" : "<p class=\"secondary\">Status: \(escape(probe.status))</p>"
+
+            return """
+            <h2>\(escape(location.isEmpty ? "Unknown location" : location))</h2>
+            <p class="secondary">\(escape(networkLabel))\(probe.resolvedAddress.map { " · resolved \($0)" } ?? "")</p>
+            \(statusNote)
+            \(hopBody)
+            """
+        }.joined(separator: "\n")
+
+        let body = results.isEmpty
+            ? "<p class=\"empty\">No results.</p>"
+            : probeSectionsHTML
+
+        return """
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>NMS — Path Discovery</title>
+        <style>
+          body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #F5F7FB; color: \(neutral); padding: 2rem; }
+          h1 { font-size: 1.1rem; }
+          h2 { font-size: 0.95rem; margin-top: 2rem; margin-bottom: 0.2rem; }
+          .subtitle { color: \(secondary); font-size: 0.85rem; margin-bottom: 1.5rem; }
+          table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-top: 0.4rem; }
+          td { padding: 0.3rem 0.75rem 0.3rem 0; border-bottom: 1px solid rgba(15,23,41,0.08); vertical-align: top; }
+          .secondary { color: \(secondary); }
+          .empty { color: \(secondary); }
+        </style>
+        </head>
+        <body>
+        <h1>NMS — Path Discovery</h1>
+        <p class="subtitle">Reverse traceroute toward \(escape(target)), from \(results.count) external vantage point\(results.count == 1 ? "" : "s") via Globalping. Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — this page is a snapshot of that one run, not live.</p>
+        \(body)
         </body>
         </html>
         """

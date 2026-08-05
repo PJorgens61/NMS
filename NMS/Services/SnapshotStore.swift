@@ -1021,4 +1021,23 @@ final class SnapshotStore {
         latest.hostname = hostname
         try? context.save()
     }
+
+    /// Records the result of a Path Discovery run (`GlobalpingReverseTraceService`)
+    /// against the most recent `ProviderEdgeRecord` row — always records
+    /// `probeCount`/`corroboratingCount` so the tile can show "ran, but
+    /// nothing matched" honestly, distinct from "never run at all" (both
+    /// `nil`). `externallyCorroboratedAt` only updates when at least one
+    /// probe actually matched — a run that finds zero corroboration
+    /// shouldn't refresh a timestamp implying it was just reconfirmed.
+    /// Same "no-op if the address has since moved on" tolerance as
+    /// `updateLatestProviderEdgeHostname` above.
+    func recordPathDiscoveryRun(address: String, probeCount: Int, corroboratingCount: Int, at date: Date = Date()) {
+        guard let latest = latestProviderEdge(), latest.address == address else { return }
+        latest.pathDiscoveryProbeCount = probeCount
+        latest.pathDiscoveryCorroboratingCount = corroboratingCount
+        if corroboratingCount > 0 {
+            latest.externallyCorroboratedAt = date
+        }
+        try? context.save()
+    }
 }

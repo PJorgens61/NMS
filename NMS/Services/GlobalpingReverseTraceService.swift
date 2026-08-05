@@ -1,0 +1,182 @@
+import Foundation
+
+#if DEBUG
+/// Runs a traceroute from several external vantage points back toward a
+/// given target (typically this Mac's own public IP) via Globalping
+/// (`api.globalping.io`) — the "reverse traceroute" technique explored at
+/// length during a real field-testing session (2026-08-04): outbound
+/// traceroute alone can't show the return-direction path or corroborate
+/// an ISP's edge infrastructure from outside. See `DESIGN-NOTES.md` and
+/// `PUNCHLIST.md` for the full research this comes from.
+///
+/// Deliberately unauthenticated — confirmed live that Globalping's
+/// measurement API works fully anonymously, no account/token/credits,
+/// unlike RIPE Atlas (which needs a funded account even for a single
+/// one-off measurement, and new accounts start at 0 with no way to buy
+/// more).
+struct GlobalpingReverseTraceService {
+    enum GlobalpingError: Error {
+        case unexpectedResponse
+        case measurementFailed
+        case timedOut
+    }
+
+    struct ProbeTraceResult {
+        struct Hop {
+            let hopNumber: Int
+            let address: String?
+            let hostname: String?
+            let roundTripTimesMs: [Double]
+        }
+        let city: String?
+        let country: String?
+        let network: String?
+        let asn: Int?
+        let status: String
+        let resolvedAddress: String?
+        let hops: [Hop]
+    }
+
+    private static let baseURL = "https://api.globalping.io/v1/measurements"
+
+    /// Creates a one-off traceroute measurement toward `target`, sourced
+    /// from `probeCount` geographically diverse US vantage points by
+    /// default (`{"magic": "USA"}`) — the simplest pattern confirmed live
+    /// to work well across several rounds the same session. No
+    /// ASN/provider-specific targeting here deliberately — that was
+    /// useful for manual investigation but is over-scoped for this
+    /// button's first version; stays as a manual `curl` technique for
+    /// now (see `PUNCHLIST.md`). Returns the measurement ID to poll via
+    /// `fetchResult`.
+    func createMeasurement(target: String, probeCount: Int = 5) async throws -> String {
+        guard let url = URL(string: Self.baseURL) else {
+            throw GlobalpingError.unexpectedResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Same reasoning as every other outbound check in this app
+        // (HTTPCheckService/SaaSStatusService/ISPIdentityService): a
+        // stale cached response would defeat the point of a fresh check.
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = 10
+        let body: [String: Any] = [
+            "type": "traceroute",
+            "target": target,
+            "locations": [["magic": "USA"]],
+            "limit": probeCount
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw GlobalpingError.unexpectedResponse
+        }
+        return try Self.parseMeasurementID(data)
+    }
+
+    /// Not `private` — `NMSTests` reaches this directly via `@testable
+    /// import`, same reasoning as `SaaSStatusService.parseXXX`: fixture-
+    /// based tests against a real captured response shape, no network.
+    static func parseMeasurementID(_ data: Data) throws -> String {
+        struct CreateResponse: Decodable {
+            let id: String
+        }
+        let decoded = try JSONDecoder().decode(CreateResponse.self, from: data)
+        return decoded.id
+    }
+
+    /// Polls the measurement until it's finished, up to `maxAttempts`
+    /// tries with a fixed delay between them — confirmed live,
+    /// repeatedly, the same session that Globalping's one-off
+    /// traceroutes finish in a few seconds in practice, so a short fixed
+    /// delay is enough rather than needing real exponential backoff.
+    /// Throws `.measurementFailed` immediately if Globalping itself
+    /// reports the measurement failed, rather than polling out the full
+    /// `maxAttempts` for something that's never going to finish.
+    func fetchResult(measurementID: String, maxAttempts: Int = 6, delaySeconds: UInt64 = 2) async throws -> [ProbeTraceResult] {
+        guard let url = URL(string: "\(Self.baseURL)/\(measurementID)") else {
+            throw GlobalpingError.unexpectedResponse
+        }
+        for attempt in 0..<maxAttempts {
+            if attempt > 0 {
+                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            }
+            var request = URLRequest(url: url)
+            request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            request.timeoutInterval = 10
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw GlobalpingError.unexpectedResponse
+            }
+            let (status, results) = try Self.parseMeasurement(data)
+            switch status {
+            case "finished":
+                return results
+            case "failed":
+                throw GlobalpingError.measurementFailed
+            default:
+                continue
+            }
+        }
+        throw GlobalpingError.timedOut
+    }
+
+    /// Not `private` — same reasoning as `parseMeasurementID` above.
+    /// Confirmed against real captured response shapes (2026-08-04,
+    /// several live rounds): a non-responding hop appears as a real
+    /// entry in `hops[]` at its correct position (`resolvedAddress`/
+    /// `resolvedHostname: null`, `timings: []`), not omitted — so hop
+    /// numbers are derived from array position, not a separate field
+    /// Globalping doesn't actually send.
+    static func parseMeasurement(_ data: Data) throws -> (status: String, results: [ProbeTraceResult]) {
+        struct MeasurementResponse: Decodable {
+            struct Result: Decodable {
+                struct Probe: Decodable {
+                    let city: String?
+                    let country: String?
+                    let network: String?
+                    let asn: Int?
+                }
+                struct HopTiming: Decodable {
+                    let rtt: Double?
+                }
+                struct Hop: Decodable {
+                    let resolvedAddress: String?
+                    let resolvedHostname: String?
+                    let timings: [HopTiming]
+                }
+                struct Inner: Decodable {
+                    let status: String
+                    let resolvedAddress: String?
+                    let hops: [Hop]?
+                }
+                let probe: Probe
+                let result: Inner
+            }
+            let status: String
+            let results: [Result]?
+        }
+        let decoded = try JSONDecoder().decode(MeasurementResponse.self, from: data)
+        let probeResults = (decoded.results ?? []).map { entry -> ProbeTraceResult in
+            let hops = (entry.result.hops ?? []).enumerated().map { index, hop in
+                ProbeTraceResult.Hop(
+                    hopNumber: index + 1,
+                    address: hop.resolvedAddress,
+                    hostname: hop.resolvedHostname,
+                    roundTripTimesMs: hop.timings.compactMap(\.rtt)
+                )
+            }
+            return ProbeTraceResult(
+                city: entry.probe.city,
+                country: entry.probe.country,
+                network: entry.probe.network,
+                asn: entry.probe.asn,
+                status: entry.result.status,
+                resolvedAddress: entry.result.resolvedAddress,
+                hops: hops
+            )
+        }
+        return (decoded.status, probeResults)
+    }
+}
+#endif

@@ -45,14 +45,6 @@ struct ContentView: View {
     /// (see `NMSApp`).
     @Environment(\.openWindow) private var openWindow
 
-    // Debug-only tooling (see `LocalDiagnosticServer`'s own doc comment)
-    // -- owned here via `@State` since it's purely a UI-triggered
-    // convenience, not something any view model needs. `#if DEBUG`
-    // because the type itself only exists in debug builds.
-    #if DEBUG
-    @State private var diagnosticServer = LocalDiagnosticServer()
-    #endif
-
     var body: some View {
         // Footer pinned outside the scrollable region — the window's
         // content (SNMP Devices, DHCP History) can run tall enough that
@@ -284,21 +276,17 @@ struct ContentView: View {
                 .accessibilityIdentifier("footer.preferences")
                 .help("Opens toggles for experimental features")
                 #if DEBUG
-                // Debug-only, deliberately not shown in Release builds —
-                // see `LocalDiagnosticServer`'s own doc comment for the
-                // full "why a button, why loopback-only, why on-demand"
-                // reasoning.
-                Button("Diagnostic Log…") {
-                    Task {
-                        if let url = await diagnosticServer.start(snapshotStore: snapshotStore) {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
+                // A separate window for debug action buttons, not more
+                // footer buttons — see `DebugToolsView`'s own doc comment
+                // for why (raised directly once a second button, Path
+                // Discovery, was about to join Diagnostic Log here).
+                Button("Tools…") {
+                    openWindowInFront("debug-tools")
                 }
-                .accessibilityLabel("Diagnostic Log")
-                .accessibilityHint("Opens a local web page listing recent events and test results, for reviewing a field-testing session. Reload the page to see anything since it opened.")
-                .accessibilityIdentifier("footer.diagnosticLog")
-                .help("Opens a local web page listing recent events and test results, for reviewing a field-testing session. Reload the page to see anything since it opened. Debug builds only, loopback-only, stops itself after 10 minutes idle.")
+                .accessibilityLabel("Debug Tools")
+                .accessibilityHint("Opens a window with debug-only diagnostic actions: a local event/test-result log, and a reverse-traceroute path discovery tool")
+                .accessibilityIdentifier("footer.debugTools")
+                .help("Opens debug-only diagnostic actions (Diagnostic Log, Path Discovery) in their own window. Debug builds only.")
                 #endif
                 Spacer()
                 Button("Quit") {

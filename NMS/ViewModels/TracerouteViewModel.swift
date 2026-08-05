@@ -173,6 +173,51 @@ final class TracerouteViewModel {
         return monitoredHop?.address ?? snapshotStore.latestProviderEdge()?.address
     }
 
+    /// The most recent Path Discovery (`GlobalpingReverseTraceService`)
+    /// run's result against the currently confirmed PE address, straight
+    /// from `ProviderEdgeRecord` — `nil` means no run has happened yet
+    /// for this address, distinct from a run that found zero
+    /// corroboration (`corroboratingCount == 0`, real information worth
+    /// showing, not the same as "never checked").
+    var externalCorroboration: (probeCount: Int, corroboratingCount: Int, corroboratedAt: Date?)? {
+        guard let edge = snapshotStore.latestProviderEdge(),
+              let probeCount = edge.pathDiscoveryProbeCount,
+              let corroboratingCount = edge.pathDiscoveryCorroboratingCount
+        else { return nil }
+        return (probeCount, corroboratingCount, edge.externallyCorroboratedAt)
+    }
+
+    /// Whether a reverse-trace's last hop before reaching its own
+    /// destination matches `confirmedAddress` — the corroboration check
+    /// Path Discovery uses to decide whether an external vantage point's
+    /// trace actually confirms the currently-confirmed PE hop. The
+    /// destination itself is excluded from consideration: Globalping's
+    /// hop list includes the target address as its own final hop (see
+    /// `GlobalpingReverseTraceService`'s doc comment), which is this
+    /// Mac's own address, never the PE's.
+    ///
+    /// `nonisolated static`, pure, for the same directly-unit-testable
+    /// reasoning as `leadingNonInternetHopCount`/`includesConfirmedCGNAT`
+    /// above — no live network call or `SnapshotStore` needed to test
+    /// the actual matching logic.
+    ///
+    /// `#if DEBUG` because it references
+    /// `GlobalpingReverseTraceService.ProbeTraceResult.Hop`, which only
+    /// exists in debug builds (Path Discovery is debug-only tooling, same
+    /// tier as `LocalDiagnosticServer`) — this file itself isn't
+    /// debug-gated, so the function referencing that type has to be,
+    /// same class of fix as `ContentView.snapshotStore`'s own doc
+    /// comment already documents for the equivalent problem there.
+    #if DEBUG
+    nonisolated static func reverseTraceCorroborates(
+        _ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop],
+        destination: String?,
+        confirmedAddress: String
+    ) -> Bool {
+        hops.last(where: { $0.address != nil && $0.address != destination })?.address == confirmedAddress
+    }
+    #endif
+
     /// Confirms which hop is "the" router to monitor going forward, by
     /// position in the path. Pass `nil` to clear the selection and fall
     /// back to `suggestedEdgeHop`.
