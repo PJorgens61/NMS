@@ -2412,8 +2412,29 @@ struct TopologyBuilderTests {
         #expect(edgeTier.nodes.count == 1)
         #expect(edgeTier.nodes[0].label == "bng3.snfcca05.sonic.net")
         #expect(Set(edgeTier.nodes[0].interfaces.map(\.address)) == ["157.131.209.36", "157.131.209.99"])
-        #expect(edgeTier.nodes[0].interfaces.first(where: { $0.address == "157.131.209.36" })?.hostname == "305.ae0.bng3.snfcca05.sonic.net")
-        #expect(edgeTier.nodes[0].interfaces.first(where: { $0.address == "157.131.209.99" })?.hostname == "lo0.bng3.snfcca05.sonic.net")
+        #expect(edgeTier.nodes[0].interfaces.first(where: { $0.address == "157.131.209.36" })?.hostnames == ["305.ae0.bng3.snfcca05.sonic.net"])
+        #expect(edgeTier.nodes[0].interfaces.first(where: { $0.address == "157.131.209.99" })?.hostnames == ["lo0.bng3.snfcca05.sonic.net"])
+    }
+
+    /// Raised directly ("i think we need rows with name-ip for all
+    /// combos"): a single address seen with two different hostnames
+    /// (different probes' own reverse-DNS disagreeing, or a forward-DNS
+    /// sibling lookup surfacing a second name) keeps both, not just the
+    /// first one observed.
+    @Test("an address seen under two different hostnames keeps both, not just the first")
+    func multipleHostnamesForSameAddressAreAllKept() {
+        // Both hostnames resolve to the same device stem (via two
+        // different real interface-prefix patterns), so the two probes
+        // still merge into one node -- the point being tested is that the
+        // one shared address ends up with *both* names attached, not that
+        // this creates two nodes.
+        let probeA = probe([hop("70.0.0.1"), hop("157.131.209.36", hostname: "305.ae0.bng3.snfcca05.sonic.net"), hop("203.0.113.5")], resolvedAddress: "203.0.113.5")
+        let probeB = probe([hop("70.0.0.1"), hop("157.131.209.36", hostname: "lo0.bng3.snfcca05.sonic.net"), hop("203.0.113.9")], resolvedAddress: "203.0.113.9")
+        let (tiers, _) = TopologyBuilder.build(frontsideHops: [], backsideResults: [probeA, probeB], siblingAddresses: [:])
+        let edgeTier = try! #require(tiers.first(where: { $0.distanceFromNMS == 2 }))
+        #expect(edgeTier.nodes.count == 1)
+        let interface = try! #require(edgeTier.nodes[0].interfaces.first(where: { $0.address == "157.131.209.36" }))
+        #expect(interface.hostnames == ["305.ae0.bng3.snfcca05.sonic.net", "lo0.bng3.snfcca05.sonic.net"])
     }
 
     @Test("forward-DNS sibling addresses are folded into the matching node's interfaces")
@@ -2428,7 +2449,7 @@ struct TopologyBuilderTests {
         let edgeTier = try! #require(tiers.first(where: { $0.distanceFromNMS == 2 }))
         let sibling = edgeTier.nodes[0].interfaces.first(where: { $0.address == "198.51.100.99" })
         #expect(sibling != nil)
-        #expect(sibling?.hostname == "305.ae0.bng3.snfcca05.sonic.net")
+        #expect(sibling?.hostnames == ["305.ae0.bng3.snfcca05.sonic.net"])
     }
 
     @Test("frontside's own edge hop merges into the backside-derived node when addresses match")
@@ -2448,15 +2469,17 @@ struct TopologyBuilderTests {
         #expect(sources.isEmpty)
     }
 
-    @Test("renderMermaid produces a bottom-to-top flowchart, plain lines, sources on top, interfaces with dns names and ips")
+    @Test("renderMermaid produces a bottom-to-top flowchart, plain lines, sources on top, one row per name-address combo")
     func renderMermaidProducesExpectedText() {
         let tiers = [
             TopologyBuilder.Tier(distanceFromNMS: 0, nodes: [TopologyBuilder.Node(label: "This Mac", interfaces: [], sourceCount: 0)]),
             TopologyBuilder.Tier(distanceFromNMS: 2, nodes: [TopologyBuilder.Node(
                 label: "edge.example.net",
                 interfaces: [
-                    TopologyBuilder.Interface(hostname: "lo0.edge.example.net", address: "198.51.100.1"),
-                    TopologyBuilder.Interface(hostname: nil, address: "198.51.100.2")
+                    // Two names for one address -- should produce two rows.
+                    TopologyBuilder.Interface(hostnames: ["lo0.edge.example.net", "old.edge.example.net"], address: "198.51.100.1"),
+                    // No name at all -- one row, just the bare address.
+                    TopologyBuilder.Interface(hostnames: [], address: "198.51.100.2")
                 ],
                 sourceCount: 2
             )])
@@ -2465,8 +2488,7 @@ struct TopologyBuilderTests {
         let text = TopologyBuilder.renderMermaid(tiers: tiers, sources: sources)
         #expect(text.hasPrefix("flowchart BT"))
         #expect(text.contains("t0n0[\"This Mac\"]"))
-        // Both the dns name and the bare address show up, one per interface.
-        #expect(text.contains("t2n0[\"edge.example.net<br/>lo0.edge.example.net: 198.51.100.1<br/>198.51.100.2\"]"))
+        #expect(text.contains("t2n0[\"edge.example.net<br/>lo0.edge.example.net: 198.51.100.1<br/>old.edge.example.net: 198.51.100.1<br/>198.51.100.2\"]"))
         // Plain lines (`---`), not arrows (`-->`) -- and never the arrow
         // syntax anywhere in the output.
         #expect(text.contains("t0n0 --- t2n0"))

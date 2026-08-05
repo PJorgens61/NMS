@@ -33,15 +33,16 @@ import Foundation
 /// even split, or three-plus-way fragmentation) stops expanding there
 /// entirely, same as before, since there's no real "trunk" left to follow.
 enum TopologyBuilder {
-    /// One IP address a node was observed under, with whatever hostname
-    /// (if any) was specifically resolved for *that* address — raised
-    /// directly ("list both dns names and ip addresses for each
-    /// interface"): a device's several interfaces don't all share one
-    /// name, so each one keeps its own (e.g. `305.ae0.bng3...` and
-    /// `lo0.bng3...` are different hostnames for the same device, each
-    /// naming a different one of its addresses).
+    /// One IP address a node was observed under, with every hostname
+    /// resolved for *that specific address* — raised directly ("list
+    /// both dns names and ip addresses for each interface", then "list
+    /// all dns names"): a single address can genuinely have more than one
+    /// name (different probes' own reverse-DNS disagreeing, or a forward-
+    /// DNS sibling lookup surfacing an alias the reverse lookup didn't),
+    /// and a device's several interfaces don't all share one name either
+    /// — each address keeps every name seen for it, not just the first.
     struct Interface: Equatable, Hashable {
-        var hostname: String?
+        var hostnames: Set<String>
         var address: String
     }
 
@@ -225,35 +226,43 @@ enum TopologyBuilder {
         return lines.joined(separator: "\n")
     }
 
-    /// One line per interface — its hostname and address together when a
-    /// hostname is known, just the address when it isn't — under the
-    /// node's own label. Skips repeating the interface line entirely when
-    /// there's exactly one, unnamed, and it's already identical to the
-    /// label (the common "plain address, no stem resolved" case) — nothing
-    /// new to say twice.
+    /// One row per name-address combination — raised directly ("i think
+    /// we need rows with name-ip for all combos"): an interface with two
+    /// dns names and one address gets two rows, not one row with both
+    /// names crammed together, matching the same "one row per hostname-
+    /// address pair" shape the "Known addresses near the edge" table
+    /// already uses elsewhere on this page. An interface with no known
+    /// name at all still gets one row, just the bare address. Skips
+    /// repeating the interface section entirely when there's exactly one
+    /// interface, unnamed, already identical to the node's own label (the
+    /// common "plain address, no stem resolved" case) — nothing new to
+    /// say twice.
     private static func nodeText(_ node: Node) -> String {
         if node.interfaces.isEmpty { return mermaidEscape(node.label) }
-        if node.interfaces.count == 1, node.interfaces[0].hostname == nil, node.interfaces[0].address == node.label {
+        if node.interfaces.count == 1, node.interfaces[0].hostnames.isEmpty, node.interfaces[0].address == node.label {
             return mermaidEscape(node.label)
         }
-        let interfaceLines = node.interfaces
-            .sorted { $0.address < $1.address }
-            .map { iface -> String in
-                if let hostname = iface.hostname {
-                    return "\(hostname): \(iface.address)"
+        var rows: [String] = []
+        for iface in node.interfaces.sorted(by: { $0.address < $1.address }) {
+            if iface.hostnames.isEmpty {
+                rows.append(iface.address)
+            } else {
+                for hostname in iface.hostnames.sorted() {
+                    rows.append("\(hostname): \(iface.address)")
                 }
-                return iface.address
             }
-        return ([node.label] + interfaceLines).map(mermaidEscape).joined(separator: "<br/>")
+        }
+        return ([node.label] + rows).map(mermaidEscape).joined(separator: "<br/>")
     }
 
     // MARK: - Merging
 
     private static func singleNode(address: String, hostname: String?, siblingAddresses: [String: [String: String]]) -> Node {
         let stem = hostname.flatMap { GlobalpingReverseTraceService.deviceStem(fromHostname: $0) }
-        var interfaceHostnames: [String: String?] = [address: hostname]
+        var interfaceHostnames: [String: Set<String>] = [:]
+        addInterfaceHostname(hostname, forAddress: address, in: &interfaceHostnames)
         if let stem, let siblings = siblingAddresses[stem] {
-            for (siblingHostname, siblingAddress) in siblings { interfaceHostnames[siblingAddress] = siblingHostname }
+            for (siblingHostname, siblingAddress) in siblings { addInterfaceHostname(siblingHostname, forAddress: siblingAddress, in: &interfaceHostnames) }
         }
         return Node(label: stem ?? address, interfaces: makeInterfaces(interfaceHostnames), sourceCount: 0)
     }
@@ -271,7 +280,7 @@ enum TopologyBuilder {
         _ entries: [(hop: GlobalpingReverseTraceService.ProbeTraceResult.Hop, sourceIndex: Int)],
         siblingAddresses: [String: [String: String]]
     ) -> [(node: Node, sourceIndices: Set<Int>)] {
-        struct Group { var interfaceHostnames: [String: String?] = [:]; var stem: String?; var sourceIndices: Set<Int> = [] }
+        struct Group { var interfaceHostnames: [String: Set<String>] = [:]; var stem: String?; var sourceIndices: Set<Int> = [] }
         var groups: [String: Group] = [:]
 
         for entry in entries {
@@ -279,7 +288,7 @@ enum TopologyBuilder {
             let stem = entry.hop.hostname.flatMap { GlobalpingReverseTraceService.deviceStem(fromHostname: $0) }
             let key = stem ?? address
             var group = groups[key] ?? Group()
-            setInterfaceHostname(entry.hop.hostname, forAddress: address, in: &group.interfaceHostnames)
+            addInterfaceHostname(entry.hop.hostname, forAddress: address, in: &group.interfaceHostnames)
             if group.stem == nil { group.stem = stem }
             group.sourceIndices.insert(entry.sourceIndex)
             groups[key] = group
@@ -289,7 +298,7 @@ enum TopologyBuilder {
             var interfaceHostnames = group.interfaceHostnames
             if let stem = group.stem, let siblings = siblingAddresses[stem] {
                 for (siblingHostname, siblingAddress) in siblings {
-                    setInterfaceHostname(siblingHostname, forAddress: siblingAddress, in: &interfaceHostnames)
+                    addInterfaceHostname(siblingHostname, forAddress: siblingAddress, in: &interfaceHostnames)
                 }
             }
             let node = Node(
@@ -320,33 +329,38 @@ enum TopologyBuilder {
             addInterface(hostname: hostname, address: address, to: &groups[index].node)
             return
         }
-        var interfaceHostnames: [String: String?] = [address: hostname]
+        var interfaceHostnames: [String: Set<String>] = [:]
+        addInterfaceHostname(hostname, forAddress: address, in: &interfaceHostnames)
         if let stem, let siblings = siblingAddresses[stem] {
-            for (siblingHostname, siblingAddress) in siblings { interfaceHostnames[siblingAddress] = siblingHostname }
+            for (siblingHostname, siblingAddress) in siblings { addInterfaceHostname(siblingHostname, forAddress: siblingAddress, in: &interfaceHostnames) }
         }
         groups.append((Node(label: stem ?? address, interfaces: makeInterfaces(interfaceHostnames), sourceCount: 0), []))
     }
 
     private static func addInterface(hostname: String?, address: String, to node: inout Node) {
         if let index = node.interfaces.firstIndex(where: { $0.address == address }) {
-            if node.interfaces[index].hostname == nil, let hostname { node.interfaces[index].hostname = hostname }
+            if let hostname { node.interfaces[index].hostnames.insert(hostname) }
         } else {
-            node.interfaces.append(Interface(hostname: hostname, address: address))
+            node.interfaces.append(Interface(hostnames: Set(hostname.map { [$0] } ?? []), address: address))
         }
     }
 
-    /// Only overwrites an already-known hostname for this address if the
-    /// existing entry is still `nil` -- the first real name observed for a
-    /// given interface wins, rather than a later, hostname-less sighting
-    /// (e.g. a probe whose own reverse-DNS lookup didn't resolve) blanking
-    /// it back out.
-    private static func setInterfaceHostname(_ hostname: String?, forAddress address: String, in map: inout [String: String?]) {
-        if let existing = map[address], existing != nil { return }
-        map[address] = hostname
+    /// Accumulates every distinct hostname seen for a given address —
+    /// raised directly ("can each router node list all dns names...") —
+    /// rather than keeping only the first one found. A `nil` hostname
+    /// (nothing resolved for this particular sighting) is a no-op, not a
+    /// reason to blank out names a different sighting of the same address
+    /// already contributed.
+    private static func addInterfaceHostname(_ hostname: String?, forAddress address: String, in map: inout [String: Set<String>]) {
+        guard let hostname else {
+            if map[address] == nil { map[address] = [] }
+            return
+        }
+        map[address, default: []].insert(hostname)
     }
 
-    private static func makeInterfaces(_ map: [String: String?]) -> [Interface] {
-        map.map { Interface(hostname: $0.value, address: $0.key) }
+    private static func makeInterfaces(_ map: [String: Set<String>]) -> [Interface] {
+        map.map { Interface(hostnames: $0.value, address: $0.key) }
     }
 
     private static func sourceLabel(_ probe: GlobalpingReverseTraceService.ProbeTraceResult) -> String {
