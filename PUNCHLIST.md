@@ -12,6 +12,82 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [x] **Path Discovery, built and shipped**: a debug-only "Path
+  Discovery…" button (new "Debug Tools" window, alongside Diagnostic
+  Log — see that window's own entry below for why debug buttons moved
+  out of the main footer) runs a real multi-source reverse traceroute
+  via Globalping toward this Mac's own public IP, opens the result as a
+  local web page, and — the actual point, raised directly ("the info
+  collected should inform the path to internet function") — feeds back
+  into Path to Internet: whenever a probe's last hop before reaching
+  this Mac matches the confirmed ISP edge hop, that's recorded
+  (`ProviderEdgeRecord.externallyCorroboratedAt`/
+  `pathDiscoveryProbeCount`/`pathDiscoveryCorroboratingCount`) and shown
+  as a small corroboration line under the confirmed hop. New service:
+  `GlobalpingReverseTraceService` (debug-only, unauthenticated, matches
+  `ISPIdentityService`'s house style for a simple JSON-API client).
+  Planned via `EnterPlanMode`, built, tested (7 new tests, full suite
+  131/131), verified live end-to-end including a real Release-build
+  check confirming the whole feature compiles out cleanly.
+
+- [ ] **Path Discovery's corroboration check is exact-address-only, and
+  the very first live use already hit the reason that matters: a
+  router's loopback interface vs. its physical interface.** Built and
+  shipped (see the "Path Discovery" entry below), then immediately
+  exercised live: the confirmed ISP edge hop resolved to a `lo0.bng3...`
+  hostname (a Sonic BNG's loopback interface — a virtual, link-less
+  interface routers commonly use specifically because it's reachable
+  regardless of which physical port is up); Path Discovery's own
+  Globalping traces from earlier the same night showed `ae0.bng3...`
+  (the same BNG's aggregated-Ethernet interface, the one actually
+  carrying traffic) as the last hop before reaching the destination.
+  Same physical device, two real, different addresses — the exact-match
+  corroboration check correctly reported 0/5, which is honest given
+  what it can prove, but doesn't mean the confirmed hop is wrong.
+  Raised directly, and worth distinguishing from a similar-sounding but
+  mechanically different finding earlier the same night: this isn't the
+  near-side/far-side-of-one-link issue (a hop's reply address vs. the
+  far side of the same physical link) — a loopback isn't one side of a
+  link at all, it's a separate virtual interface with no physical link.
+  This is squarely the alias-resolution problem already named in the
+  Reverse-traceroute entry below (Ally, MIDAR, kapar; CAIDA's Ark
+  project) — proving two different addresses belong to the same device,
+  not something a plain equality check can do.
+  Fixed for now: the tooltip explains the limitation honestly (a low/
+  zero count doesn't mean the hop is wrong) rather than reading as a
+  warning. Not fixed: the actual corroboration logic still can't detect
+  this case. Full alias resolution (cryptographic-strength proof two
+  addresses are the same device — IP-ID/timing correlation, Ally/MIDAR/
+  kapar) stays a real research-grade follow-up, not a quick win.
+
+  **A real, cheaper, live-confirmed technique found the same night,
+  worth building before the full research-grade version**: `dig` forward
+  lookups of *guessed sibling hostnames* on the same device stem.
+  Starting from one PTR result (`lo0.bng3.snfcca05.sonic.net`), tried
+  forward-resolving plausible sibling interfaces on that same
+  `bng3.snfcca05` device — confirmed live, not assumed: the bare device
+  name with no interface prefix at all resolves to the *identical*
+  address as `lo0` (real evidence `lo0` is this device's default/
+  identity address in Sonic's own convention, not something
+  semantically separate); `ae0.bng3...` with no numeric prefix doesn't
+  resolve at all, but `305.ae0.bng3...` and `304.ae0.bng3...` (a
+  VLAN/sub-interface-style numeric prefix) both do, to two different
+  real addresses — meaning this one device has multiple distinct
+  customer-facing sub-interfaces, each independently discoverable via
+  forward DNS, with zero live traceroute probes needed to stumble onto
+  each one.
+  Not full alias resolution (doesn't *prove* the addresses are the same
+  physical box the way IP-ID/timing correlation would — still worth
+  being honest about that gap), but real, immediately actionable
+  circumstantial evidence, cheap (a handful of `dig` calls, no network
+  measurement infrastructure), and it just worked on a real device
+  tonight. Same interface-naming-convention caveat as before still
+  applies for *generalizing* this across other ISPs (Sonic's own
+  `lo0`/`ae0`/numeric-prefix scheme won't match another operator's), but
+  as a manual, one-ISP-at-a-time investigative technique (not an
+  automated cross-ISP parser) it's genuinely useful today, not just a
+  future research direction.
+
 - [ ] **Idea: path discovery toward the specific SaaS services NMS
   already monitors, sourced from probes hosted on that provider's own
   network — not just abstract ISP topology.** Raised live (2026-08-04),

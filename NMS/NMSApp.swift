@@ -22,6 +22,14 @@ struct NMSApp: App {
     @State private var snmp: SNMPViewModel
     @State private var saasMonitoring: SaaSMonitoringViewModel
     @State private var ddns: DDNSViewModel
+    // Debug-only tooling, owned here (not `ContentView`) now that it's
+    // shared by `DebugToolsView`, a separate window — see that view's own
+    // doc comment for why debug action buttons moved out of the main
+    // footer. `#if DEBUG` because both types only exist in debug builds.
+    #if DEBUG
+    @State private var diagnosticServer = LocalDiagnosticServer()
+    @State private var globalpingService = GlobalpingReverseTraceService()
+    #endif
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -612,6 +620,21 @@ struct NMSApp: App {
             KnownNetworksView(networkIdentity: networkIdentity, snapshotStore: snapshotStore)
         }
         .defaultSize(width: 460, height: 320)
+
+        // Debug-only action buttons, pulled out of the main footer — see
+        // `DebugToolsView`'s own doc comment for why.
+        #if DEBUG
+        Window("Debug Tools", id: "debug-tools") {
+            DebugToolsView(
+                diagnosticServer: diagnosticServer,
+                globalpingService: globalpingService,
+                snapshotStore: snapshotStore,
+                publicIP: publicIP,
+                traceroute: traceroute
+            )
+        }
+        .defaultSize(width: 360, height: 240)
+        #endif
 
         // A plain `Window`, not a `Settings` scene — see
         // `PreferencesView`'s doc comment.

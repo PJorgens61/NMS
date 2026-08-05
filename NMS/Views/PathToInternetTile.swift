@@ -67,6 +67,16 @@ struct PathToInternetTile: View {
             .accessibilityHint("Stops treating this hop as the ISP edge router")
             .accessibilityIdentifier("pathToInternet.stopMonitoringHop")
             .help("Stops treating this hop as the ISP edge router")
+            #if DEBUG
+            // External, independent confirmation from Path Discovery
+            // (Debug Tools window) — occasional, on-demand data, shown
+            // as context alongside the live outbound trace above, never
+            // replacing it. Raised directly ("the info collected should
+            // inform the path to internet function").
+            if let corroboration = traceroute.externalCorroboration {
+                pathDiscoverySummary(corroboration)
+            }
+            #endif
         } else if let suggested = traceroute.suggestedEdgeHop {
             // A separate wrapped-text row here used to explain this, at a
             // real height cost: every *new* network starts unconfirmed, so
@@ -115,6 +125,17 @@ struct PathToInternetTile: View {
         if let count = cgnatRowText {
             row("NAT", count)
                 .foregroundStyle(.orange)
+                #if DEBUG
+                // Not a re-check of the CGNAT classification itself —
+                // just surfaces, on hover, whether the confirmed edge
+                // hop this NAT reading is based on has any external
+                // corroboration on record. See `pathDiscoverySummary`'s
+                // own doc comment for the same "context, not a new
+                // detector" framing.
+                .help(optional: traceroute.externalCorroboration.map { corroboration in
+                    "The confirmed ISP edge hop below has \(corroboration.corroboratingCount > 0 ? "been" : "not been") externally corroborated via Path Discovery (\(corroboration.corroboratingCount)/\(corroboration.probeCount) probes)."
+                })
+                #endif
         }
     }
 
@@ -129,6 +150,29 @@ struct PathToInternetTile: View {
             ? "CGNAT — shared public IP"
             : "Multiple layers (\(count) hops)"
     }
+
+    #if DEBUG
+    /// Context, not a new detector — corroborates *that the confirmed
+    /// edge hop is real, externally-visible infrastructure*, which lends
+    /// confidence to whatever this tile already concluded about it (the
+    /// PE identity, the NAT-layer reading above), without itself
+    /// re-checking the CGNAT classification specifically. Reverse-trace
+    /// data is external, occasional, and not guaranteed to reflect the
+    /// same path the live outbound trace takes (asymmetric routing) —
+    /// worded as corroboration, never as a replacement fact.
+    @ViewBuilder
+    private func pathDiscoverySummary(_ corroboration: (probeCount: Int, corroboratingCount: Int, corroboratedAt: Date?)) -> some View {
+        let text = "Path Discovery: \(corroboration.corroboratingCount)/\(corroboration.probeCount) external probe\(corroboration.probeCount == 1 ? "" : "s") confirmed this hop"
+            + (corroboration.corroboratedAt.map { " (last \($0.formatted(date: .abbreviated, time: .omitted)))" } ?? "")
+        Text(text)
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .help(tooltip(
+                "Whether external vantage points, reached via Path Discovery (Debug Tools window), independently saw this same hop as the last one before reaching this Mac. A low or zero count doesn't mean this hop is wrong — it often just means this router replies from a different address than the one seen from outside.",
+                technical: "Matches by exact IP address only, so it can under-count: a router commonly exposes a different address on its management/loopback interface than on the physical interface actually carrying traffic, and this can't tell those two addresses belong to the same device (that's alias resolution, a harder, unimplemented problem — see PUNCHLIST.md). Uses Globalping's public probe network, and only reflects whenever Path Discovery last ran, not a live, continuous check the way the trace above is."
+            ))
+    }
+    #endif
 
     private var hopRows: some View {
         ForEach(displayedHops) { hop in

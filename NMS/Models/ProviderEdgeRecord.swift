@@ -30,11 +30,38 @@ final class ProviderEdgeRecord {
     /// mandatory attribute here would hit the exact migration failure
     /// `BUGS.md`'s "The persistent store fails to open" describes.
     var networkFingerprint: String?
+    /// When a reverse-traceroute (Path Discovery, `GlobalpingReverseTraceService`)
+    /// last observed this same address as an external vantage point's
+    /// last hop before reaching this Mac — independent, outside
+    /// confirmation that this is genuinely the ISP's stable edge, not
+    /// just what one outbound trace happened to see once. `nil` means
+    /// "never externally corroborated," same absent-value convention as
+    /// `hostname`/`networkFingerprint` above, not "corroboration
+    /// failed." Optional with no default needed at all (unlike
+    /// `KnownNetwork.isHome`/`isPublicForCapture`'s `Bool = false`
+    /// pattern) since this model's existing optional fields already
+    /// establish that lightweight migration handles a new optional
+    /// attribute on a model with existing rows fine — only a *mandatory*
+    /// new attribute hits the failure `networkFingerprint`'s own doc
+    /// comment describes.
+    var externallyCorroboratedAt: Date?
+    /// How many Path Discovery probes ran, and how many of those
+    /// corroborated `address` specifically, on the most recent run —
+    /// both `nil` together always (never independently), same "no run
+    /// yet" meaning as `externallyCorroboratedAt` being `nil`. Kept
+    /// alongside the corroboration timestamp rather than in a separate
+    /// model: this is context about the same edge address's external
+    /// confirmation, not a new kind of fact.
+    var pathDiscoveryProbeCount: Int?
+    var pathDiscoveryCorroboratingCount: Int?
 
     init(address: String, hostname: String?, observedAt: Date = Date(), networkFingerprint: String? = nil) {
         self.address = address
         self.hostname = hostname
         self.observedAt = observedAt
         self.networkFingerprint = networkFingerprint
+        self.externallyCorroboratedAt = nil
+        self.pathDiscoveryProbeCount = nil
+        self.pathDiscoveryCorroboratingCount = nil
     }
 }
