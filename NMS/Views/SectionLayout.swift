@@ -20,6 +20,7 @@ enum SectionLayout: String, CaseIterable, Sendable {
     case wifi
     case ethernetLink
     case saasMonitoring
+    case firewallVisibility
 
     /// Fixed, not `maxHeight` — a `maxHeight` alone lets the scroll view
     /// shrink to fit however few rows currently exist, which made a
@@ -52,6 +53,12 @@ enum SectionLayout: String, CaseIterable, Sendable {
         // room, still clearly smaller than Wi-Fi's 130.
         case .ethernetLink: return 80
         case .saasMonitoring: return 150
+        // Same generous-round-number reasoning as every other case here
+        // — a history list plus a status line, roughly `dhcpHistory`'s
+        // shape (also a timestamped history list), sized a bit taller
+        // since each row shows a port count rather than fitting on one
+        // line like a lease's `primaryDetail`.
+        case .firewallVisibility: return 180
         }
     }
 }

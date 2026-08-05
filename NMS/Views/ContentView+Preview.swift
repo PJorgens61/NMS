@@ -52,7 +52,8 @@ enum ContentViewPreviewSupport {
             ProviderEdgeRecord.self,
             SNMPDeviceRecord.self,
             WiFiSampleRecord.self,
-            WiFiStressTestRecord.self
+            WiFiStressTestRecord.self,
+            FirewallScanRecord.self
         ])
         let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         // `try!` — preview-only code; an in-memory container failing to
@@ -88,6 +89,7 @@ enum ContentViewPreviewSupport {
         )
         let saasMonitoring = SaaSMonitoringViewModel(snapshotStore: store)
         let ddns = DDNSViewModel(snapshotStore: store, publicIP: publicIP, traceroute: traceroute)
+        let firewallVisibility = FirewallVisibilityViewModel(snapshotStore: store)
 
         return ContentView(
             viewModel: networkMonitor,
@@ -106,6 +108,7 @@ enum ContentViewPreviewSupport {
             snmp: snmp,
             saasMonitoring: saasMonitoring,
             ddns: ddns,
+            firewallVisibility: firewallVisibility,
             buildInfo: nil,
             storeURL: URL(fileURLWithPath: "/dev/null"),
             snapshotStore: store

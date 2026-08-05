@@ -22,6 +22,7 @@ struct ContentView: View {
     var snmp: SNMPViewModel
     var saasMonitoring: SaaSMonitoringViewModel
     var ddns: DDNSViewModel
+    var firewallVisibility: FirewallVisibilityViewModel
     /// Not `@ObservedObject` — a plain value computed once at launch (see
     /// `NMSApp`), not something that changes while the popover is open.
     let buildInfo: BuildInfoService.Info?
@@ -207,6 +208,13 @@ struct ContentView: View {
             // not just a UI section — see that flag's doc comment).
             if FeatureFlags.snmpDevices {
                 SNMPDevicesTile(snmp: snmp, viewModel: viewModel, connectivity: connectivity)
+            }
+
+            // `FeatureFlags.firewallVisibility` is a consent question, same
+            // shape as `snmpDevices`'s comment just above — this reaches an
+            // internet-hosted server, not just this Mac's own LAN.
+            if FeatureFlags.firewallVisibility {
+                FirewallVisibilityTile(firewallVisibility: firewallVisibility)
             }
 
             // LAN Devices has no section of its own — the popover was too

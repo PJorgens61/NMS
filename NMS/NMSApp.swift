@@ -22,6 +22,7 @@ struct NMSApp: App {
     @State private var snmp: SNMPViewModel
     @State private var saasMonitoring: SaaSMonitoringViewModel
     @State private var ddns: DDNSViewModel
+    @State private var firewallVisibility: FirewallVisibilityViewModel
     // Debug-only tooling, owned here (not `ContentView`) now that it's
     // shared by `DebugToolsView`, a separate window — see that view's own
     // doc comment for why debug action buttons moved out of the main
@@ -114,6 +115,7 @@ struct NMSApp: App {
         )
         let saasMonitoring = SaaSMonitoringViewModel(snapshotStore: store)
         let ddns = DDNSViewModel(snapshotStore: store, publicIP: publicIP, traceroute: traceroute)
+        let firewallVisibility = FirewallVisibilityViewModel(snapshotStore: store)
         // Two-phase: `SNMPViewModel` needs view models built alongside
         // `connectivity`, so the back-reference is injected once both exist.
         connectivity.attach(snmp: snmp)
@@ -133,7 +135,8 @@ struct NMSApp: App {
             networkQuality: networkQuality,
             wifiStressTest: wifiStressTest,
             saasMonitoring: saasMonitoring,
-            ddns: ddns
+            ddns: ddns,
+            firewallVisibility: firewallVisibility
         )
         _networkMonitor = State(wrappedValue: networkMonitor)
         _lanDiscovery = State(wrappedValue: lanDiscovery)
@@ -151,6 +154,7 @@ struct NMSApp: App {
         _snmp = State(wrappedValue: snmp)
         _saasMonitoring = State(wrappedValue: saasMonitoring)
         _ddns = State(wrappedValue: ddns)
+        _firewallVisibility = State(wrappedValue: firewallVisibility)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
@@ -216,7 +220,8 @@ struct NMSApp: App {
         networkQuality: NetworkQualityViewModel,
         wifiStressTest: WiFiStressTestViewModel,
         saasMonitoring: SaaSMonitoringViewModel,
-        ddns: DDNSViewModel
+        ddns: DDNSViewModel,
+        firewallVisibility: FirewallVisibilityViewModel
     ) {
         wireTopologyChangeFanOut(
             networkMonitor: networkMonitor,
@@ -261,7 +266,8 @@ struct NMSApp: App {
             saasMonitoring: saasMonitoring,
             networkQuality: networkQuality,
             wifiStressTest: wifiStressTest,
-            ddns: ddns
+            ddns: ddns,
+            firewallVisibility: firewallVisibility
         )
     }
 
@@ -510,7 +516,8 @@ struct NMSApp: App {
         saasMonitoring: SaaSMonitoringViewModel,
         networkQuality: NetworkQualityViewModel,
         wifiStressTest: WiFiStressTestViewModel,
-        ddns: DDNSViewModel
+        ddns: DDNSViewModel,
+        firewallVisibility: FirewallVisibilityViewModel
     ) {
         networkMonitor.onEventLogged = { eventLog.refresh() }
         connectivity.onEventLogged = { eventLog.refresh() }
@@ -522,6 +529,11 @@ struct NMSApp: App {
         traceroute.onEventLogged = { eventLog.refresh() }
         saasMonitoring.onEventLogged = { eventLog.refresh() }
         ddns.onEventLogged = { eventLog.refresh() }
+        firewallVisibility.onEventLogged = { eventLog.refresh() }
+        // See `FirewallVisibilityViewModel.handleRouterSignal()`'s doc
+        // comment: a router reboot or firmware change can silently reset
+        // port-forwarding rules, so it's worth re-checking exposure.
+        snmp.onRouterOrFirewallSoftwareEvent = { firewallVisibility.handleRouterSignal() }
 
         // Everything above fires on *new* data. This one covers stored
         // data that was already there: all three view models fetch once
@@ -590,6 +602,7 @@ struct NMSApp: App {
             snmp: snmp,
             saasMonitoring: saasMonitoring,
             ddns: ddns,
+            firewallVisibility: firewallVisibility,
             buildInfo: buildInfo,
             storeURL: storeURL,
             snapshotStore: snapshotStore
@@ -790,7 +803,8 @@ struct NMSApp: App {
             ProviderEdgeRecord.self,
             SNMPDeviceRecord.self,
             WiFiSampleRecord.self,
-            WiFiStressTestRecord.self
+            WiFiStressTestRecord.self,
+            FirewallScanRecord.self
         ])
         let storeURL = Self.storeURL()
         let (container, reason) = openStoreWithFallback(schema: schema, url: storeURL)

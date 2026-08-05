@@ -118,6 +118,17 @@ final class SNMPViewModel {
     /// software changed), so the event log view can refresh.
     var onEventLogged: (() -> Void)?
 
+    /// Fired specifically for `.snmpDeviceRestarted`/
+    /// `.snmpDeviceSoftwareChanged` (a subset of what triggers
+    /// `onEventLogged` above) — `FirewallVisibilityViewModel.handleRouterSignal()`
+    /// hooks this in `NMSApp`'s wiring to re-check external exposure after
+    /// a reboot or firmware change that could have reset port-forwarding
+    /// rules. A second, separate closure rather than widening
+    /// `onEventLogged`'s signature to carry the event kind: every other
+    /// call site only ever needed "something changed, refresh," so this
+    /// stays additive instead of touching every existing caller.
+    var onRouterOrFirewallSoftwareEvent: (() -> Void)?
+
     /// Fired when the device list actually changes — these devices are the
     /// infrastructure ping targets in `ConnectivityViewModel.buildTargets`,
     /// which reads them as `snmp?.devices ?? []` and so silently monitors
@@ -446,6 +457,7 @@ final class SNMPViewModel {
                     message: "\(prefix)\(device.displayName) restarted unexpectedly"
                 )
                 loggedAny = true
+                onRouterOrFirewallSoftwareEvent?()
             case let .softwareChanged(previousDescr, restarted):
                 let prefix = FailureInjector.isSNMPForced(device.displayName) ? "[injected] " : ""
                 let verb = restarted ? "restarted after software change" : "software changed"
@@ -454,6 +466,7 @@ final class SNMPViewModel {
                     message: "\(prefix)\(device.displayName) \(verb): \(previousDescr) → \(device.sysDescr)"
                 )
                 loggedAny = true
+                onRouterOrFirewallSoftwareEvent?()
             }
         }
         if loggedAny {

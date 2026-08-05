@@ -40,6 +40,8 @@ enum FeatureFlags {
     static let autoBaselineNetworkQualityKey = "FeatureAutoBaselineNetworkQuality"
     static let tooltipHighlightsKey = "FeatureTooltipHighlights"
     static let tooltipTechnicalDetailKey = "FeatureTooltipTechnicalDetail"
+    static let firewallVisibilityKey = "FeatureFirewallVisibility"
+    static let firewallServerURLKey = "FeatureFirewallServerURL"
 
     /// SNMP device discovery/monitoring — active network probing (SNMP
     /// GET sweeps) against whatever LAN the Mac is attached to. Off by
@@ -59,6 +61,21 @@ enum FeatureFlags {
     /// was never actually written down anywhere.
     static var snmpDevices: Bool {
         defaults.bool(forKey: snmpDevicesKey)
+    }
+
+    /// Remote firewall/port-visibility testing against FW
+    /// (github.com/PJorgens61/FW, a separate internet-hosted companion
+    /// service — see `FWClient`/`FirewallVisibilityViewModel`). Off by
+    /// default for a fresh install, same reasoning as `snmpDevices` but
+    /// stronger: this doesn't just probe the LAN, it reaches an
+    /// internet-hosted server and asks it to test what's reachable on
+    /// this Mac's own public IP. Unlike `snmpDevices`, this flag being on
+    /// is also the consent for the *scheduled* and SNMP-triggered scans
+    /// `FirewallVisibilityViewModel` runs automatically once active — same
+    /// shape `saasMonitoring` already uses (the flag itself is the
+    /// opt-in, not a second per-run confirmation).
+    static var firewallVisibility: Bool {
+        defaults.bool(forKey: firewallVisibilityKey)
     }
 
     /// Periodic checks against a small, fixed list of business SaaS
@@ -198,6 +215,26 @@ enum FeatureFlags {
     static func setDDNSHostnames(_ hostnames: [DDNSHostname]) {
         guard let data = try? JSONEncoder().encode(hostnames) else { return }
         defaults.set(data, forKey: ddnsHostnamesKey)
+    }
+
+    /// The FW server's base URL — plain configuration, not a secret, so
+    /// it lives here in `UserDefaults` like everything else on this page.
+    /// The device token that authenticates against it is deliberately
+    /// **not** here — see `FWKeychain`. `nil` (unset or empty) means "not
+    /// configured," which `FirewallVisibilityViewModel` treats the same
+    /// as `firewallVisibility` being off: fully inert, same convention
+    /// `ddnsHostnames` being empty already uses.
+    static var firewallServerURL: String? {
+        guard let stored = defaults.string(forKey: firewallServerURLKey), !stored.isEmpty else { return nil }
+        return stored
+    }
+
+    static func setFirewallServerURL(_ url: String?) {
+        guard let url, !url.isEmpty else {
+            defaults.removeObject(forKey: firewallServerURLKey)
+            return
+        }
+        defaults.set(url, forKey: firewallServerURLKey)
     }
 
     /// How often `DDNSViewModel` re-checks every configured hostname.

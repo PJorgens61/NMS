@@ -30,6 +30,7 @@ struct PreferencesView: View {
     // so this and `FeatureFlags.saasMonitoring` agree for every case,
     // including a prior explicit opt-out.
     @AppStorage(FeatureFlags.saasMonitoringKey) private var saasMonitoringEnabled = true
+    @AppStorage(FeatureFlags.firewallVisibilityKey) private var firewallVisibilityEnabled = false
     @AppStorage(FeatureFlags.autoBaselineNetworkQualityKey) private var autoBaselineNetworkQualityEnabled = false
     // Default `true` — see `FeatureFlags.tooltipHighlights`'s own doc
     // comment for why this one's also a deliberate on-by-default
@@ -88,6 +89,21 @@ struct PreferencesView: View {
             if saasMonitoringEnabled {
                 SaaSServicePickerSection()
                 UserAddedSitesSection()
+            }
+
+            feature(
+                "Firewall Visibility",
+                isOn: $firewallVisibilityEnabled,
+                description: "Requests scans from FW, a separate internet-hosted companion service, to test what's actually reachable on this connection's public IP from outside. Reaches out to that server directly, not just your own network — and being on is also the consent for the scheduled and SNMP-triggered scans this runs automatically, not just the manual button.",
+                identifier: "preferences.firewallVisibility"
+            )
+
+            // Same "only shown once the parent feature is on" reasoning
+            // `SaaSServicePickerSection`/`UserAddedSitesSection` follow
+            // above — a server URL and token field are meaningless noise
+            // while this is off.
+            if firewallVisibilityEnabled {
+                FirewallVisibilityServerSection()
             }
 
             feature(

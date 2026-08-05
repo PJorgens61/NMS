@@ -1691,3 +1691,160 @@ struct ReverseTraceCorroborationTests {
         #expect(TracerouteViewModel.reverseTraceCorroborates(hops, destination: "98.45.206.181", confirmedAddress: "96.120.90.213"))
     }
 }
+
+// MARK: - FWClient decoding
+
+@Suite("FWClient decoding")
+struct FWClientDecodingTests {
+    @Test("decodes a start-scan response, mapping targets and job_id/poll_after_ms")
+    func decodesStartScanResponse() throws {
+        let json = """
+        {
+          "job_id": "b3f1c9a2",
+          "status": "queued",
+          "targets": { "ipv4": "203.0.113.7", "ipv6": ["2001:db8::1a2b"] },
+          "poll_after_ms": 500
+        }
+        """
+        let job = try FWClient.decodeStartScanResponse(Data(json.utf8))
+        #expect(job.id == "b3f1c9a2")
+        #expect(job.status == "queued")
+        #expect(job.pollAfterMs == 500)
+        #expect(job.targetIPv4 == "203.0.113.7")
+        #expect(job.targetIPv6 == ["2001:db8::1a2b"])
+        #expect(job.results.isEmpty)
+    }
+
+    /// `targets.ipv6` is absent entirely (IPv4-only connection, per
+    /// FW's own contract) — confirms the `?? []` fallback in
+    /// `decodeStartScanResponse`, not just the populated case above.
+    @Test("start-scan response with no ipv6 targets decodes to an empty array")
+    func decodesStartScanResponseWithoutIPv6() throws {
+        let json = """
+        { "job_id": "abc", "status": "queued", "targets": { "ipv4": "203.0.113.7" }, "poll_after_ms": 500 }
+        """
+        let job = try FWClient.decodeStartScanResponse(Data(json.utf8))
+        #expect(job.targetIPv6.isEmpty)
+    }
+
+    @Test("decodes a still-running job-status response")
+    func decodesRunningJobStatus() throws {
+        let json = """
+        { "job_id": "b3f1c9a2", "status": "running", "poll_after_ms": 500 }
+        """
+        let job = try FWClient.decodeJobStatusResponse(Data(json.utf8))
+        #expect(job.status == "running")
+        #expect(job.pollAfterMs == 500)
+        #expect(job.results.isEmpty)
+        #expect(job.startedAt == nil)
+    }
+
+    /// The real shape FW's server actually emits (`docs/api.md`'s own
+    /// example) — RFC3339 with fractional seconds and a numeric zone
+    /// offset, exactly the case `FWClient`'s custom date-decoding
+    /// strategy exists for. A wrong format here would fail silently as
+    /// a decode error, not a subtly-wrong date, so this is worth
+    /// pinning down directly rather than trusting the implementation.
+    @Test("decodes a complete job-status response with fractional-second timestamps and results")
+    func decodesCompleteJobStatus() throws {
+        let json = """
+        {
+          "job_id": "b3f1c9a2",
+          "status": "complete",
+          "started_at": "2026-08-05T02:31:00.347476-07:00",
+          "completed_at": "2026-08-05T02:31:04.812-07:00",
+          "results": [
+            { "address": "203.0.113.7", "port": 22, "protocol": "tcp", "state": "closed" },
+            { "address": "203.0.113.7", "port": 443, "protocol": "tcp", "state": "open" }
+          ]
+        }
+        """
+        let job = try FWClient.decodeJobStatusResponse(Data(json.utf8))
+        #expect(job.status == "complete")
+        #expect(job.startedAt != nil)
+        #expect(job.completedAt != nil)
+        #expect(job.results == [
+            FWClient.PortResult(address: "203.0.113.7", port: 22, state: "closed"),
+            FWClient.PortResult(address: "203.0.113.7", port: 443, state: "open")
+        ])
+    }
+
+    @Test("a plain Z-suffixed timestamp (no fractional seconds) also decodes")
+    func decodesPlainZTimestamp() throws {
+        let json = """
+        { "job_id": "x", "status": "complete", "started_at": "2026-08-05T02:31:00Z", "completed_at": "2026-08-05T02:31:04Z", "results": [] }
+        """
+        let job = try FWClient.decodeJobStatusResponse(Data(json.utf8))
+        #expect(job.startedAt != nil)
+        #expect(job.completedAt != nil)
+    }
+}
+
+// MARK: - FirewallVisibilityViewModel.diff
+
+@Suite("FirewallVisibilityViewModel.diff")
+struct FirewallVisibilityDiffTests {
+    private func result(_ address: String, _ port: Int, _ state: String) -> FWClient.PortResult {
+        FWClient.PortResult(address: address, port: port, state: state)
+    }
+
+    @Test("first-ever scan (no previous): logs nothing, same convention every other diff-based check follows")
+    func firstScanLogsNothing() {
+        let current = [result("203.0.113.7", 22, "closed"), result("203.0.113.7", 443, "open")]
+        let (increased, decreased) = FirewallVisibilityViewModel.diff(previous: nil, current: current)
+        #expect(increased.isEmpty)
+        #expect(decreased.isEmpty)
+    }
+
+    @Test("a port that was closed and is now open: increased")
+    func newlyOpenPort() {
+        let previous = [result("203.0.113.7", 8080, "closed")]
+        let current = [result("203.0.113.7", 8080, "open")]
+        let (increased, decreased) = FirewallVisibilityViewModel.diff(previous: previous, current: current)
+        #expect(increased == [result("203.0.113.7", 8080, "open")])
+        #expect(decreased.isEmpty)
+    }
+
+    @Test("a port that was open and is now closed: decreased")
+    func newlyClosedPort() {
+        let previous = [result("203.0.113.7", 8080, "open")]
+        let current = [result("203.0.113.7", 8080, "closed")]
+        let (increased, decreased) = FirewallVisibilityViewModel.diff(previous: previous, current: current)
+        #expect(increased.isEmpty)
+        #expect(decreased == [result("203.0.113.7", 8080, "open")])
+    }
+
+    /// `filtered` isn't `open` either — a transition from `open` straight
+    /// to `filtered` (not just to `closed`) still counts as a real
+    /// decrease, since what matters is "is it open," not which of the
+    /// two non-open states it landed on.
+    @Test("open to filtered (not just to closed): still decreased")
+    func openToFiltered() {
+        let previous = [result("203.0.113.7", 8080, "open")]
+        let current = [result("203.0.113.7", 8080, "filtered")]
+        let (increased, decreased) = FirewallVisibilityViewModel.diff(previous: previous, current: current)
+        #expect(decreased == [result("203.0.113.7", 8080, "open")])
+    }
+
+    @Test("a port that stays open across both scans: no change reported")
+    func unchangedOpenPort() {
+        let previous = [result("203.0.113.7", 443, "open")]
+        let current = [result("203.0.113.7", 443, "open")]
+        let (increased, decreased) = FirewallVisibilityViewModel.diff(previous: previous, current: current)
+        #expect(increased.isEmpty)
+        #expect(decreased.isEmpty)
+    }
+
+    /// Keyed by address *and* port together — a port opening on one
+    /// address shouldn't be masked or confused by the same port already
+    /// being open on a different address (e.g. IPv4 vs. one of several
+    /// IPv6 targets).
+    @Test("same port, different addresses: tracked independently")
+    func sameportDifferentAddresses() {
+        let previous = [result("203.0.113.7", 443, "open")]
+        let current = [result("203.0.113.7", 443, "open"), result("2001:db8::1a2b", 443, "open")]
+        let (increased, decreased) = FirewallVisibilityViewModel.diff(previous: previous, current: current)
+        #expect(increased == [result("2001:db8::1a2b", 443, "open")])
+        #expect(decreased.isEmpty)
+    }
+}

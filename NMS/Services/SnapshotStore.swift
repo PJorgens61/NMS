@@ -636,6 +636,53 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    /// Unconditional insert, same reasoning as `recordNetworkQualityResult`
+    /// — every FW scan is a deliberate data point the user asked for (or
+    /// that a scheduled/SNMP-triggered run made on their behalf), not a
+    /// change to dedupe against. FW's own server is stateless (see
+    /// `FWClient`'s doc comment); this is the one and only place a scan's
+    /// result is actually kept.
+    @discardableResult
+    func recordFirewallScan(_ job: FWClient.ScanJob) -> FirewallScanRecord {
+        let record = FirewallScanRecord(
+            scannedAt: job.completedAt ?? Date(),
+            targetIPv4: job.targetIPv4,
+            targetIPv6: job.targetIPv6,
+            results: job.results,
+            networkFingerprint: currentNetworkFingerprint
+        )
+        context.insert(record)
+        try? context.save()
+        return record
+    }
+
+    /// The scan immediately before the one just recorded — what
+    /// `FirewallVisibilityViewModel.diff(previous:current:)` compares
+    /// against to decide whether anything newly opened or closed.
+    func previousFirewallScan(before date: Date) -> FirewallScanRecord? {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<FirewallScanRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint && $0.scannedAt < date },
+            sortBy: [SortDescriptor(\.scannedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    /// Scoped by `currentNetworkFingerprint`: a different network's scan
+    /// history never shows here — same reasoning `fetchWiFiStressTestHistory`
+    /// gives, and doubly so here since a coffee shop's firewall isn't
+    /// something this Mac's owner controls or cares about tracking.
+    func fetchFirewallScanHistory(limit: Int = 10) -> [FirewallScanRecord] {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<FirewallScanRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.scannedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     /// Scoped by `currentNetworkFingerprint`: a different network's speed
     /// tests never show here. See `NetworkQualityRecord.networkFingerprint`.
     func fetchNetworkQualityHistory(limit: Int = 10) -> [NetworkQualityRecord] {

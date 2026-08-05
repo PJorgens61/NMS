@@ -145,6 +145,18 @@ enum AppEventKind: String, Codable {
     /// resolves on its own — no paired "recovered" kind, same reasoning
     /// `subnetTooLargeToScan` gives for having none.
     case ddnsBlockedByCGNAT
+    /// A port FW (github.com/PJorgens61/FW) previously reported closed
+    /// or filtered on this network's public IP is now open — see
+    /// `FirewallVisibilityViewModel.diff(previous:current:)`. Negative
+    /// like `ddnsRecordStale`: unlike `publicIPChanged`, a new exposure
+    /// is a real "something you should look at" fact, not neutral
+    /// information about the connection's own addressing.
+    case firewallExposureIncreased
+    /// The reverse of `firewallExposureIncreased` — a port that was open
+    /// is now closed or filtered. Positive, same reasoning
+    /// `ddnsRecordCurrent` gives for its own polarity: this is a real
+    /// improvement worth surfacing, not just "nothing's wrong anymore."
+    case firewallExposureDecreased
 
     enum Polarity {
         case positive, negative, neutral
@@ -159,11 +171,11 @@ enum AppEventKind: String, Codable {
         switch self {
         case .interfaceUp, .routerReachable, .internetReachable, .dnsReachable, .httpReachable, .peRouterReachable,
              .infrastructureReachable, .publicIPReachable, .dhcpAddressRestored, .dhcpRenewalRecovered,
-             .saasServiceRecovered, .ddnsRecordCurrent:
+             .saasServiceRecovered, .ddnsRecordCurrent, .firewallExposureDecreased:
             return .positive
         case .interfaceDown, .routerUnreachable, .internetUnreachable, .dnsUnreachable, .httpUnreachable, .peRouterUnreachable,
              .infrastructureUnreachable, .snmpDeviceRestarted, .publicIPUnreachable, .dhcpFellBackToLinkLocal, .dhcpRenewalOverdue,
-             .saasServiceDown, .ddnsRecordStale:
+             .saasServiceDown, .ddnsRecordStale, .firewallExposureIncreased:
             return .negative
         case .publicIPChanged, .interfaceChanged, .wifiNetworkChanged, .snmpDeviceSoftwareChanged, .dhcpLeaseChanged,
              .multipleNATLayersDetected, .subnetTooLargeToScan,
