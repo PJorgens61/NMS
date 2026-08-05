@@ -120,7 +120,8 @@ struct DebugToolsView: View {
                     target: target,
                     results: results,
                     confirmedAddress: confirmedAddress,
-                    siblingAddresses: siblingAddresses
+                    siblingAddresses: siblingAddresses,
+                    frontsideHops: traceroute.hops
                 ) {
                     NSWorkspace.shared.open(url)
                 }

@@ -62,6 +62,11 @@ import SwiftData
 /// graph. Not a "render any real tile with real data" system; a
 /// starting point for a specific, isolated render, adjusted each time
 /// it's used.
+// Nested under `SwiftDataTestGroup` (`NMSTests.swift`) so this suite's own
+// `ModelContainer` creation is serialized against every other SwiftData-
+// touching suite, not just internally -- see that type's own doc comment.
+extension SwiftDataTestGroup {
+
 @Suite("Preview capture (manual only, see script/capture-preview.sh)")
 struct PreviewCaptureTests {
     private struct Request: Decodable {
@@ -161,3 +166,5 @@ struct PreviewCaptureTests {
         try png.write(to: URL(fileURLWithPath: request.outputPath))
     }
 }
+
+} // extension SwiftDataTestGroup (PreviewCaptureTests)

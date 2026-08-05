@@ -10,6 +10,16 @@ import Security
 /// thing: a bearer credential presented to an internet-hosted server, so
 /// it gets the real thing rather than following that same precedent.
 ///
+/// Local-only, deliberately, not synced via iCloud Keychain — raised and
+/// spiked directly ("i need to manually copy the token onto every mac
+/// that runs nms?"), but `kSecAttrSynchronizable` needs a real code-
+/// signing Team Identifier (confirmed live: `SecItemAdd` fails with
+/// `errSecMissingEntitlement`/-34018 under this project's current
+/// ad-hoc, no-team signing, per DEV-SETUP.md's "no paid account needed to
+/// run locally" goal) — a real posture change to every machine's build,
+/// not just this file. Staying local-only for now; see the cross-machine
+/// sync issue if that trade-off ever gets revisited.
+///
 /// Registration isn't built (see FW's own memory/README — single-user
 /// scope for now): the token is generated server-side from `FW_TOKENS`
 /// and pasted into Preferences by hand, `FWKeychain.setToken` is what

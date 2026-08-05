@@ -62,6 +62,7 @@ final class LocalDiagnosticServer {
         let results: [GlobalpingReverseTraceService.ProbeTraceResult]
         let confirmedAddress: String?
         let siblingAddresses: [String: [String: String]]
+        let frontsideHops: [TracerouteHop]
     }
 
     private var listener: NWListener?
@@ -102,15 +103,18 @@ final class LocalDiagnosticServer {
     /// `dig`-sourced lookup for each edge-candidate device stem (see
     /// `DebugToolsView.lookUpSiblingAddresses`) -- both optional/empty by
     /// default so this stays callable the same simple way for a plain
-    /// run with no confirmed hop yet.
+    /// run with no confirmed hop yet. `frontsideHops` is this Mac's own
+    /// outbound trace (`TracerouteViewModel.hops`) -- the "frontside" half
+    /// of the topology diagram, `results` being the "backside" half.
     func showReverseTrace(
         target: String,
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String? = nil,
-        siblingAddresses: [String: [String: String]] = [:]
+        siblingAddresses: [String: [String: String]] = [:],
+        frontsideHops: [TracerouteHop] = []
     ) async -> URL? {
-        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
-        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
+        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops)
+        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops)
         guard let base = await ensureRunning() else { return nil }
         return base.appendingPathComponent("path-discovery")
     }
@@ -132,19 +136,16 @@ final class LocalDiagnosticServer {
         target: String,
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String?,
-        siblingAddresses: [String: [String: String]]
+        siblingAddresses: [String: [String: String]],
+        frontsideHops: [TracerouteHop]
     ) {
-        let projectRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // NMS/Services
-            .deletingLastPathComponent() // NMS
-            .deletingLastPathComponent() // project root
-        let dir = projectRoot.appendingPathComponent("script/diagnostic-exports")
+        let dir = projectRoot().appendingPathComponent("script/diagnostic-exports")
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         let file = dir.appendingPathComponent("path-discovery-\(formatter.string(from: Date())).html")
 
-        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses)
+        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try html.write(to: file, atomically: true, encoding: .utf8)
@@ -157,11 +158,27 @@ final class LocalDiagnosticServer {
     /// the listener first if it isn't already up. Reuses an already-ready
     /// listener as-is instead of restarting it, which is the actual fix
     /// for the "starting one page kills the other" bug above.
+    ///
+    /// Calls `stopListener()`, not the public `stop()` -- a real bug,
+    /// found while adding the topology diagram and confirmed by actually
+    /// reading a fetched page's body rather than just checking it
+    /// contained an expected word (which a fallback "not yet available"
+    /// page also does, since its own title/heading repeat the section
+    /// name -- the existing tests here were accidentally too weak to
+    /// catch this). `start`/`showReverseTrace` both set their content
+    /// field *before* calling this -- on the very first call ever (no
+    /// listener exists yet), the old code path called the full `stop()`
+    /// right here, which wiped that just-set content back to `nil` before
+    /// the listener even came up, so the first-ever open of either page
+    /// each launch silently served "not yet available" instead of the
+    /// real content. A second click worked by accident, because by then
+    /// the listener was already `.ready` and this whole branch was
+    /// skipped.
     private func ensureRunning() async -> URL? {
         if let listener, listener.state == .ready, let port = listener.port {
             return URL(string: "http://127.0.0.1:\(port.rawValue)/\(pathToken)")
         }
-        stop()
+        stopListener()
         pathToken = Self.randomToken()
         return await startListener()
     }
@@ -216,13 +233,25 @@ final class LocalDiagnosticServer {
         }
     }
 
-    func stop() {
+    /// Tears down the listener/connections/idle-timer only -- no content
+    /// change. Split out of `stop()` specifically for `ensureRunning()`,
+    /// which needs to reset listener state before (re)starting without
+    /// discarding whatever `start`/`showReverseTrace` just staged to
+    /// serve once that listener comes up.
+    private func stopListener() {
         idleTimer?.invalidate()
         idleTimer = nil
         listener?.cancel()
         listener = nil
         connections.values.forEach { $0.cancel() }
         connections.removeAll()
+    }
+
+    /// Full teardown -- also clears staged content, unlike `stopListener()`.
+    /// Correct here: an idle timeout or an explicit `stop()` call both mean
+    /// "nothing should be servable anymore," not "about to restart."
+    func stop() {
+        stopListener()
         snapshotStore = nil
         reverseTraceContent = nil
     }
@@ -294,7 +323,7 @@ final class LocalDiagnosticServer {
                 // `showReverseTrace`'s own doc comment for why a live
                 // Globalping round trip per page reload would be the
                 // wrong tradeoff here.
-                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses))
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses, frontsideHops: content.frontsideHops))
             } else {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Path Discovery", message: "No run yet — click \u{201c}Path Discovery\u{2026}\u{201d} in Debug Tools."))
             }
@@ -321,6 +350,39 @@ final class LocalDiagnosticServer {
         (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
     }
 
+    /// This source file's own on-disk project root — shared by every
+    /// asset/export path below. Same reasoning `exportReverseTraceHTML`
+    /// already established: a Debug build always compiles straight from
+    /// the local checkout it's part of, so `#filePath` is a more portable
+    /// anchor than hardcoding this machine's path, and it's the only
+    /// signal available at all -- a compiled app bundle has no other way
+    /// to know where its own source checkout lives.
+    private static func projectRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // NMS/Services
+            .deletingLastPathComponent() // NMS
+            .deletingLastPathComponent() // project root
+    }
+
+    /// Reads a page asset (CSS/JS) fresh from `LocalDiagnosticServerAssets/`
+    /// on every call, not bundled into the compiled binary — raised
+    /// directly ("can the rendering rules be in a separate file so that we
+    /// don't need to rebuild? just patch the file at runtime?"), after
+    /// several rounds of pure visual feedback (arrows vs. lines, font
+    /// size, box layout) each needing a full Swift rebuild + relaunch to
+    /// see. Editing the `.css`/`.js` file directly and reloading the
+    /// browser tab is now enough — no rebuild, no relaunch. Falls back to
+    /// `fallback` if the file's missing or unreadable (e.g. a typo mid-
+    /// edit) rather than serving a broken page.
+    private static func readAsset(_ relativePath: String, fallback: String) -> String {
+        let url = projectRoot().appendingPathComponent("NMS/Services/LocalDiagnosticServerAssets").appendingPathComponent(relativePath)
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            print("LocalDiagnosticServer: couldn't read \(relativePath), using built-in fallback")
+            return fallback
+        }
+        return content
+    }
+
     /// One shared stylesheet for all four pages this server renders —
     /// raised directly ("can we make the webpage ui more 'mac-like'?
     /// similar buttons?"): system font instead of all-monospace, a
@@ -332,49 +394,17 @@ final class LocalDiagnosticServer {
     /// the semantic per-row colors (`var(--positive)` etc.) used inline
     /// by both `renderPage` and `renderReverseTracePage` stay in sync
     /// with light/dark mode automatically, rather than each page
-    /// hardcoding its own hex values.
-    private static let sharedCSS = """
-    :root {
-      --bg: #F5F5F7; --card: #FFFFFF; --label: #1D1D1F; --secondary: #6E6E73;
-      --separator: rgba(0,0,0,0.08); --accent: #007AFF; --positive: #34C759;
-      --negative: #FF3B30; --warning: #C77800; --nav-bg: rgba(120,120,128,0.16);
+    /// hardcoding its own hex values. `var`, not `let` -- re-reads
+    /// `style.css` from disk on every access, see `readAsset`.
+    private static var sharedCSS: String {
+        readAsset("style.css", fallback: "body { font-family: -apple-system, sans-serif; }")
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #1C1C1E; --card: #2C2C2E; --label: #F5F5F7; --secondary: #98989D;
-        --separator: rgba(255,255,255,0.12); --accent: #0A84FF; --positive: #30D158;
-        --negative: #FF453A; --warning: #FF9F0A; --nav-bg: rgba(120,120,128,0.28);
-      }
+
+    /// The `mermaid.initialize({...})` call for the topology diagram,
+    /// same "read fresh, not compiled in" reasoning as `sharedCSS`.
+    private static var mermaidInitScript: String {
+        readAsset("mermaid-init.js", fallback: "mermaid.initialize({ startOnLoad: true });")
     }
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      background: var(--bg); color: var(--label); margin: 0; padding: 2.5rem;
-      -webkit-font-smoothing: antialiased;
-    }
-    a { color: var(--accent); text-decoration: none; }
-    h1 { font-size: 1.2rem; font-weight: 600; margin: 0 0 4px; }
-    h2 { font-size: 0.95rem; font-weight: 600; margin: 1.75rem 0 0.5rem; }
-    h3 { font-size: 0.8rem; font-weight: 600; margin: 1.1rem 0 0.3rem; color: var(--secondary); }
-    .subtitle { color: var(--secondary); font-size: 0.85rem; margin: 0 0 1.5rem; }
-    .empty { color: var(--secondary); font-size: 0.85rem; }
-
-    .segmented { display: inline-flex; gap: 2px; background: var(--nav-bg); border-radius: 8px; padding: 2px; margin: 0 0 1.5rem; }
-    .segmented a { padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--label); }
-    .segmented a.active { background: var(--card); color: var(--accent); box-shadow: 0 1px 1px rgba(0,0,0,0.15); }
-
-    .card { background: var(--card); border-radius: 12px; padding: 0.25rem 1.25rem; box-shadow: 0 1px 2px rgba(0,0,0,0.06); margin-bottom: 1rem; }
-
-    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
-    th { text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; color: var(--secondary); font-weight: 600; border-bottom: 1px solid var(--separator); }
-    td { padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--separator); vertical-align: top; }
-    tr:last-child td { border-bottom: none; }
-    .ts { color: var(--secondary); white-space: nowrap; }
-    .secondary { color: var(--secondary); }
-
-    summary { cursor: pointer; font-size: 0.85rem; margin-top: 1.25rem; color: var(--secondary); font-weight: 500; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--nav-bg); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
-    """
 
     /// One row of the merged chronological log -- built from three
     /// different record types (`AppEventRecord`, `NetworkQualityRecord`,
@@ -501,9 +531,26 @@ final class LocalDiagnosticServer {
         target: String,
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String?,
-        siblingAddresses: [String: [String: String]]
+        siblingAddresses: [String: [String: String]],
+        frontsideHops: [TracerouteHop]
     ) -> String {
         let neutral = "var(--label)", positive = "var(--positive)", warning = "var(--warning)"
+
+        // Layered ISP-topology diagram -- merges frontside (this Mac's own
+        // trace) and backside (these probes) by hop-distance, raised
+        // directly with the exact layering ("bottom line is my network
+        // router... keep expanding upwards until the 5 paths diverge").
+        // See `TopologyBuilder`'s own doc comment for the full algorithm.
+        let topology = TopologyBuilder.build(frontsideHops: frontsideHops, backsideResults: results, siblingAddresses: siblingAddresses)
+        let mermaidText = TopologyBuilder.renderMermaid(tiers: topology.tiers, sources: topology.sources)
+        let topologySection = results.isEmpty ? "" : """
+            <h2>ISP topology</h2>
+            <div class="card diagram-card">
+            <pre class="mermaid">
+            \(mermaidText)
+            </pre>
+            </div>
+            """
 
         struct EdgeRow {
             let probe: GlobalpingReverseTraceService.ProbeTraceResult
@@ -638,11 +685,14 @@ final class LocalDiagnosticServer {
         <meta charset="utf-8">
         <title>NMS — Path Discovery</title>
         <style>\(sharedCSS)</style>
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+        <script>\(mermaidInitScript)</script>
         </head>
         <body>
         <h1>NMS — Path Discovery</h1>
         \(navHTML(current: "path-discovery"))
         <p class="subtitle">Reverse traceroute toward \(escape(target)), from \(results.count) external vantage point\(results.count == 1 ? "" : "s") via Globalping. Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — this page is a snapshot of that one run, not live.</p>
+        \(topologySection)
         <h2>ISP edge, compared across sources</h2>
         \(comparisonTable)
         \(knownAddressesSection)
