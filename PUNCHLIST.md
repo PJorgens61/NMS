@@ -12,6 +12,40 @@ checked off as of that date, full reasoning intact.
 
 ## Open
 
+- [ ] **Give NMS a real (free Personal Team) code-signing identity —
+  approved, deferred to a later session ("yes, but tomorrow").** Currently
+  `CODE_SIGN_STYLE = Automatic` with no team set — confirmed via
+  `codesign -dvvv` on a real build: `Signature=adhoc`, `TeamIdentifier=not
+  set`. Two real, live-confirmed problems trace back to this:
+
+  1. **Firewall Visibility's Keychain token re-prompts for a password on
+     every rebuild.** macOS's "Always Allow" Keychain grant is tied to
+     the requesting app's code identity; ad-hoc signing has no stable
+     identity across rebuilds — confirmed live that the ad-hoc
+     signature's hash changes even with zero source changes (the "Stamp
+     build info" script embeds a fresh timestamp every build), so every
+     rebuild looks like a brand-new untrusted app asking for the same
+     secret again.
+  2. **iCloud Keychain sync for that same token doesn't work at all.**
+     Tried adding `kSecAttrSynchronizable` to `FWKeychain` so the token
+     could sync across the user's own Macs instead of being copied by
+     hand (raised directly: "i need to manually copy the token onto
+     every mac that runs nms?") — confirmed live `SecItemAdd` fails with
+     `errSecMissingEntitlement`/-34018, since synchronizable Keychain
+     items need a real Team Identifier to scope the access group. Reverted
+     to local-only for now (`FWKeychain.swift`'s own doc comment records
+     the finding).
+
+  **Fix**: add a Development Team in Xcode's Signing & Capabilities for
+  the NMS target (a free Personal Team, signed into any Apple ID, is
+  enough — no paid account needed), plus a Keychain Sharing entitlement
+  if re-enabling `kSecAttrSynchronizable` at the same time. A real posture
+  change from `DEV-SETUP.md`'s current "no paid account needed to run
+  locally" framing (still true, but worth updating the wording so it
+  doesn't read as "no Apple ID needed at all"), and affects every machine
+  that builds NMS — worth a heads-up on the cross-machine sync issue (#6)
+  before/after landing it.
+
 - [ ] **Idea: per-host fallback probe method (HTTP/HTTPS/DNS, not just
   ICMP) for connectivity targets.** Raised directly (2026-08-04) while
   comparing NMS against `NetViews` (a paid, professional macOS network
