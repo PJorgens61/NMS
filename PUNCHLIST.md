@@ -556,13 +556,20 @@ off as of those dates, full reasoning intact.
   so the FW token could sync across the user's own Macs instead of being
   copied by hand) — only the re-prompt-on-rebuild problem was fixed here.
   Still a real, separate piece of work if cross-machine token sync is
-  wanted. Also worth revisiting once this lands everywhere: today's
-  earlier DEBUG-only file-based Keychain bypass in `FWKeychain.swift`
-  (added specifically to dodge the ad-hoc re-prompt problem) is no longer
-  strictly necessary for *stability*, now that the real fix exists — but
-  it still avoids the one-time prompt entirely, which may still be worth
-  keeping for pure build/test convenience. Not reverted here; a judgment
-  call for whoever picks it up, not an obvious "undo."
+  wanted.
+
+  **Follow-up, same day**: reverted today's earlier DEBUG-only file-based
+  Keychain bypass in `FWKeychain.swift` now that the real fix landed —
+  decided directly ("revert it") rather than left as an open judgment
+  call. Reasoning: the bypass was compensating for signing instability
+  that no longer exists, and keeping it meant the FW token sat in plain
+  text on disk instead of encrypted in Keychain, plus a DEBUG/Release
+  behavior gap that could hide a real Keychain bug until Release. Traded
+  a few one-time "Always Allow" prompts (now stable across rebuilds,
+  unlike before) for parity and a real credential back in Keychain.
+  Deleted the leftover plaintext token file
+  (`~/Library/Application Support/NMS/fw-device-token.debug-only.txt`)
+  it left behind. Verified: builds clean, 176/176 unit tests still pass.
 
   Affects every machine that builds NMS — a heads-up on the cross-machine
   sync issue (#6) is still worth posting once the iMac side gets this
