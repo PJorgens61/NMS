@@ -492,9 +492,9 @@ off as of those dates, full reasoning intact.
   natural data source to diff against, once they're actually
   labeled/network-scoped rather than anonymous timestamped files.
 
-- [ ] **Give NMS a real (free Personal Team) code-signing identity —
-  approved, deferred to a later session ("yes, but tomorrow").** Currently
-  `CODE_SIGN_STYLE = Automatic` with no team set — confirmed via
+- [x] **Give NMS a real (free Personal Team) code-signing identity —
+  approved, deferred, then done the same day once home ("signed in, go
+  ahead").** Was: `CODE_SIGN_STYLE = Automatic` with no team set — confirmed via
   `codesign -dvvv` on a real build: `Signature=adhoc`, `TeamIdentifier=not
   set`. Two real, live-confirmed problems trace back to this:
 
@@ -516,15 +516,57 @@ off as of those dates, full reasoning intact.
      to local-only for now (`FWKeychain.swift`'s own doc comment records
      the finding).
 
-  **Fix**: add a Development Team in Xcode's Signing & Capabilities for
-  the NMS target (a free Personal Team, signed into any Apple ID, is
-  enough — no paid account needed), plus a Keychain Sharing entitlement
-  if re-enabling `kSecAttrSynchronizable` at the same time. A real posture
-  change from `DEV-SETUP.md`'s current "no paid account needed to run
-  locally" framing (still true, but worth updating the wording so it
-  doesn't read as "no Apple ID needed at all"), and affects every machine
-  that builds NMS — worth a heads-up on the cross-machine sync issue (#6)
-  before/after landing it.
+  **Fix, actually landed**: no Apple ID had ever been signed into Xcode
+  on this Mac at all (`security find-identity -v -p codesigning` showed
+  zero valid identities) — a real posture change from `DEV-SETUP.md`'s
+  "no paid account needed to run locally" framing, worth revisiting that
+  wording so it doesn't read as "no Apple ID needed at all." Added one
+  (Xcode ▸ Settings ▸ Accounts), selected the resulting free Personal
+  Team in the NMS target's Signing & Capabilities, which is what actually
+  generates the local development certificate — command-line tools alone
+  can't discover or create it, confirmed by `security find-identity`
+  staying empty even after the Apple ID sign-in until the Signing &
+  Capabilities pane was opened. Verified the actual fix, not just that it
+  builds: `codesign -dvvv` now shows a real `TeamIdentifier=5H2JL9T7SJ`
+  (was "not set") with a genuine `Apple Development` certificate chain
+  (was `Signature=adhoc`), confirmed **stable across two independent
+  rebuilds** — that stability, which ad-hoc signing never had, is the
+  actual thing macOS's Keychain "Always Allow" grant depends on.
+
+  **Real, immediate second-order cost, not a regression**: switching from
+  ad-hoc to a real certificate means every embedded framework/test bundle
+  now needs its own one-time "Always Allow" grant for the new key
+  (ad-hoc signing never touched Keychain at all, so it never prompted) —
+  hit this live running the full test suite, saw ~7 separate prompts for
+  the UI test target's XCTest support frameworks alone. Front-loaded, not
+  ongoing: once granted per artifact, it doesn't ask again.
+
+  **Second, separate bug this surfaced**: the Team was initially set only
+  on the `NMS` target itself, not project-wide — `NMSTests`/`NMSUITests`
+  kept their old (no-team) signing, and macOS refused to load the test
+  bundle into the now-differently-signed host app (`dlopen` error:
+  "mapping process and mapped file... have different Team IDs"). Fixed by
+  moving `DEVELOPMENT_TEAM = 5H2JL9T7SJ` to the **project-level** Debug/
+  Release configs instead of the target-level ones, so every target
+  (including any added later) inherits the same team automatically.
+  Verified: 176/176 unit tests pass, no password prompt.
+
+  **Not done in this pass**: the iCloud-sync half of the original
+  motivation (`kSecAttrSynchronizable` + a Keychain Sharing entitlement,
+  so the FW token could sync across the user's own Macs instead of being
+  copied by hand) — only the re-prompt-on-rebuild problem was fixed here.
+  Still a real, separate piece of work if cross-machine token sync is
+  wanted. Also worth revisiting once this lands everywhere: today's
+  earlier DEBUG-only file-based Keychain bypass in `FWKeychain.swift`
+  (added specifically to dodge the ad-hoc re-prompt problem) is no longer
+  strictly necessary for *stability*, now that the real fix exists — but
+  it still avoids the one-time prompt entirely, which may still be worth
+  keeping for pure build/test convenience. Not reverted here; a judgment
+  call for whoever picks it up, not an obvious "undo."
+
+  Affects every machine that builds NMS — a heads-up on the cross-machine
+  sync issue (#6) is still worth posting once the iMac side gets this
+  pulled and needs its own Apple ID signed into its own Xcode.
 
 - [ ] **Idea: per-host fallback probe method (HTTP/HTTPS/DNS, not just
   ICMP) for connectivity targets.** Raised directly (2026-08-04) while
