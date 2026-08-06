@@ -701,7 +701,7 @@ anywhere, and no analytics, crash reports, or telemetry of any kind
 leave the machine — `UIStateLogger`'s debug log is local-only and
 compiled out entirely in Release builds.
 
-Four things reach beyond the local network, none of them silent:
+Six things reach beyond the local network, none of them silent:
 
 - **`https://api.ipify.org`** — public-IP lookup, on a background timer.
   Reveals your public IP to a third party; see
@@ -717,11 +717,22 @@ Four things reach beyond the local network, none of them silent:
   Network Health's own explanation above for why it's randomized. This
   is a DNS lookup through your configured resolver, not a connection to
   Apple; the name is never expected to resolve.
+- **SaaS Status monitoring** (`SaaSStatusService`) — polls a fixed list
+  of third-party status-page APIs (Slack, GitHub, Cloudflare, and about
+  a dozen others; see the full list in `SaaSStatusService.swift`) every
+  5 minutes. Never touches your LAN. **On by default**, the one
+  exception to every other flag in "Experimental features" below being
+  off-by-default — see `FeatureSaaSMonitoring` there for why, and how to
+  turn it off.
 - **Speed Test and Network Quality — user-triggered only, never
   automatic.** Cloudflare (`speed.cloudflare.com`, both directions) for
   **Run Speed Test**, and Apple's own `networkQuality` command-line tool
   for **Run Network Quality**. These move real data (up to ~50MB) and
   only ever run when you click the button.
+- **ISP identification** (`ISPIdentityService`) — a single lookup
+  against `rdap.org` (which redirects to whichever regional registry
+  actually holds the record), user-triggered only, when you ask NMS to
+  identify the ISP behind your current public IP.
 
 Ordinary reachability pings (Router, Internet, ISP Edge Router, Public
 IP) and the traceroute itself also reach real internet addresses
