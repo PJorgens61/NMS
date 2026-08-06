@@ -181,4 +181,11 @@ actionable gap: `README.md`'s "Network activity and privacy" section
 undercounts what leaves the machine by default — it should name
 `SaaSStatusService`'s on-by-default third-party polling and
 `ISPIdentityService`'s `rdap.org` lookup alongside the four items
-already listed.
+already listed. (Since fixed — see git history.)
+
+This review is static, like the 2026-08-03 one — it did not run the
+app. See
+[2026-08-06-runtime-network-audit.md](2026-08-06-runtime-network-audit.md)
+for a follow-up live capture, which found one thing a source read
+couldn't: a user-added SaaS site check that downloads a full page body
+instead of just checking reachability.

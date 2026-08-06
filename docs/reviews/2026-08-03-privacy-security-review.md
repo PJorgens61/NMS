@@ -27,6 +27,12 @@ This review is static and manual: reading source code and project
 configuration. It is **not** a substitute for:
 - A real runtime network audit (Little Snitch / Wireshark capture of
   actual traffic while the app runs) — this review did not run the app.
+  **Partially addressed 2026-08-06**: see
+  [2026-08-06-runtime-network-audit.md](2026-08-06-runtime-network-audit.md)
+  — a live capture that caught one finding no static read could: a
+  user-added SaaS site check downloading a full page body instead of
+  just checking reachability. Partial because it covered one ~65-second
+  window, not a full poll cycle.
 - A human security audit with formal methodology.
 - A legal copyright/license clearance review — "no copied code was
   visible during a source read" is not the same as a legal opinion.
