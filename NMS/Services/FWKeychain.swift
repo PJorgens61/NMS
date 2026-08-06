@@ -10,21 +10,28 @@ import Security
 /// thing: a bearer credential presented to an internet-hosted server, so
 /// it gets the real thing rather than following that same precedent.
 ///
-/// Local-only, deliberately, not synced via iCloud Keychain — raised and
-/// spiked directly ("i need to manually copy the token onto every mac
-/// that runs nms?"), but `kSecAttrSynchronizable` needs a real code-
-/// signing Team Identifier (confirmed live: `SecItemAdd` fails with
-/// `errSecMissingEntitlement`/-34018 under this project's current
-/// ad-hoc, no-team signing, per DEV-SETUP.md's "no paid account needed to
-/// run locally" goal) — a real posture change to every machine's build,
-/// not just this file. Staying local-only for now; see the cross-machine
-/// sync issue if that trade-off ever gets revisited.
+/// Synced via iCloud Keychain (`kSecAttrSynchronizable`) since
+/// 2026-08-05 — raised and spiked directly ("i need to manually copy the
+/// token onto every mac that runs nms?"), originally blocked on this:
+/// `SecItemAdd` failed with `errSecMissingEntitlement`/-34018 under this
+/// project's then-ad-hoc, no-team signing, since a synchronizable item's
+/// access group needs a real Team Identifier to scope. Unblocked the
+/// same day once a real code-signing Team + Keychain Sharing entitlement
+/// (`NMS.entitlements`, `keychain-access-groups`) landed — see
+/// `PUNCHLIST.md`.
 ///
-/// A DEBUG-only file-based bypass around this lived here briefly
-/// (2026-08-05) to dodge ad-hoc signing's Keychain re-prompt-on-every-
-/// rebuild problem — removed once the actual fix (a real code-signing
-/// Team, see `PUNCHLIST.md`) landed the same day and made it unnecessary.
-/// Keychain unconditionally again, DEBUG and Release behaving the same.
+/// Migration note: an item stored **before** this change was a plain
+/// (non-synchronizable) Keychain entry, which a `kSecAttrSynchronizable:
+/// true` query does not match — `token()` will read as empty on a Mac
+/// with a pre-existing local-only entry until `setToken` writes a fresh
+/// synchronizable one (re-pasting the token in Preferences once is
+/// enough; the old local-only entry is simply orphaned, not deleted).
+///
+/// A DEBUG-only file-based bypass unrelated to sync lived here briefly
+/// the same day, to dodge ad-hoc signing's separate Keychain re-prompt-
+/// on-every-rebuild problem — removed once the code-signing Team fix
+/// made it unnecessary. Keychain unconditionally again, DEBUG and
+/// Release behaving the same.
 ///
 /// Registration isn't built (see FW's own memory/README — single-user
 /// scope for now): the token is generated server-side from `FW_TOKENS`
@@ -38,7 +45,8 @@ enum FWKeychain {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
+            kSecAttrSynchronizable as String: true
         ]
     }
 

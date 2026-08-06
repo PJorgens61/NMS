@@ -551,12 +551,30 @@ off as of those dates, full reasoning intact.
   (including any added later) inherits the same team automatically.
   Verified: 176/176 unit tests pass, no password prompt.
 
-  **Not done in this pass**: the iCloud-sync half of the original
-  motivation (`kSecAttrSynchronizable` + a Keychain Sharing entitlement,
-  so the FW token could sync across the user's own Macs instead of being
-  copied by hand) — only the re-prompt-on-rebuild problem was fixed here.
-  Still a real, separate piece of work if cross-machine token sync is
-  wanted.
+  **The iCloud-sync half done too, same day**: `kSecAttrSynchronizable`
+  added back to `FWKeychain`'s query, plus a new `NMS.entitlements`
+  (`keychain-access-groups: $(AppIdentifierPrefix)Thistle.NMS`) wired in
+  via `CODE_SIGN_ENTITLEMENTS`. Non-trivial entitlements meant Automatic
+  signing needed a real provisioning profile, not just a certificate —
+  `xcodebuild ... -allowProvisioningUpdates` let it auto-generate one
+  ("Mac Team Provisioning Profile: Thistle.NMS"); a plain GUI build in
+  Xcode itself handles this without the flag.
+
+  Verified live, not just that it builds: a pre-existing (non-
+  synchronizable) token from earlier the same day correctly stopped being
+  found by the new query — `hasStoredToken` read false, the field showed
+  its empty-state placeholder instead of "Token saved..." — exactly the
+  migration behavior documented in `FWKeychain.swift`'s own doc comment.
+  Saved a fresh token through the real Preferences UI: succeeded with no
+  `errSecMissingEntitlement`, and `security dump-keychain` confirmed two
+  distinct entries under the same service name (the old orphaned one,
+  untouched, plus the new synchronizable one) — the entitlement fix
+  actually works, not just compiles.
+
+  **Real migration cost, not a bug**: anyone with a pre-existing token
+  needs to re-paste it once after pulling this — the old entry doesn't
+  get deleted or migrated automatically, it's just invisible to the new
+  synchronizable-only query from here on.
 
   **Follow-up, same day**: reverted today's earlier DEBUG-only file-based
   Keychain bypass in `FWKeychain.swift` now that the real fix landed —
