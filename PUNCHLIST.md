@@ -343,10 +343,37 @@ off as of those dates, full reasoning intact.
   can be trusted directly; "none respond" would need the same
   corroboration care already applied elsewhere, not a bare inference.
 
-  **To discuss when back home, not decided remotely**: this whole
-  idea, its extension, this caveat, and the proposed OR-logic above —
-  flagged directly, not to be acted on without a real conversation
-  first.
+  **Discussed, decided, and a v1 built the same night, once home.** Not
+  the full replacement described above — pushed back on "drop
+  confirmation entirely" specifically, since the `rur201`/`rur202`
+  alternation that motivated this whole idea was only discoverable
+  *because* one tracked hop's history gets logged over time
+  (`ProviderEdgeRecord`); replacing that with "ping a set, any response
+  wins" would lose that per-hop history unless rebuilt for every
+  candidate hop, which is real added complexity, not a simplification.
+
+  **What got built instead — small, additive, doesn't touch anything
+  that already works**: `TracerouteViewModel.accessCircuitReachable`
+  (`Bool?`, deliberately never set back to `false` — see its own doc
+  comment for the full any-responds/none-silent asymmetry reasoning) and
+  `accessCircuitCandidateAddresses` (up to 3 hop addresses past the home
+  router, sourced from `hops`, which already refreshes on its own
+  10-minute discovery cadence — no new traceroute needed). Pinged from
+  `ConnectivityViewModel.runChecks()` alongside the existing confirmed-
+  hop ping, on the same fast/reactive cadence, but deliberately kept out
+  of `buildTargets()`'s visible row list — this is one rolled-up signal,
+  not 3 new Network Health rows. Surfaces as one new line in
+  `PathToInternetTile`, "Access Circuit: reachable," shown only when
+  `true` — nothing renders for `nil`/not-yet-checked, matching the
+  "only ever asserts up, never down" design; a tooltip explains what it
+  means and how it differs from the confirmed-hop row above it.
+
+  The extension (folding in Path Discovery's backside-derived routers
+  too) and the full-replacement version of this idea are still open,
+  not built — this is deliberately the smallest version that gets real
+  value (no more false "down" reads when the *other* redundant router
+  answers) without the harder problems the fuller version would need to
+  solve first.
 
 - [ ] **Not actually a bug: "ISP Edge Router" (Network tile) and the
   confirmed hop's own hostname (Path to Internet) can legitimately
@@ -489,15 +516,41 @@ off as of those dates, full reasoning intact.
   raised and approved directly in the moment ("can we write the FW token
   to a persistent file during testing? fix it later?").
 
-  Also hit, and worth remembering for next time rather than re-diagnosing
-  from scratch: a genuinely flaky Swift/SwiftData `@Model`-macro compile
-  error (`KnownNetwork` reported as not conforming to `Identifiable`,
-  which it does via `PersistentModel`) under parallel batch compilation.
-  Confirmed nondeterministic, not a real regression — rebuilding the
-  exact same code twice failed once and succeeded once, and isolating it
-  from every one of today's edits showed bare `HEAD` alone hit it too,
-  intermittently. No code changed for this; if it recurs, just retry the
-  build before assuming something's actually broken.
+  Also hit, and initially mischaracterized here as "just flaky, retry it"
+  — **corrected later the same night, see the real fix below**: a
+  compile error (`KnownNetwork` reported as not conforming to
+  `Identifiable`, which it does via `PersistentModel`) that a single
+  retry resolved a few times early on, which looked like ordinary Swift
+  batch-compilation nondeterminism. It wasn't. Later the same night it
+  came back **fully reproducible** — four `xcodebuild` attempts in a
+  row, including two from a completely fresh `rm -rf` of this project's
+  own `DerivedData`, all failed identically. Isolated properly that
+  time (stashed every uncommitted change, confirmed bare `HEAD` alone
+  still failed from scratch) and confirmed via an isolated standalone
+  repro (`swiftc -typecheck` on a bare `@Model` class outside the
+  project entirely) that `@Model` genuinely does vend `Identifiable`
+  correctly in this SDK — so the bug was never in the language or the
+  macro.
+
+  **Real root cause**: `~/Library/Developer/Xcode/DerivedData/
+  ModuleCache.noindex` — a *global*, cross-project Clang/Swift module
+  cache, a completely different path from any single project's own
+  `DerivedData/<project-hash>/` folder. Every earlier "clean rebuild"
+  tonight only ever deleted the project-specific folder; this global one
+  (633MB, actively being written to) was never touched, so whatever got
+  corrupted in it during tonight's heavy build churn (dozens of builds,
+  several signing/entitlement/provisioning-profile changes in one
+  session) persisted across every supposedly-clean rebuild. Deleting
+  `ModuleCache.noindex` itself fixed it immediately and permanently for
+  the rest of the session.
+
+  **If this recurs**: a single retry fixing it really is just ordinary
+  batch-compilation flakiness, fine to ignore. If it comes back
+  *reproducibly* (same error, multiple attempts, survives a project-only
+  `DerivedData` wipe), delete the global
+  `~/Library/Developer/Xcode/DerivedData/ModuleCache.noindex` next, not
+  just the project's own build folder — that's the actual fix, confirmed
+  live, not a guess.
 
 - [ ] **Idea: a network snapshot / before-and-after comparison feature.**
   Raised directly: "when i update my network i'd like to know that the

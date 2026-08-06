@@ -173,6 +173,47 @@ final class TracerouteViewModel {
         return monitoredHop?.address ?? snapshotStore.latestProviderEdge()?.address
     }
 
+    /// A small, supplementary "is the access circuit alive at all" signal —
+    /// additive to, not a replacement for, the confirmed-hop model above.
+    /// Raised directly after a full field-testing session kept finding
+    /// real cases where trusting *one* hop as "the" edge is fragile: a
+    /// residential ISP's edge redundantly alternating between two real
+    /// routers, a confirmed hop whose owner didn't match the presumed ISP
+    /// at all. See `PUNCHLIST.md`'s "monitor every hop" entry for the full
+    /// discussion, including why this stays additive rather than replacing
+    /// `monitoredHopAddress`: that property's own history
+    /// (`ProviderEdgeRecord`) is what made the redundant-router discovery
+    /// possible in the first place, and would need rebuilding per-hop to
+    /// give up nothing by going wider.
+    ///
+    /// Deliberately `Bool?`, and deliberately never set back to `false`
+    /// (see `ConnectivityViewModel.runChecks()`, the only writer) — an
+    /// asymmetry raised directly ("i assume that if an isp router
+    /// responded to pings yesterday it will today... any responds =
+    /// up"): one candidate hop answering is real proof the circuit is up,
+    /// but every candidate staying silent doesn't safely prove it's down,
+    /// since ICMP can be selectively deprioritized at an individual
+    /// router even on an otherwise-healthy path (same reasoning already
+    /// behind `isLikelyLocalPingFailure` elsewhere in this app). `nil`
+    /// means "no candidates yet, or not checked this network" — reset in
+    /// `reloadMonitoredHop()`, the same two-beat network-switch hook
+    /// every other per-network signal in this view model already uses.
+    private(set) var accessCircuitReachable: Bool? = nil {
+        didSet { UIStateLogger.log("TracerouteViewModel.accessCircuitReachable", accessCircuitReachable as Any) }
+    }
+
+    /// Up to 3 hop addresses past the home router (hop 1), used as the
+    /// ping targets for `accessCircuitReachable` above. Positional (hop
+    /// 2/3/4), not address-pinned — matching `monitorHop`'s own
+    /// reasoning: a specific IP can rotate (confirmed live, a residential
+    /// ISP's edge alternating between two real routers within minutes)
+    /// while the hop *position* stays a meaningful, stable thing to poll.
+    /// Sourced from `hops`, which already refreshes on its own 10-minute
+    /// discovery cadence — no new traceroute needed for this.
+    var accessCircuitCandidateAddresses: [String] {
+        Array(hops.filter { $0.hopNumber > 1 }.compactMap(\.address).prefix(3))
+    }
+
     /// The most recent Path Discovery (`GlobalpingReverseTraceService`)
     /// run's result against the currently confirmed PE address, straight
     /// from `ProviderEdgeRecord` — `nil` means no run has happened yet
@@ -306,6 +347,18 @@ final class TracerouteViewModel {
     ///    network's confirmation happened to be.
     func reloadMonitoredHop() {
         monitoredHopNumber = snapshotStore.confirmedEdgeHopNumber()
+        // A network switch's candidate addresses belong to a different
+        // path entirely -- a stale "reachable" reading from the previous
+        // network would be actively misleading here, not just outdated.
+        accessCircuitReachable = nil
+    }
+
+    /// Called by `ConnectivityViewModel.runChecks()` after pinging
+    /// `accessCircuitCandidateAddresses` -- the only writer, and the only
+    /// direction it ever moves this in (see the property's own doc
+    /// comment for why "no one answered" never flips it back to `false`).
+    func markAccessCircuitReachable() {
+        accessCircuitReachable = true
     }
 
     private func apply(_ result: [TracerouteHop]) {

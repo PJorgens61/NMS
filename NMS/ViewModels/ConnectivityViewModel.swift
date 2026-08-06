@@ -269,6 +269,13 @@ final class ConnectivityViewModel {
         let service = self.service
         let dnsService = self.dnsService
         let httpService = self.httpService
+        // Deliberately not part of `targets` above -- these back the
+        // supplementary `accessCircuitReachable` signal, not a new set of
+        // visible Network Health rows. See `TracerouteViewModel
+        // .accessCircuitCandidateAddresses`'s own doc comment for why.
+        let accessCircuitTargets = (traceroute?.accessCircuitCandidateAddresses ?? []).map {
+            ConnectivityService.Target(label: "Access Circuit Probe", host: $0)
+        }
 
         // The ping batch, the DNS probe and the HTTP fetch used to run one
         // after another — pings, *then* DNS, *then* HTTP — so during a real
@@ -297,11 +304,21 @@ final class ConnectivityViewModel {
             async let pings = service.check(targets: targets)
             async let dns = Self.runDNSCheck(dnsService)
             async let http = Self.runHTTPCheck(httpService)
+            async let accessCircuit = service.check(targets: accessCircuitTargets)
 
             var results = await pings
             results.append(await dns)
             results.append(await http)
             self?.apply(results)
+
+            // Applied separately from `results` above -- this is a
+            // rolled-up signal, not a new set of visible rows. Only ever
+            // moves `accessCircuitReachable` toward `true`; see
+            // `TracerouteViewModel.markAccessCircuitReachable`'s own doc
+            // comment for why silence here doesn't call anything at all.
+            if await accessCircuit.contains(where: \.success) {
+                self?.traceroute?.markAccessCircuitReachable()
+            }
         }
     }
 

@@ -77,6 +77,9 @@ struct PathToInternetTile: View {
                 pathDiscoverySummary(corroboration)
             }
             #endif
+            if traceroute.accessCircuitReachable == true {
+                accessCircuitSummary
+            }
         } else if let suggested = traceroute.suggestedEdgeHop {
             // A separate wrapped-text row here used to explain this, at a
             // real height cost: every *new* network starts unconfirmed, so
@@ -173,6 +176,23 @@ struct PathToInternetTile: View {
             ))
     }
     #endif
+
+    /// Supplementary to the confirmed-hop row above, never a replacement
+    /// for it — see `TracerouteViewModel.accessCircuitReachable`'s own
+    /// doc comment for the full reasoning (a residential ISP's edge
+    /// alternating between two real routers is the motivating case).
+    /// Only ever rendered when `true`; `nil`/not-yet-checked shows
+    /// nothing at all, matching the property's own "only ever asserts
+    /// up" design — there's no "down" state to render here.
+    private var accessCircuitSummary: some View {
+        Text("Access Circuit: reachable")
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .help(tooltip(
+                "A broader, supplementary check: pings a few hops near your ISP's edge, not just the one confirmed above. Green here means at least one of them answered recently, which is real evidence your access circuit is up — even if the specific confirmed hop's own address happens to be the quiet one right now.",
+                technical: "Checks TracerouteViewModel.accessCircuitCandidateAddresses (up to 3 hops past your router, by position, refreshed on the same 10-minute discovery cadence as the hop list) on ConnectivityViewModel's normal fast check cadence. Deliberately one-directional: any response sets this to reachable, but it never resets to a \"not reachable\" state on its own, since ICMP silence from a few hops doesn't safely prove the circuit is down."
+            ))
+    }
 
     private var hopRows: some View {
         ForEach(displayedHops) { hop in
