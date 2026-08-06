@@ -63,6 +63,7 @@ final class LocalDiagnosticServer {
         let confirmedAddress: String?
         let siblingAddresses: [String: [String: String]]
         let frontsideHops: [TracerouteHop]
+        let networkName: String?
     }
 
     private var listener: NWListener?
@@ -106,15 +107,24 @@ final class LocalDiagnosticServer {
     /// run with no confirmed hop yet. `frontsideHops` is this Mac's own
     /// outbound trace (`TracerouteViewModel.hops`) -- the "frontside" half
     /// of the topology diagram, `results` being the "backside" half.
+    /// `networkName` is a label for *this run's own network* (raised
+    /// directly, live field testing across several locations in one
+    /// session: "topology display should include the network name for
+    /// reference later") -- a known network's own `label` if the user
+    /// set one, else the current SSID, resolved by the caller
+    /// (`DebugToolsView`) since this type has no network-identity
+    /// dependency of its own. `nil` when neither is available (e.g.
+    /// Ethernet with no `KnownNetwork` label).
     func showReverseTrace(
         target: String,
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String? = nil,
         siblingAddresses: [String: [String: String]] = [:],
-        frontsideHops: [TracerouteHop] = []
+        frontsideHops: [TracerouteHop] = [],
+        networkName: String? = nil
     ) async -> URL? {
-        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops)
-        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops)
+        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName)
+        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName)
         guard let base = await ensureRunning() else { return nil }
         return base.appendingPathComponent("path-discovery")
     }
@@ -137,15 +147,28 @@ final class LocalDiagnosticServer {
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String?,
         siblingAddresses: [String: [String: String]],
-        frontsideHops: [TracerouteHop]
+        frontsideHops: [TracerouteHop],
+        networkName: String?
     ) {
         let dir = projectRoot().appendingPathComponent("script/diagnostic-exports")
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let file = dir.appendingPathComponent("path-discovery-\(formatter.string(from: Date())).html")
+        // Slugged into the filename (not just the page body) so a folder of
+        // these exports is scannable/greppable by network without opening
+        // each one -- the actual gap raised directly ("save the topology
+        // output for later reference"): today's exports are otherwise only
+        // distinguishable by timestamp.
+        let networkSlug = networkName.flatMap { name -> String? in
+            let slug = name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            let collapsed = String(slug).replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            return collapsed.isEmpty ? nil : String(collapsed.prefix(40))
+        }
+        let fileStem = networkSlug.map { "path-discovery-\($0)" } ?? "path-discovery"
+        let file = dir.appendingPathComponent("\(fileStem)-\(formatter.string(from: Date())).html")
 
-        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops)
+        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try html.write(to: file, atomically: true, encoding: .utf8)
@@ -323,7 +346,7 @@ final class LocalDiagnosticServer {
                 // `showReverseTrace`'s own doc comment for why a live
                 // Globalping round trip per page reload would be the
                 // wrong tradeoff here.
-                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses, frontsideHops: content.frontsideHops))
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses, frontsideHops: content.frontsideHops, networkName: content.networkName))
             } else {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Path Discovery", message: "No run yet — click \u{201c}Path Discovery\u{2026}\u{201d} in Debug Tools."))
             }
@@ -551,7 +574,8 @@ final class LocalDiagnosticServer {
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String?,
         siblingAddresses: [String: [String: String]],
-        frontsideHops: [TracerouteHop]
+        frontsideHops: [TracerouteHop],
+        networkName: String?
     ) -> String {
         let neutral = "var(--label)", positive = "var(--positive)", warning = "var(--warning)"
 
@@ -697,20 +721,22 @@ final class LocalDiagnosticServer {
             """
         }.joined(separator: "\n")
 
+        let networkSuffix = networkName.map { " — \($0)" } ?? ""
+        let networkNote = networkName.map { " on <strong>\(escape($0))</strong>" } ?? ""
         return """
         <!doctype html>
         <html>
         <head>
         <meta charset="utf-8">
-        <title>NMS — Path Discovery</title>
+        <title>NMS — Path Discovery\(escape(networkSuffix))</title>
         <style>\(sharedCSS)</style>
         <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
         <script>\(mermaidInitScript)</script>
         </head>
         <body>
-        <h1>NMS — Path Discovery</h1>
+        <h1>NMS — Path Discovery\(escape(networkSuffix))</h1>
         \(navHTML(current: "path-discovery"))
-        <p class="subtitle">Reverse traceroute toward \(escape(target)), from \(results.count) external vantage point\(results.count == 1 ? "" : "s") via Globalping. Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — this page is a snapshot of that one run, not live.</p>
+        <p class="subtitle">Reverse traceroute toward \(escape(target))\(networkNote), from \(results.count) external vantage point\(results.count == 1 ? "" : "s") via Globalping. Generated \(escape(Date().formatted(date: .abbreviated, time: .standard))) — this page is a snapshot of that one run, not live.</p>
         \(topologySection)
         <h2>ISP edge, compared across sources</h2>
         \(comparisonTable)

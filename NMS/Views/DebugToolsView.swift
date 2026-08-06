@@ -22,6 +22,20 @@ struct DebugToolsView: View {
     let snapshotStore: SnapshotStore
     let publicIP: PublicIPViewModel
     let traceroute: TracerouteViewModel
+    let networkIdentity: NetworkIdentityViewModel
+    let wifiSSID: WiFiSSIDViewModel
+
+    /// A human-readable label for *this run's own network* — raised
+    /// directly, live field testing across several locations in one
+    /// session: "topology display should include the network name for
+    /// reference later." Prefers the user's own `KnownNetwork.label` (set
+    /// via Known Networks) over the raw SSID, since a label is a
+    /// deliberate human choice and the SSID is just whatever the router
+    /// happens to broadcast; falls back to the SSID when no label has been
+    /// set; `nil` on Ethernet with no label (nothing meaningful to show).
+    private var currentNetworkName: String? {
+        networkIdentity.currentNetwork?.label ?? wifiSSID.currentSSID
+    }
 
     @State private var isRunningPathDiscovery = false
     @State private var pathDiscoveryError: String?
@@ -87,7 +101,8 @@ struct DebugToolsView: View {
             defer { isRunningPathDiscovery = false }
             do {
                 let measurementID = try await globalpingService.createMeasurement(target: target)
-                let results = try await globalpingService.fetchResult(measurementID: measurementID)
+                let rawResults = try await globalpingService.fetchResult(measurementID: measurementID)
+                let results = await enrichBacksideHostnames(rawResults)
 
                 var confirmedAddress: String?
                 if let address = traceroute.monitoredHopAddress {
@@ -121,13 +136,64 @@ struct DebugToolsView: View {
                     results: results,
                     confirmedAddress: confirmedAddress,
                     siblingAddresses: siblingAddresses,
-                    frontsideHops: traceroute.hops
+                    frontsideHops: traceroute.hops,
+                    networkName: currentNetworkName
                 ) {
                     NSWorkspace.shared.open(url)
                 }
             } catch {
                 pathDiscoveryError = "Path Discovery failed: \(error.localizedDescription)"
             }
+        }
+    }
+
+    /// A local reverse-DNS fallback for backside hops Globalping itself
+    /// left unresolved -- a confirmed gap, not a guess: `grep` across
+    /// `TopologyBuilder.swift`/this file showed `ReverseDNSService` was
+    /// never called anywhere in the Path Discovery flow, so a hop
+    /// Globalping's own `resolvedHostname` left `nil` showed as a bare IP
+    /// in the diagram permanently, even when a plain local `dig -x`/
+    /// `getnameinfo` against it would resolve fine. Raised directly
+    /// ("topology display doesn't have a dns name for every hop. is it
+    /// checking?" / "nms topology discovery should check dns for every ip
+    /// ... to reconcile and combine them into logical routers") --
+    /// `TopologyBuilder` already merges hops sharing a resolved hostname
+    /// into one logical router, so filling in more real hostnames here is
+    /// what actually improves that merge, not a separate step.
+    ///
+    /// Same blocking-call-off-the-cooperative-pool pattern as
+    /// `lookUpSiblingAddresses` below -- `ReverseDNSService.hostname(for:)`
+    /// blocks its calling thread on `getnameinfo` (bounded to 2s via its
+    /// own semaphore/timeout), so every lookup here runs inside one
+    /// `DispatchQueue.global` dispatch, never called directly inside this
+    /// `Task`.
+    private func enrichBacksideHostnames(_ results: [GlobalpingReverseTraceService.ProbeTraceResult]) async -> [GlobalpingReverseTraceService.ProbeTraceResult] {
+        let missingAddresses = Set(results.flatMap(\.hops).compactMap { hop -> String? in
+            guard hop.hostname == nil else { return nil }
+            return hop.address
+        })
+        guard !missingAddresses.isEmpty else { return results }
+
+        let resolved: [String: String] = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let service = ReverseDNSService()
+                var found: [String: String] = [:]
+                for address in missingAddresses {
+                    if let hostname = service.hostname(for: address) {
+                        found[address] = hostname
+                    }
+                }
+                continuation.resume(returning: found)
+            }
+        }
+        guard !resolved.isEmpty else { return results }
+
+        return results.map { probe in
+            let enrichedHops = probe.hops.map { hop -> GlobalpingReverseTraceService.ProbeTraceResult.Hop in
+                guard hop.hostname == nil, let address = hop.address, let hostname = resolved[address] else { return hop }
+                return GlobalpingReverseTraceService.ProbeTraceResult.Hop(hopNumber: hop.hopNumber, address: hop.address, hostname: hostname, roundTripTimesMs: hop.roundTripTimesMs)
+            }
+            return GlobalpingReverseTraceService.ProbeTraceResult(city: probe.city, country: probe.country, network: probe.network, asn: probe.asn, status: probe.status, resolvedAddress: probe.resolvedAddress, hops: enrichedHops)
         }
     }
 

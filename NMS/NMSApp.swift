@@ -643,7 +643,9 @@ struct NMSApp: App {
                 globalpingService: globalpingService,
                 snapshotStore: snapshotStore,
                 publicIP: publicIP,
-                traceroute: traceroute
+                traceroute: traceroute,
+                networkIdentity: networkIdentity,
+                wifiSSID: wifiSSID
             )
         }
         .defaultSize(width: 360, height: 240)

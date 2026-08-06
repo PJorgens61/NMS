@@ -13,6 +13,485 @@ off as of those dates, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: for a private-addressed hop, distinguish "the ISP has no
+  reverse-DNS zone for this space" from "the zone exists but this host
+  isn't in it."** Raised directly during field testing (2026-08-05,
+  Comcast residential/DOCSIS) — real network specifics deliberately left
+  out of this entry, see the standing privacy rule this file's own
+  conventions already follow.
+
+  The question that started this: does an ISP register PTR names for
+  its own RFC1918-addressed internal hops (a CMTS/regional-aggregation
+  router, say) the same way it does for its public-facing ones? Tested
+  live, empirically, not just theorized:
+
+  1. A plain recursive `dig -x` for the private hop, against three
+     different resolvers (the local router, the ISP's own public
+     resolver, and a third-party one) — all three came back `NXDOMAIN`.
+     Read naively, that looks like "no record exists anywhere."
+  2. But `dig -x <public-hop-ip> +trace` finds the ISP's *own*
+     authoritative nameservers (the ones genuinely delegated their real
+     public reverse zones, confirmed via the normal root → ARIN →
+     ISP-NS delegation chain).
+  3. Querying *those exact same authoritative servers* directly for the
+     `SOA` of the private hop's own `/24` reverse zone (not just the
+     `PTR` for one host) returned a real, live, `aa`-flagged SOA record
+     — same admin-contact pattern, same primary nameserver, as the
+     ISP's confirmed-real public zone. The zone is genuinely
+     provisioned, on the same infrastructure, just apparently unpopulated
+     (checked four addresses in it, all `NXDOMAIN` at the authoritative
+     server too — not merely a caching/visibility artifact upstream).
+
+  So "NXDOMAIN from a recursive resolver" collapses two genuinely
+  different ISP postures into one identical-looking answer: *no
+  reverse-DNS infrastructure for this space at all* vs. *the
+  infrastructure is live and actively managed, they just haven't named
+  this particular host*. The second case is a real, if soft, signal
+  that a hop is deliberately-operated ISP infrastructure (worth
+  distinguishing from customer-side gear) even when it never gets a
+  human-readable name — relevant to the still-open "private hop might
+  be the real circuit terminator, not yet-reached ISP" idea elsewhere
+  in this file/session.
+
+  **If ever built:** a debug-only deep-PTR check — `dig +trace` on a
+  same-`/24` **public** hop already resolved a name for (there's
+  usually one nearby in a real ISP trace) to find the ISP's own
+  authoritative nameservers, then query those directly for the private
+  hop's zone `SOA`. `NOERROR`+real SOA vs. `REFUSED`/no answer is the
+  actual distinguishing signal — the plain recursive `PTR` lookup
+  already done via `ReverseDNSService`/`dig @1.1.1.1` can't tell these
+  apart on its own. Speculative, not scoped further than this — would
+  need a real UI treatment (a small badge/note, not a whole new tile)
+  and isn't worth building without a second real-world case confirming
+  the pattern generalizes past one ISP.
+
+- [ ] **Framework to remember: "the same ISP name" can mean two
+  structurally different topologies, and the confirmed edge hop's
+  owner doesn't always match the ISP you think you're on.** Raised
+  directly during field testing (2026-08-05, two different physical
+  locations, same ISP by name) — real network specifics deliberately
+  left out, same reasoning as the entry above.
+
+  Two connections, both presumed/labeled the same residential cable
+  ISP, looked nothing alike:
+
+  1. **Residential-shaped**: a private/RFC1918-addressed hop (see the
+     deep-PTR entry above) sitting *before* the first hop that resolves
+     to the ISP's own named public backbone — confirmed edge landed
+     several hops out. CGNAT-style shape, even though the connection's
+     actual public IP wasn't CGNAT space itself — just the ISP's own
+     internal aggregation layer using private addressing.
+  2. **Business/commercial-shaped**: no private hop at all before the
+     first public address — confirmed edge landed one hop closer in.
+     Looked "simpler," but the address at that hop turned out (checked
+     via `whois`) to belong to a **different carrier entirely** — a
+     wholesale/transit provider, not the ISP whose name was on the
+     account. Zero PTR either direction, so hostname alone gave no
+     hint of the mismatch; only an ownership/ASN lookup on the
+     confirmed hop's address caught it.
+
+  **The generalizable point**: hop *count*/shape (private-hop-then-public
+  vs. straight-to-public) is not a reliable signal for "which carrier
+  actually owns this circuit," especially for business/commercial
+  service, which is frequently delivered over leased or wholesale
+  backhaul from a different company than the one on the bill. A
+  same-named ISP can present two topologically different faces
+  depending on residential-vs-commercial provisioning, and the
+  confirmed edge hop can silently belong to a carrier other than the
+  presumed one.
+
+  **If ever built:** `ISPIdentityService` already does an RDAP/WHOIS-
+  style lookup for the public IP itself — the natural extension is
+  running that *same* lookup against the confirmed edge hop's address
+  too, and flagging a mismatch ("your ISP is identified as X, but the
+  confirmed edge hop belongs to Y") the same way Path Discovery already
+  flags corroboration mismatches from outside vantage points. Another
+  case of "a second vantage point catches what one check alone can't,"
+  same theme as Path Discovery and Firewall Visibility — not scoped
+  further than that yet, needs a second real-world case of the mismatch
+  before it's worth building.
+
+- [ ] **Field-test sweep, 2026-08-05 — multiple locations in rapid
+  succession (a coffee shop, a Target, an AT&T-served Starbucks, a
+  Burger King), same session as the two entries above.** Real network
+  specifics deliberately left out. Grouped bugs/ideas raised live,
+  not yet investigated in code — capturing before they're lost, not
+  claiming root cause on any of these yet.
+
+  - **Possible stale-data-after-network-switch issue(s).** Two reports:
+    "Firewall Visibility may have data from previous networks," and
+    separately wondering whether a topology view was "a leftover from
+    [the previous location]." The second is likely just expected
+    behavior, not a bug — Path Discovery only runs on manual trigger,
+    doesn't auto-rerun on network change, so an already-open results
+    page legitimately keeps showing the last network's run until
+    re-triggered. The FW one needs an actual look: does
+    `FirewallVisibilityViewModel`'s scan history/state correctly scope
+    to `currentNetworkFingerprint` the way `TracerouteViewModel
+    .reloadMonitoredHop()` explicitly does (see that function's own
+    doc comment on the two-beat reset/reload pattern needed to avoid
+    exactly this), or could a scan started on one network display
+    against a different one if you switch mid-scan/right after?
+  - **"Path Discovery failed"** at one location — plausibly just a
+    real dead/throttled connection at the time (see below), not
+    necessarily a bug, but no error detail was captured live to
+    confirm which.
+  - **SaaS status rows all gray, while a plain HTTP check succeeded**,
+    at the Burger King location. `SaaSMonitoringViewModel`'s `.unknown`
+    (gray) state covers *two* different real cases with one dot: "not
+    checked yet" (5-minute interval, hasn't fired since joining) and
+    "the check itself failed" (`"Could not check status"`/`"Not
+    reachable"`) — genuinely ambiguous from the UI alone which one
+    this was. Plausible real cause given the location: a captive-
+    portal/restrictive-WiFi allowlist that lets one known-good HTTP
+    target through while blocking or interfering with the many
+    different third-party SaaS status-page domains. Not confirmed
+    live either way — whether it resolved after the next 5-minute
+    check wasn't observed.
+  - **Idea: rename "Speed Test" to "HTTP Speed Test."** Raised directly
+    — the existing feature is HTTP-based (per its own description
+    elsewhere: "up to ~50MB per run"), not a true bandwidth test like
+    Ookla/iPerf; the current label doesn't signal that distinction.
+  - **Confirmed gap, not just a guess: the topology diagram never does
+    a local reverse-DNS fallback for backside hops.** Raised directly
+    ("topology display doesn't have a dns name for every hop. is it
+    checking?") and checked in the code, not assumed — `grep` across
+    `TopologyBuilder.swift`/`DebugToolsView.swift` shows `ReverseDNSService`
+    is never called anywhere in the Path Discovery flow. Every backside
+    hop's hostname is whatever Globalping's own `resolvedHostname`
+    field returned, verbatim; a hop Globalping left `null` just shows
+    as a bare IP in the diagram, permanently, even if a plain local
+    `dig -x`/`getnameinfo` against it would resolve fine. The original
+    topology-diagram design plan explicitly called for exactly this
+    fallback ("reused for backside hops Globalping didn't already
+    resolve") — it just never got implemented. A real, scoped gap:
+    for each backside hop with `hostname == nil`, call
+    `ReverseDNSService.hostname(for:)` the same way frontside hops
+    already get enriched, before building the topology.
+  - **Idea: show the SSID in the Wi-Fi/Network tile.** Raised directly,
+    not currently shown anywhere in the merged Network tile as far as
+    this session confirmed.
+  - **Suspected throttling at one location** — connection seemed
+    degraded, user tried rotating the Mac's Wi-Fi MAC address as a
+    live test (their own manual action, not an NMS feature) to see if
+    a fresh MAC changed the behavior. No conclusive before/after
+    comparison captured live. Not necessarily an NMS idea by itself,
+    but a real motivating case for the per-host fallback probe idea
+    already open elsewhere in this file (ICMP alone can't distinguish
+    "throttled" from "actually down").
+  - **"Path and ISP edge confused"** — a UI/conceptual confusion
+    flagged live between the Path Discovery feature and the ISP Edge
+    Router concept/row. Not enough detail captured in the moment to
+    know if this is a real UI clarity gap or a one-off mix-up; worth
+    a fresh look next session rather than guessing at the fix now.
+  - **Confirmed via NMS's own `ISPIdentityService`** (not just manual
+    `whois`, as in the entry above): correctly identified Verizon
+    Business at the Target-adjacent location — real, live validation
+    of that feature against ground truth already independently
+    confirmed by hand.
+  - **A third real topology data point, different ISP entirely**: the
+    AT&T-served location (hostname pattern: `lightspeed`/`sbcglobal.net`
+    — AT&T's fiber/DSL consumer branding) showed the *same*
+    CGNAT-shaped topology (a private hop before the first public one)
+    as the original cable-ISP case, not the simpler business-style
+    shape from the Target-adjacent location. That makes it two
+    different ISPs (cable and AT&T fiber/DSL) both showing the
+    private-hop-then-public shape, vs. one commercial connection that
+    didn't — starting to look like a residential-vs-commercial
+    distinction more than a per-ISP one.
+  - **Fourth data point, Burger King: ISP is Etheric Networks**
+    (ethericnetworks.com) — a small, wholly locally-owned Bay Area ISP
+    (Burlingame, CA, operating since 2003), hybrid fixed-wireless +
+    fiber over 300+ miles of their own dark fiber, explicitly
+    business/commercial-focused ("connecting where others can't" —
+    construction sites, healthcare, schools, retail). Topology observed
+    live as simple, non-CGNAT-shaped — no private hop before the first
+    public one, consistent with the Target/Verizon-Business case rather
+    than the residential cable/AT&T shape. Strengthens the
+    residential-vs-commercial-shape hypothesis above: a *third*
+    business-class connection, from a *third* different carrier, again
+    showing the simple shape — this is looking like a real pattern
+    (provisioning-model-based), not coincidence across two data points.
+  - **UI/possible confusion**: Network tile reported as slow to update
+    right after joining a new network — raised as "do we still have a
+    race condition?" (echoing the Firewall Visibility stale-data
+    question above). Not investigated live; worth checking whether
+    `NetworkIdentityViewModel`'s reset/reload two-beat pattern (see
+    `TracerouteViewModel.reloadMonitoredHop`'s doc comment) is actually
+    followed by every tile that depends on network identity, or just
+    some of them.
+
+    **Second, more concrete instance of the same suspected bug**, same
+    field-testing day, different location (an "Xfinity reseller"
+    network): ISP Edge Router briefly displayed a different ISP than
+    the one this network's own recorded provider-edge history ever
+    actually logged. Checked directly — this network's own history
+    (`ProviderEdgeRecord`, filtered by its exact `networkFingerprint`)
+    shows only one ISP's hostnames, both timestamped after this
+    network's own `firstSeenAt`; the other ISP never appears in it at
+    all. Strong circumstantial evidence this was a brief leftover
+    display from the *previous* network during the switch-over window,
+    not a real second edge for this one — timing lines up (the
+    previous network's own last-seen public IP was only ~2 minutes
+    before this one started). Not proven without having captured the
+    exact transitional moment live, but two independent live reports
+    of "wrong/stale ISP shown right after switching networks" in one
+    session is worth treating as a real bug, not a fluke, next time
+    this file is worked from.
+
+- [ ] **Idea: stop trying to determine *the* ISP Edge Router — monitor
+  every hop in the first few instead, and drop the confirmation step
+  entirely.** Raised directly, live, after a full session of finding
+  real cases where "the" edge hop is genuinely ambiguous or
+  mis-identified: a residential ISP's edge redundantly alternating
+  between two real routers (see the framework entry above), a private
+  hop that might be the true circuit terminator instead of the
+  "confirmed" public one (see the deep-PTR entry above), and a
+  confirmed hop whose owner didn't match the presumed ISP at all
+  (Verizon Business on a connection thought to be something else).
+  Every one of these is a variant of the same root problem: picking
+  *one* hop as "the" edge and trusting it.
+
+  **The proposal**: monitor every hop in, say, the first 3-4 positions
+  past the home router, unconditionally — no `suggestedEdgeHop`
+  heuristic, no star-button confirmation step, no possibility of
+  picking wrong. Real tradeoff, not a free win: trades one clean
+  "ISP Edge Router: up/down" signal for several rows of raw hop
+  status, which is more coverage but more to interpret — "hop 2 timed
+  out" doesn't say *is my ISP down* the way one confirmed row does
+  today. Would also need real UI rework (`PathToInternetTile` currently
+  has exactly one edge row; this implies a small group of them) rather
+  than a quiet backend change. Not scoped further than this — a real
+  architectural alternative worth weighing against incremental fixes
+  to the current one-hop-confirmed model (the private-hop-visibility
+  idea, the ISP-identity-mismatch-flagging idea) next time this file
+  gets worked from, not decided here.
+
+  **Extension, raised directly right after**: Path Discovery's own
+  *reverse* traces (the external-vantage-point/backside data) already
+  surface multiple real near-edge ISP routers independently of the
+  frontside hop count — today that data feeds the topology diagram and
+  the corroboration check against one confirmed hop, but under this
+  "monitor everything near the edge" model it could be a second source
+  of *which* routers to add to the monitored set, not just frontside
+  hops 1-3. Same not-yet-scoped status as the parent idea.
+
+  **Stability caveat, raised directly ("i assume that if an isp router
+  responded to pings yesterday it will today")**: true at the *hop
+  position* level (something reliably answers at "hop 3"), not
+  necessarily at the *specific-IP* level — directly observed the
+  Comcast edge alternate between two different real routers within
+  minutes (see the framework entry above). Supports keying any
+  "monitor everything nearby" set off hop position, same as
+  `monitorHop` already does today, not a pinned address.
+
+  **Proposed decision logic, raised directly**: identify every nearby
+  ISP router (frontside + backside per the extension above), ping all
+  of them, and treat *any* response as proof the access circuit is up
+  — an OR across the whole set rather than one confirmed hop's
+  pass/fail. Real asymmetry worth carrying into the design: this
+  direction is safe (one response definitively proves "up"), but the
+  reverse isn't — *all* silent doesn't safely prove "down," since
+  ICMP can be selectively deprioritized at an individual router even
+  on an otherwise-healthy circuit (same reasoning already behind
+  `isLikelyLocalPingFailure` elsewhere in this app). "Any responds"
+  can be trusted directly; "none respond" would need the same
+  corroboration care already applied elsewhere, not a bare inference.
+
+  **To discuss when back home, not decided remotely**: this whole
+  idea, its extension, this caveat, and the proposed OR-logic above —
+  flagged directly, not to be acted on without a real conversation
+  first.
+
+- [ ] **Not actually a bug: "ISP Edge Router" (Network tile) and the
+  confirmed hop's own hostname (Path to Internet) can legitimately
+  disagree, and did, live.** A real screenshot from the Xfinity-reseller
+  location: Network tile's ISP Edge Router row read "AT&T," while the
+  same moment's confirmed/starred hop in Path to Internet resolved to a
+  real `*.comcast.net` hostname. Traced to root cause in the code, not
+  guessed — `ISPIdentityViewModel.identify(ip:)` does an RDAP/WHOIS
+  lookup on the **public IP** (`PublicIPViewModel`'s own address),
+  entirely independent of the confirmed hop's traceroute-derived
+  hostname. These are two genuinely different signals: who an IP
+  block is *registered* to (RDAP) vs. who's *actually operating* it
+  (the real router that answers there) — and real-world IPv4 block
+  leasing/resale between carriers (very plausible here, given the
+  network was itself already identified as an "Xfinity reseller")
+  means they can legitimately differ without either being wrong.
+  Retracts the earlier "maybe the same race condition" guess two
+  entries up for this specific case — that race-condition suspicion
+  (Network tile slow to update, ISP Edge Router showing the previous
+  network's ISP right after switching) is still open and separate,
+  just not what this particular screenshot was showing.
+
+  **If ever worth surfacing**: when `shortOrganizationName` (RDAP) and
+  the confirmed hop's own hostname's apparent operator visibly
+  disagree, a small note in the UI ("registered to X, operated by Y")
+  would turn a confusing-looking contradiction into an actual finding
+  — same "two vantage points, more truth than either alone" theme as
+  Path Discovery and Firewall Visibility. Not scoped further.
+
+- [ ] **Field-test sweep continued, same day: an AT&T retail store,
+  then a second Starbucks in San Mateo.** Real specifics left out,
+  same convention as every entry above.
+
+  - At the AT&T store: SaaS statuses started all-gray (same ambiguous
+    state as the Burger King entry above) and **confirmed this time**
+    to just be "hasn't checked yet," not blocked — went "mostly green"
+    after observed live, timed at **~4 minutes**, close to
+    `SaaSMonitoringViewModel`'s real 5-minute `checkInterval`. Good
+    real data point for the open gray-state-ambiguity idea above: this
+    specific case really was just pending, not a captive-portal block.
+  - NMS's own CGNAT badge ("CGNAT — shared public IP") confirmed
+    correct at this location too, live, against a hop address actually
+    inside the reserved `100.64.0.0/10` range — first *directly
+    confirmed real* CGNAT this session (earlier cases were CGNAT-
+    *shaped* topology without the address itself being in reserved
+    space; this one's address genuinely was).
+  - Second Starbucks (San Mateo): ISP identified as AT&T, **two**
+    private hops before the first public AT&T-hostnamed one (vs. one
+    private hop in the earlier AT&T/Starbucks case, and one in Jack's
+    original Comcast case) — a third real depth variant of the same
+    residential-CGNAT-shaped pattern, this time two layers deep
+    instead of one. Worth remembering hop depth isn't fixed even
+    within "the same ISP, same shape" — the private-hop-then-public
+    pattern can be one *or more* hops deep.
+
+- [ ] **Field-test sweep, final stop same day: a simple AT&T connection,
+  hostname pattern confirmed as "Lightspeed."** Real specifics left out,
+  same convention as every entry above. Checked what "Lightspeed" actually
+  is rather than assuming — it's not a current AT&T product/plan name;
+  it was SBC's internal 2004 codename for their original fiber/IPTV
+  buildout (publicly launched as U-verse in 2005, after SBC became AT&T).
+  The name lives on today only as legacy internal infrastructure naming
+  baked into hostnames — consistent with the earlier AT&T data point in
+  the entry above this one, which also noted a `lightspeed`/`sbcglobal.net`
+  hostname pattern. Topology at this stop was simple (not CGNAT-shaped) —
+  worth noting as a data point *against* the earlier residential-vs-
+  commercial-shape hypothesis, since AT&T showed both shapes across
+  different stops this session (CGNAT-shaped at the earlier AT&T/Starbucks
+  stops, simple here) — shape may vary by specific access technology/plan
+  under the same carrier, not purely by residential-vs-commercial.
+  Last stop of today's field-test sweep — session ended here.
+
+  **Flagged to review next session, not yet gone through**: this whole
+  day's sweep (Jack's, Target, the AT&T-served Starbucks, Burger King/
+  Etheric, the AT&T store, the second San Mateo Starbucks, and this
+  final Lightspeed stop) produced a lot of entries in this file in rapid
+  succession, captured live rather than digested. Worth a dedicated pass
+  next session to actually read back through all of today's entries,
+  decide what's worth scoping into real design work vs. what was a
+  one-off observation, before adding more on top.
+
+- [x] **Path Discovery: network name + local reverse-DNS fallback, built
+  and shipped same day, once home.** Raised directly, live, mid-field-
+  test-sweep: "topology display should include the network name for
+  reference later" and "yes, nms topology discovery should check dns for
+  every ip and name that it finds to reconcille and combine them into
+  logical routers" — closes the two gaps this file's own "Field-test
+  sweep" entries above already named (no network label anywhere on the
+  diagram; `ReverseDNSService` never called for backside hops, confirmed
+  via `grep`, not assumed).
+
+  **Network name**: `DebugToolsView.currentNetworkName` prefers
+  `NetworkIdentityViewModel.currentNetwork?.label` (a deliberate human
+  choice) over `WiFiSSIDViewModel.currentSSID` (whatever the router
+  happens to broadcast), `nil` on Ethernet with no label set. Shows in
+  the exported page's `<title>`/`<h1>`/subtitle
+  (`LocalDiagnosticServer.renderReverseTracePage`) and is slugged into
+  the auto-saved export's own filename
+  (`path-discovery-<slug>-<timestamp>.html`,
+  `LocalDiagnosticServer.exportReverseTraceHTML`) — the actual point
+  raised a few messages later the same day ("can we save the topology
+  output for later reference" / "part of the network snapshot?"): a
+  folder of these exports was otherwise only distinguishable by
+  timestamp, not which network produced them.
+
+  **Reverse-DNS fallback**: `DebugToolsView.enrichBacksideHostnames` —
+  for every backside hop Globalping itself left `hostname == nil`, a
+  local `ReverseDNSService.hostname(for:)` lookup fills it in before the
+  topology is built. Same blocking-call-off-the-cooperative-pool pattern
+  already established by `lookUpSiblingAddresses` in the same file
+  (`DispatchQueue.global` + `withCheckedContinuation`, never called
+  directly inside the `Task`) — `getnameinfo` blocks its calling thread,
+  bounded to a 2s timeout per address.
+
+  Paused mid-implementation earlier the same day ("let's implement later
+  when i am home... don't build yet"), resumed once actually home.
+  Verified for real, not just the unit suite (176/176 still pass): built,
+  launched the real signed app, clicked "Path Discovery…" live against
+  the real home network — the exported page read "NMS — Path Discovery —
+  Thistle" in title/h1/subtitle, the filename was
+  `path-discovery-thistle-<timestamp>.html`, and the hop table came back
+  fully populated (Sonic/Cogent/Twelve99/Hetzner hostnames all resolved)
+  with only genuinely-unresolvable private hops left as bare IPs — no
+  PTR record, matching this file's own earlier deep-PTR investigation,
+  not a bug in the new fallback.
+
+  **Separate, real finding from the same work, worth its own note**:
+  getting to a live-verifiable build required first fixing why a plain
+  build+test run needed roughly 20 Keychain password prompts. Root
+  cause: ad-hoc code signing (no Team ID — see the deferred "give NMS a
+  real code-signing identity" entry below) means `FWKeychain`'s Keychain
+  grant never survives a rebuild, and `NMSUITests` relaunching the real
+  signed app several times in one run multiplied it badly. Fixed for
+  DEBUG builds only, explicitly **not** a substitute for the real fix:
+  `FWKeychain` now reads/writes a plain local file
+  (`~/Library/Application Support/NMS/fw-device-token.debug-only.txt`)
+  instead of touching Keychain at all when `#if DEBUG`. Release builds
+  are untouched, still real Keychain — the code-signing Team entry below
+  is still the actual fix; this is a testing-convenience workaround,
+  raised and approved directly in the moment ("can we write the FW token
+  to a persistent file during testing? fix it later?").
+
+  Also hit, and worth remembering for next time rather than re-diagnosing
+  from scratch: a genuinely flaky Swift/SwiftData `@Model`-macro compile
+  error (`KnownNetwork` reported as not conforming to `Identifiable`,
+  which it does via `PersistentModel`) under parallel batch compilation.
+  Confirmed nondeterministic, not a real regression — rebuilding the
+  exact same code twice failed once and succeeded once, and isolating it
+  from every one of today's edits showed bare `HEAD` alone hit it too,
+  intermittently. No code changed for this; if it recurs, just retry the
+  build before assuming something's actually broken.
+
+- [ ] **Idea: a network snapshot / before-and-after comparison feature.**
+  Raised directly: "when i update my network i'd like to know that the
+  new network works the same as the old network... did i configure the
+  new network to work like the old network. did i overlook some
+  detectable configuration on the firewall/router/wifi?" A real,
+  distinct use case from anything currently in NMS — today's tools
+  (Known Networks history, Path to Internet, SNMP Devices) all show
+  *one* network's current state, not a structured comparison between
+  two points in time for what's nominally "the same" network after a
+  hardware/config change.
+
+  Not scoped in any technical detail yet — worth thinking through next
+  session what "the same setup" even means to capture and diff
+  (DHCP/DNS config, SNMP device inventory and their reported configs,
+  Wi-Fi channel/security settings, port-forward rules via Firewall
+  Visibility, the confirmed ISP edge shape) and what a side-by-side
+  table would actually look like, rather than guessing at a design
+  here. A real, well-motivated idea, just needs its own design pass.
+
+  **Related idea, raised directly as a question ("can we save the
+  topology output for later reference? ... part of the network
+  snapshot?")**: yes, this looks like a building block of the above,
+  not a separate feature. Today's Path Discovery runs already produce
+  exactly this kind of saved artifact for free — every run auto-exports
+  a timestamped local HTML snapshot (`script/diagnostic-exports/
+  path-discovery-<timestamp>.html`, via `LocalDiagnosticServer
+  .exportReverseTraceHTML`, local-only/gitignored) — so "save topology
+  output for later reference" already happens today, just isn't yet
+  labeled or indexed in any way that makes a folder of them useful for
+  comparison. That's exactly what the paused `networkName` threading
+  work (see `LocalDiagnosticServer.swift`'s in-progress, uncommitted
+  changes — explicitly on hold until back home) would fix: right now
+  those saved exports are only distinguishable by timestamp, not by
+  which network they were taken on. If the snapshot/comparison feature
+  above ever gets built, these existing per-run topology exports are a
+  natural data source to diff against, once they're actually
+  labeled/network-scoped rather than anonymous timestamped files.
+
 - [ ] **Give NMS a real (free Personal Team) code-signing identity —
   approved, deferred to a later session ("yes, but tomorrow").** Currently
   `CODE_SIGN_STYLE = Automatic` with no team set — confirmed via
