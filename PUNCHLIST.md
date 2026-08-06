@@ -497,14 +497,58 @@ off as of those dates, full reasoning intact.
   under the same carrier, not purely by residential-vs-commercial.
   Last stop of today's field-test sweep — session ended here.
 
-  **Flagged to review next session, not yet gone through**: this whole
-  day's sweep (Jack's, Target, the AT&T-served Starbucks, Burger King/
-  Etheric, the AT&T store, the second San Mateo Starbucks, and this
-  final Lightspeed stop) produced a lot of entries in this file in rapid
-  succession, captured live rather than digested. Worth a dedicated pass
-  next session to actually read back through all of today's entries,
-  decide what's worth scoping into real design work vs. what was a
-  one-off observation, before adding more on top.
+  **Review pass done, same night.** Went back through this whole day's
+  sweep (Jack's, Target, the AT&T-served Starbucks, Burger King/Etheric,
+  the AT&T store, the second San Mateo Starbucks, this final Lightspeed
+  stop, plus the two Comcast-investigation entries above all of these)
+  and sorted what actually survives into real work vs. what was just a
+  data point.
+
+  **Already resolved, same night** — no further action:
+  - The reverse-DNS-fallback-for-backside-hops gap → shipped (`e2d6b33`,
+    see the "Path Discovery: network name + local reverse-DNS fallback"
+    entry above).
+  - "Stop trying to determine *the* ISP Edge Router" → a v1 (the
+    supplementary "Access Circuit" signal, `894099b`) is built; see that
+    idea's own entry above for what's still open in the fuller version.
+  - "ISP Edge Router vs. confirmed hop disagreeing" → already root-caused
+    in code and explained, not a bug (see that entry above).
+
+  **Real, worth scoping next real session** — ranked by how well-
+  motivated each one actually is, not just listed:
+  1. **Network tile slow-to-update / stale ISP shown right after
+     switching networks.** The strongest candidate — *two independent*
+     live reports in one day, with a concrete diagnostic hypothesis
+     already written: check whether `NetworkIdentityViewModel`'s two-beat
+     reset/reload pattern (`TracerouteViewModel.reloadMonitoredHop`'s own
+     doc comment) is actually followed by every tile that depends on
+     network identity, or just some of them. Start here.
+  2. **Firewall Visibility stale-data-after-network-switch** — same
+     category of check (does its scan history/state correctly scope to
+     `currentNetworkFingerprint`), different tile, not yet looked at.
+  3. **SaaS gray-state ambiguity — split `.unknown` into two honest
+     messages.** Now has *two* confirmed real cases (Burger King, the
+     AT&T store) where gray only ever meant "hasn't checked yet" — not
+     the captive-portal-block theory floated at Burger King. Enough
+     real evidence now to justify actually distinguishing "not checked
+     yet" from "the check failed" in `SaaSMonitoringViewModel`'s UI,
+     not just in this file's own notes about it.
+  4. **Show the SSID in the Wi-Fi/Network tile.** Small, clear, no open
+     questions — just hasn't been built.
+  5. **Rename "Speed Test" → "HTTP Speed Test."** Trivial copy fix, but
+     a correctness issue (the label implies a real bandwidth test), not
+     cosmetic — cheap to do whenever.
+
+  **Not enough to act on — left open, honestly labeled rather than
+  pretending these are scoped:**
+  - "Path and ISP edge confused" — still too vague to act on without
+    knowing what specifically was confusing; needs a fresh live example,
+    not a guess at the fix.
+  - The residential-vs-commercial topology-shape hypothesis, the
+    deep-PTR reverse-DNS idea, and the "same ISP name, two structurally
+    different topologies" framework — all already explicitly marked
+    "needs a second real-world case" in their own entries above; that's
+    still true, nothing new to add tonight.
 
 - [x] **Path Discovery: network name + local reverse-DNS fallback, built
   and shipped same day, once home.** Raised directly, live, mid-field-
