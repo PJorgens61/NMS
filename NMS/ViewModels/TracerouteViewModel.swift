@@ -131,13 +131,19 @@ final class TracerouteViewModel {
         }
     }
 
-    /// A suggestion only — the first non-RFC1918 hop. Reliable for a simple
-    /// single-NAT home network (verified against a real home traceroute),
-    /// but on a campus/enterprise network the organization's own border
-    /// router often has a public IP long before traffic actually reaches
-    /// the ISP, so this can point at the wrong hop. It's a starting point
-    /// for you to confirm via `monitorHop(_:)`, not something to trust
-    /// blindly on unfamiliar topologies.
+    /// A suggestion — the first non-local hop, where "local" already
+    /// accounts for CGNAT as well as RFC 1918 (see `TracerouteHop
+    /// .isLocal`'s own doc comment for why that matters). Reliable for a
+    /// simple single-NAT home network (verified against a real home
+    /// traceroute), but on a campus/enterprise network the organization's
+    /// own border router often has a public IP long before traffic
+    /// actually reaches the ISP, so this can point at the wrong hop.
+    ///
+    /// Trusted automatically exactly once per network, by
+    /// `autoConfirmEdgeHopIfNeeded()` below — every trace after that,
+    /// it's still shown as a fallback suggestion in the UI (the arrow in
+    /// `PathToInternetTile`'s hop rows) for whenever nothing's confirmed,
+    /// but nothing acts on it again without you.
     var suggestedEdgeHop: TracerouteHop? {
         hops.first { $0.isLocal == false }
     }
@@ -327,6 +333,57 @@ final class TracerouteViewModel {
         persistMonitoredHopIfNeeded()
     }
 
+    /// Auto-confirms `suggestedEdgeHop` the first time a network ever
+    /// gets a trace with a usable suggestion — raised directly ("can
+    /// these process all happen automatically as internet access is
+    /// established?"), after a real, confirmed case of a network
+    /// (Sonic, this session) sitting at "Not confirmed" indefinitely:
+    /// tracing itself was already fully automatic (launch, every 10
+    /// minutes, every topology change, every reachability transition —
+    /// see this class's own `init`/`run` and `NMSApp`'s wiring), but
+    /// *confirming* which hop is the edge was not, and nothing ever
+    /// promoted a correct, sitting-right-there suggestion into an
+    /// actual confirmation.
+    ///
+    /// Gated on `!snapshotStore.hasDecidedEdgeHop()`, not just
+    /// `monitoredHopNumber == nil` — the latter is also true right after
+    /// you've deliberately cleared a hop via "Stop monitoring," and this
+    /// must never silently re-apply a suggestion you just backed away
+    /// from. See `KnownNetwork.hasDecidedEdgeHop`'s own doc comment for
+    /// the full reasoning, including the one accepted trade-off (a
+    /// network explicitly cleared *before* this field existed reads
+    /// identically to one never touched, so it gets one auto-confirm
+    /// pass after this ships).
+    ///
+    /// Called from two places, deliberately -- either alone leaves a real
+    /// race window open (see `reloadMonitoredHop`'s own doc comment for
+    /// the confirmed case that motivated the second call site):
+    ///
+    /// 1. `apply(_:)`, after `hops` is set (so `suggestedEdgeHop` sees the
+    ///    fresh trace) and before `persistMonitoredHopIfNeeded()` (so a
+    ///    hop confirmed here gets persisted to `ProviderEdgeRecord` in the
+    ///    same cycle, not one trace later). Handles the common case: a
+    ///    trace resolving after the network is already recognized.
+    /// 2. `reloadMonitoredHop()`, right as recognition completes. Handles
+    ///    the case where a trace already resolved a suggestion *before*
+    ///    recognition finished -- the call from `apply(_:)` would have
+    ///    hit `setConfirmedEdgeHopNumber`'s no-row-yet guard and silently
+    ///    lost the confirmation, so this retries using the same `hops`
+    ///    once there's finally a row to attach it to.
+    ///
+    /// Both go through `monitorHop(_:)` itself rather than duplicating its
+    /// two writes, so auto-confirming and manually confirming are
+    /// indistinguishable from every other reader's perspective —
+    /// including `hasDecidedEdgeHop` itself, which this sets to `true`
+    /// the same way a manual confirm would.
+    private func autoConfirmEdgeHopIfNeeded() {
+        guard monitoredHopNumber == nil,
+              !snapshotStore.hasDecidedEdgeHop(),
+              let suggested = suggestedEdgeHop
+        else { return }
+        monitorHop(suggested.hopNumber)
+    }
+
     /// Re-reads the confirmed hop number for whatever network
     /// `currentNetworkFingerprint` currently points at. Called twice per
     /// topology change, same two-beat pattern `ISPIdentityViewModel` uses
@@ -351,6 +408,21 @@ final class TracerouteViewModel {
         // path entirely -- a stale "reachable" reading from the previous
         // network would be actively misleading here, not just outdated.
         accessCircuitReachable = nil
+        // Real, confirmed race (Sonic, this session): the launch-time
+        // trace in `init()` often resolves `suggestedEdgeHop` *before*
+        // `NetworkIdentityViewModel` finishes recognizing the network, so
+        // the `autoConfirmEdgeHopIfNeeded()` call from that trace's own
+        // `apply(_:)` hits `setConfirmedEdgeHopNumber`'s
+        // no-KnownNetwork-row-yet guard and silently no-ops -- and this
+        // very read, moments later from `onNetworkRecognized`, is what
+        // stomps the (already-lost) in-memory confirmation back to `nil`.
+        // `recordNetworkSeen` (see `NetworkIdentityViewModel.recognize`)
+        // always creates the `KnownNetwork` row *before* calling
+        // `setCurrentNetworkFingerprint`, so by the time this runs the row
+        // is guaranteed to exist -- retrying here, using whatever `hops`
+        // the too-early trace already left behind, closes the race
+        // without needing a second trace.
+        autoConfirmEdgeHopIfNeeded()
     }
 
     /// Called by `ConnectivityViewModel.runChecks()` after pinging
@@ -365,6 +437,7 @@ final class TracerouteViewModel {
         hops = result
         lastRunAt = Date()
         lastError = nil
+        autoConfirmEdgeHopIfNeeded()
         persistMonitoredHopIfNeeded()
         logAddressingChangeIfNeeded(result)
         enrichHostnames(for: result)

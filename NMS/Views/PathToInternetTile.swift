@@ -80,18 +80,17 @@ struct PathToInternetTile: View {
             if traceroute.accessCircuitReachable == true {
                 accessCircuitSummary
             }
-        } else if let suggested = traceroute.suggestedEdgeHop {
-            // A separate wrapped-text row here used to explain this, at a
-            // real height cost: every *new* network starts unconfirmed, so
-            // this branch — and the extra line — appeared on every network
-            // visited for the first time, not just occasionally. Testing
-            // on other networks is exactly what surfaced it, since the
-            // home network's hop had long since been confirmed and never
-            // showed the branch at all. A tooltip on the row itself, same
-            // pattern as `dhcpLeaseHelp`/`reachabilityHelp`, keeps the
-            // explanation without the line.
-            row("Suggested (unconfirmed)", suggested.hostname ?? suggested.address ?? "—")
-                .help(Self.suggestedEdgeHopHelp)
+        } else if traceroute.suggestedEdgeHop != nil {
+            // Deliberately empty — no summary row here anymore. The
+            // suggestion is now marked directly on its own row in
+            // `hopRows` below (an arrow icon, same `suggestedEdgeHopHelp`
+            // tooltip), which points at exactly which hop is meant
+            // instead of requiring a name/address cross-reference against
+            // the numbered list. Kept as its own named branch (rather
+            // than just falling into the `hops.isEmpty` check below,
+            // which happens to also read `false` here) so this state —
+            // "traced, unconfirmed" — stays a state a reader can see
+            // exists, not an incidental fallthrough.
         } else if traceroute.isRunning {
             Text("Tracing…")
                 .foregroundStyle(.secondary)
@@ -221,6 +220,20 @@ struct PathToInternetTile: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
+                // Points at the same hop the suggestion mechanism already
+                // names (`suggestedEdgeHop`) — placed here, right against
+                // the latency column, rather than up against the domain
+                // name, so it reads as "this one" pointing at the number
+                // that's about to follow, not decoration on the name
+                // itself. Same visibility condition throughout this
+                // feature: disappears the moment any hop is confirmed
+                // (suggested or not), via `monitoredHopNumber == nil`.
+                if traceroute.monitoredHopNumber == nil, traceroute.suggestedEdgeHop?.hopNumber == hop.hopNumber {
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.blue)
+                        .accessibilityLabel("Suggested ISP edge router")
+                        .help(Self.suggestedEdgeHopHelp)
+                }
                 Text(hopRTT(for: hop))
                     .foregroundStyle(.secondary)
                 Button {

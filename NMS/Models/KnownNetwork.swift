@@ -29,6 +29,31 @@ final class KnownNetwork {
     /// the same "Cannot migrate store in-place" failure documented above.
     var confirmedEdgeHopNumber: Int?
 
+    /// Whether *any* decision has ever been made about this network's ISP
+    /// edge hop — confirming one, or explicitly clearing one via "Stop
+    /// monitoring" — as opposed to `confirmedEdgeHopNumber == nil` simply
+    /// meaning "nothing's happened yet." The two used to be
+    /// indistinguishable, which mattered once auto-confirm was added (see
+    /// `TracerouteViewModel.apply`): auto-confirm must only ever act on a
+    /// network nothing has touched, never re-apply a suggestion the user
+    /// deliberately cleared. Set to `true` by every call to
+    /// `SnapshotStore.setConfirmedEdgeHopNumber`, confirm or clear alike —
+    /// see that method.
+    ///
+    /// Real, non-optional `Bool` with a default, not optional-for-
+    /// migration, same reasoning as `isPublicForCapture`/`isHome` below:
+    /// "unset" and "never decided" mean the same thing, so there's no
+    /// missing-value case worth preserving, and a default value is what
+    /// SwiftData's lightweight migration needs to backfill existing rows
+    /// safely. Backfilling every pre-existing row to `false` is
+    /// deliberately accepted, not just incidental: a network that was
+    /// explicitly cleared before this field existed reads identically to
+    /// one that was never touched, so it gets one auto-confirm pass after
+    /// this ships — same low-stakes, easily-undone trade-off as any other
+    /// wrong `suggestedEdgeHop` guess, not a new risk this field
+    /// introduces.
+    var hasDecidedEdgeHop: Bool = false
+
     /// Gates `script/capture-doc-scenarios.sh` (and any future export/
     /// posting tooling): defaults `false` for every network, known or
     /// brand new, so field-test capture only ever runs somewhere it's been
@@ -66,6 +91,7 @@ final class KnownNetwork {
         self.lastSeenAt = firstSeenAt
         self.timesSeen = 1
         self.confirmedEdgeHopNumber = nil
+        self.hasDecidedEdgeHop = false
         self.isPublicForCapture = false
         self.isHome = false
     }

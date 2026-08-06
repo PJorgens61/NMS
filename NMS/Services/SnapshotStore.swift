@@ -404,6 +404,12 @@ final class SnapshotStore {
     /// this file. In practice this doesn't lose the confirmation: the
     /// user can only confirm a hop from a completed trace's popover,
     /// which is well after recognition normally completes.
+    ///
+    /// Always marks `hasDecidedEdgeHop`, regardless of whether
+    /// `hopNumber` is a real value or `nil` — confirming a hop and
+    /// explicitly clearing one ("Stop monitoring") are both a decision,
+    /// and `TracerouteViewModel`'s auto-confirm must never act again on a
+    /// network either one has touched. See that field's own doc comment.
     func setConfirmedEdgeHopNumber(_ hopNumber: Int?) {
         guard let fingerprint = currentNetworkFingerprint else { return }
         var descriptor = FetchDescriptor<KnownNetwork>(
@@ -412,7 +418,24 @@ final class SnapshotStore {
         descriptor.fetchLimit = 1
         guard let network = (try? context.fetch(descriptor))?.first else { return }
         network.confirmedEdgeHopNumber = hopNumber
+        network.hasDecidedEdgeHop = true
         try? context.save()
+    }
+
+    /// Whether *any* decision (confirm or explicit clear) has ever been
+    /// made about the current network's ISP edge hop — see
+    /// `KnownNetwork.hasDecidedEdgeHop`'s own doc comment. `false` while
+    /// the current network isn't recognized yet, same as every other
+    /// per-network read in this file — nothing to have decided on
+    /// without a `KnownNetwork` row yet, so auto-confirm simply waits
+    /// for recognition like everything else per-network does.
+    func hasDecidedEdgeHop() -> Bool {
+        guard let fingerprint = currentNetworkFingerprint else { return false }
+        var descriptor = FetchDescriptor<KnownNetwork>(
+            predicate: #Predicate { $0.fingerprint == fingerprint }
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first?.hasDecidedEdgeHop ?? false
     }
 
     /// Whether the current network is the one marked home — `false` while
