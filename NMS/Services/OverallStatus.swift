@@ -22,7 +22,7 @@ nonisolated enum OverallStatus {
     // actually broken" if they fail — `ConnectivityViewModel` uses these
     // same constants so the two can never drift out of sync.
     static let routerLabel = "Router"
-    static let internetLabel = "Internet"
+    static let internetLabel = "Internet by Address"
     static let dnsLabel = "DNS"
     static let httpLabel = "HTTP"
     static let peRouterLabel = "ISP Edge Router"
