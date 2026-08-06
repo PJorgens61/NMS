@@ -13,6 +13,51 @@ off as of those dates, full reasoning intact.
 
 ## Open
 
+- [x] **Build pipeline felt slow — raised directly ("the full build
+  pipeline has gotten slow. any ideas for improvement?").** Investigated
+  two candidate causes, measured before touching either rather than
+  guessing.
+
+  **Ruled out, measured**: the "Stamp build info" script phase
+  (`alwaysOutOfDate = 1`, runs on every build unconditionally) — timed
+  its three `git` calls directly, **30-60ms total**. Not the cost. Worth
+  noting *why* it can't be gated the naive way either: its whole point is
+  reflecting live git state at build time (see `BUGS.md`, "the persistent
+  store fails to open" — a stale binary displaying a hash it was never
+  built from), so declaring static input files for "based on dependency
+  analysis" would silently reintroduce that exact staleness bug for a
+  fake speed win. Left alone.
+
+  **Real cause, confirmed live**: `xcodebuild test` on the full scheme
+  pulled in `NMSUITests` by default, and `testLaunchPerformance` — a
+  performance test that *intentionally* launches the real app repeatedly
+  to measure launch time — took **108 seconds** by itself, on top of the
+  ~7 XCTest automation frameworks that need their own signing pass now
+  that real code-signing is in place (see the code-signing entry above).
+  `-only-testing:NMSTests -skip-testing:NMSUITests` cut the same unit
+  coverage down to **~7-8 seconds**, confirmed running it twice earlier
+  the same night.
+
+  **Fix**: flipped `NMSUITests`'s `TestableReference` to
+  `skipped = "YES"` in `NMS.xcscheme` — makes the fast path the *default*
+  for a plain `Cmd+U` or bare `xcodebuild test`, not something you have
+  to remember a flag for. Verified: a completely bare `xcodebuild test`
+  (zero flags) now finishes in **15.7 seconds total** including the
+  build, running only `NMSTests`'s 176 tests, `NMSUITests` correctly
+  skipped.
+
+  **Real cost worth knowing, found by testing it**: `-only-testing:` can
+  select among a scheme's active testables, but it **cannot resurrect
+  one marked `skipped` in the scheme itself** — tried
+  `-only-testing:NMSUITests/...` after the change and got "isn't a
+  member of the specified test plan or scheme," not the test running.
+  So running `NMSUITests` when actually wanted (before a release, or
+  verifying UI-specific behavior) now needs a manual, temporary step:
+  Xcode ▸ Product ▸ Scheme ▸ Edit Scheme… ▸ Test ▸ check `NMSUITests`
+  back on, run, uncheck again. More friction than initially assumed —
+  worth remembering next time this trips someone up, rather than
+  re-deriving it.
+
 - [ ] **Idea: for a private-addressed hop, distinguish "the ISP has no
   reverse-DNS zone for this space" from "the zone exists but this host
   isn't in it."** Raised directly during field testing (2026-08-05,
