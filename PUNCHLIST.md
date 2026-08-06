@@ -13,6 +13,90 @@ off as of those dates, full reasoning intact.
 
 ## Open
 
+- [ ] **Idea: guide the user through scamper setup step by step, instead
+  of one static button per state.** Raised directly, motivated by a
+  real live case: hit `.notPrivileged` in this exact session — scamper
+  installed via Homebrew but not yet setuid root, confirmed via
+  `ls -la` showing `-r-xr-xr-x` (no `s` in the owner-execute bit) on the
+  real resolved binary. Today's `scamperStatusSection` (`DebugToolsView
+  .swift`) already detects this correctly and has a "Copy Setup Command"
+  button for it — genuinely not broken, just minimal: one static button
+  per `ScamperAvailability` case, no confirmation the copied command
+  actually ran, no re-check prompting the user to verify.
+
+  **The idea**: a real guided flow — prompt for each step in turn
+  (`.notInstalled` → install → `.notPrivileged` → the `sudo chown`/
+  `chmod u+s` step → `.ready`), showing the exact command for whichever
+  step the user is actually on right now, with an explicit "I ran it,
+  check again" action that re-runs `ScamperService.checkAvailability()`
+  and visibly advances (or explains why it didn't). Not fundamentally
+  different data/logic from what already exists — `checkAvailability()`
+  already returns the right state, `copyCommandButton` already has both
+  commands — this is a UI/flow change (a small step-by-step sheet or
+  inline wizard instead of one paragraph + one button), not a new
+  detection mechanism.
+
+  Not built — worth scoping the exact interaction (a `Window`/sheet
+  walking through states one at a time, vs. keeping the current
+  single-section layout but adding an explicit re-check button and
+  step-numbered copy) next time this file is worked from.
+
+  **Better delivery mechanism than a copy button, raised directly
+  right after**: instead of "copy to clipboard, then go open Terminal
+  yourself and paste," NMS could activate Terminal.app, open a new
+  window, and *type* the command into the shell prompt via a simulated
+  keystroke sequence — deliberately not pressing Return. The command
+  sits there, visible and unexecuted, until the user reviews it and
+  presses Enter themselves — same safety property as today (nothing
+  runs without a real, deliberate user action), just removing the
+  open-Terminal-and-paste friction in between. Real cost: this needs
+  macOS's Automation permission for controlling Terminal.app via
+  AppleEvents — a one-time system prompt the first time it's attempted,
+  not skippable, not a red flag, just an expected step to design the UI
+  copy around.
+
+  **A hard boundary worth keeping explicit, raised directly right
+  after that**: this only ever helps a user who's *already* an admin
+  (in the `admin` group, which is what actually grants `sudo` via
+  macOS's default `/etc/sudoers` — true for the account created during
+  initial Mac setup, and for anyone who's ever installed Homebrew or
+  Xcode, so true for the overwhelming majority of NMS's actual users).
+  If a user genuinely isn't an admin, NMS should **not** attempt to
+  automate granting them sudo/admin rights — that's a real chicken-and-
+  egg problem (granting sudo is itself a privileged operation a
+  non-admin has no way to bootstrap without an *existing* admin's real
+  credentials or physical/recovery access), and an app that could
+  silently escalate a user to admin would itself be a genuine privilege-
+  escalation risk, not a UX rough edge to smooth over. If this ever
+  gets built: detect non-admin and say so plainly, pointing at System
+  Settings → Users & Groups or an actual admin — never attempt to
+  automate that specific step.
+
+  **Idea: keep a durable record of any CLI command NMS ever
+  semi-automates this way, for later confusion.** Raised directly —
+  since the command executes outside NMS's own process (in Terminal,
+  after the user's own Enter press), NMS can't directly observe *that*
+  it ran, only offer it and later re-check whether the expected state
+  changed (e.g. `ScamperAvailability` moving from `.notPrivileged` to
+  `.ready`). Worth logging both halves as a real record, not just
+  showing transient UI: when a command was offered (what it was, which
+  flow, timestamp) and, separately, whether a later re-check actually
+  observed the expected effect — likely fitting naturally into the
+  existing Events/`AppEventRecord` history this app already keeps for
+  everything else, rather than inventing a new history mechanism. The
+  actual motivating case: "did I already run the scamper setup command,
+  and did it even work?" is exactly the kind of thing a user re-opening
+  NMS days later could otherwise forget or be unsure about.
+
+  **Raised as a general policy, not a scamper-specific feature**: this
+  record-what-was-offered/verify-it-took-effect pattern should apply to
+  *any* future CLI-command semi-automation NMS ever adds, not just this
+  one flow. Scamper setup would just be the first real instance of it —
+  worth designing the actual mechanism (whatever it ends up being) as a
+  small reusable piece from the start, rather than a one-off bolted onto
+  `ScamperService` alone that a later feature would need to duplicate or
+  rediscover.
+
 - [ ] **Revisit scamper's actual value once field-tested against another
   ISP.** Built and working tonight (`ScamperService.swift`, optional,
   Homebrew-only, GPL-2.0 kept out of NMS's own license by running as a
@@ -58,6 +142,28 @@ off as of those dates, full reasoning intact.
   CAIDA's own `iffinder` and `bdrmapIT` ("how to infer which IPs belong
   to the same router") are also purpose-built for this exact question and
   worth a look if MIDAR doesn't help either.
+
+- [ ] **Idea: help the user understand whether scamper actually
+  participated in a given Path Discovery run.** Raised directly,
+  immediately after confirming scamper was set up and ready for field
+  testing — a real, live gap: even with scamper installed, setuid, and
+  showing "Ready" in Debug Tools, nothing in Path Discovery's own results
+  page currently says whether it actually ran for *this* trace, ran and
+  came back inconclusive, or wasn't invoked at all. Broader than, but
+  related to, the "why scamper stayed silent" note in the entry above —
+  that one's about explaining an inconclusive *answer*; this is about
+  basic visibility that scamper participated at all, which today has no
+  UI surface anywhere in the results page itself (only the separate
+  Debug Tools setup-status section, which says nothing about any
+  specific past run).
+
+  Not scoped further than that — worth deciding, next time this is
+  picked up, whether this belongs in the comparison table (a small
+  per-row or per-page indicator) or as its own line near the existing
+  Path Discovery corroboration summary, and whether it should distinguish
+  "ran, confirmed a match" / "ran, inconclusive" / "not available this
+  run" (not installed, not privileged, or simply not attempted) as three
+  visually distinct states rather than one.
 
 - [x] **FW as a stable, always-present vantage point in Path Discovery —
   NMS-side built and shipped, same night the plan was approved.** Full
