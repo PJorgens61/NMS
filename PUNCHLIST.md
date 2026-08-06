@@ -799,6 +799,38 @@ off as of those dates, full reasoning intact.
   just the project's own build folder — that's the actual fix, confirmed
   live, not a guess.
 
+- [ ] **Idea: save the Path Discovery web page as a `.webarchive` file,
+  not just plain HTML.** Raised directly, live, right after a real
+  Path Discovery run: "that gives a rich user view of previous test
+  runs." NMS already auto-saves a plain HTML export of every run
+  (`script/diagnostic-exports/path-discovery-<network-slug>-
+  <timestamp>.html`, see the shipped entry above) — `.webarchive` would
+  be a real upgrade over that, not a duplicate: macOS's native format
+  for bundling a *fully rendered* page (HTML, CSS, images, even the
+  Mermaid-rendered diagram itself) into one self-contained,
+  double-clickable file, viewable in Safari/Preview/Quick Look with no
+  server needed — unlike a plain `.html` file, which can depend on
+  externally-loaded resources (this page currently loads Mermaid.js
+  from a CDN, `LocalDiagnosticServer.renderReverseTracePage`) that
+  won't be there later if opened offline or long after the fact.
+
+  **Naming refinements, raised right after, both real and worth
+  keeping**: name each archive using the same network-slug convention
+  the plain HTML export already uses, plus the NMS build info
+  (`BuildInfoService`'s own git hash — already stamped into the app's
+  `Info.plist` at build time by the "Stamp build info" script, see that
+  script's own doc comment) in the filename too — lets a folder of
+  archived runs be sorted/compared not just by network and time but by
+  which exact app version produced each one, useful when comparing
+  behavior across bug fixes over time. Something like
+  `path-discovery-<network-slug>-<git-hash>-<timestamp>.webarchive`.
+
+  Not built — worth checking first whether generating a `.webarchive`
+  needs a real `WKWebView`/`WebKit` render pass (the format captures a
+  *rendered* page, not just raw HTML) rather than a simple file-write,
+  which would be a bigger addition to `LocalDiagnosticServer` than the
+  plain-HTML export currently is.
+
 - [ ] **Idea: a network snapshot / before-and-after comparison feature.**
   Raised directly: "when i update my network i'd like to know that the
   new network works the same as the old network... did i configure the
@@ -1479,6 +1511,195 @@ off as of those dates, full reasoning intact.
      Not built — needs scoping (which existing view models it reads from,
      what counts as a "problem" worth surfacing here vs. staying buried in
      its own tile, whether it's Concise-mode-only or shown always).
+
+- [ ] **Return visit, Martha's Coffee, Church St, 2026-08-06 — a
+  confirmed double-NAT finding, and a serious possible NMS-caused
+  connectivity bug.** Real specifics deliberately left out, same
+  convention as every field-test entry in this file.
+
+  **Double-NAT confirmed, matches the 2026-08-04 visit exactly.** Hop 2
+  briefly showed no response mid-session (transient, not a topology
+  change) then came back — comparing against that earlier visit's own
+  recorded trace (`script/diagnostic-exports/field-test-notes-20260804-
+  marthas-coffee.md`, kept local/gitignored, real addresses only there):
+  hop 1 is the cafe's own router, hop 2 is the ISP-supplied gateway on a
+  *different* private subnet from hop 1 — two genuinely separate private
+  devices, not one device with two interfaces. User's read, confirmed
+  directly: the cafe's own router is plugged into the ISP-supplied
+  gateway, and the gateway was likely never put into bridge mode —
+  accidental double-NAT, not a deliberate design choice. Real technical
+  note along the way: `TracerouteViewModel.leadingNonInternetHopCount`
+  breaks its counting loop the moment it hits a non-responding hop
+  (`isLocal == nil` fails the `== true` guard, same as hitting a
+  confirmed-public hop) — so during hop 2's brief silence, NMS's own
+  count would have quietly under-counted to 1 leading private hop
+  instead of the real 2, without anything in the UI signaling that
+  distinction (a genuinely-public hop 2 vs. an unknown/silent one
+  currently look identical to this counter). Not a wrong answer exactly,
+  but a real ambiguity worth remembering — the same "silence isn't
+  proof" caveat already documented elsewhere in this file
+  (`isLikelyLocalPingFailure`, the "monitor every hop" OR-logic
+  discussion) applies here too, just not yet surfaced in this specific
+  code path.
+
+  **Serious, taken at face value, not yet root-caused: NMS running
+  appeared to break the MacBook's own Wi-Fi connectivity at this
+  location.** Reported live, in this order: MacBook couldn't connect to
+  the cafe Wi-Fi at all; the iPhone connected fine the whole time: NMS
+  was killed; Wi-Fi then connected successfully on the MacBook,
+  confirmed by directly retrying with NMS not running. A real,
+  concerning correlation — a network diagnostic tool should never be the
+  thing causing an outage. Not confirmed root cause, no logs captured
+  live (the user had already left the location by the time this was
+  being written up) — the most plausible mechanism, not asserted as
+  fact: NMS's own active LAN probing (SNMP/ARP scanning, or the Local
+  Stress Test's burst of concurrent MTU-sized pings) tripping some
+  anti-abuse/anomaly response on the cafe's own access point —
+  MacBook-specific and iPhone-unaffected fits that shape, since only the
+  MacBook was doing any probing at all. Worth real investigation next
+  session: check for any local system logs from the incident window
+  (Console.app, `UIStateLogger`'s own state) if still available, and try
+  a controlled repro at a network where an outage is safe to test
+  (enable NMS, note which specific check/scan was active, watch for the
+  same disconnect) rather than guessing further without evidence.
+
+  **Second occurrence, same day, different location (Noe Cafe) —
+  same session's next stop.** Same pattern again: "network is down,"
+  NMS killed, relaunched from its build location once the user asked
+  where it lived — direct check of this Mac's own interface/gateway/
+  ping state right after relaunch showed a fully healthy connection (0%
+  loss, normal latency), consistent with "whatever broke it cleared once
+  NMS stopped running" rather than a coincidence specific to Martha's
+  own network. Two independent locations in one session showing the
+  same NMS-running/NMS-killed correlation meaningfully raises confidence
+  this is real, not a one-off — still not root-caused (same evidence gap
+  as above: no incident-window logs captured either time), but no longer
+  reasonable to treat as a fluke. Actual root-cause investigation should
+  be a priority next session, not just a "worth revisiting" backlog item.
+
+  **A real lead, and a controlled retest, same day**: user identified
+  that the Martha's incident specifically began right when Path
+  Discovery was triggered — a much more specific suspect than general
+  LAN probing. Retested directly at Noe Cafe with real before/after
+  diagnostics, not just a vibe check: baseline WiFi/interface/ping
+  snapshot, continuous background ping (0.5s interval) bracketing the
+  entire Path Discovery run, timestamped click. Result: **did not
+  reproduce** — the ping log ran continuously through the whole test
+  (386 samples over ~3 minutes) with only two isolated single-ping
+  timeouts (normal WiFi background noise, not a sustained loss or
+  interface bounce — sequence numbers never reset, no "100% packet
+  loss" summary). One clean non-repro at a different location doesn't
+  clear Path Discovery as a suspect on its own — worth remembering this
+  result alongside the original finding, not instead of it, next time
+  this gets investigated (could still be network-specific, e.g.
+  something about Martha's own AP rather than Path Discovery itself).
+
+  **Related, separate idea raised live in the same breath, not yet
+  built**: change the Xcode build/run script so a built executable gets
+  left in a fixed, obvious, easy-to-relaunch location — motivated
+  directly by needing to kill and would-be-relaunch NMS quickly, mid
+  field-test, without going through Xcode. Not scoped further (which
+  script, `script/build_and_run.sh`-style vs. an alias/symlink to the
+  latest `DerivedData` build product) — a real, small quality-of-life
+  idea, worth picking up alongside or before the connectivity
+  investigation above.
+
+- [ ] **Idea: NMS/FW port-forward (DNAT) verification — have FW prove a
+  configured forwarding rule actually reaches this Mac, not just that
+  the public IP is reachable in general.** Raised directly, live, two
+  messages in a row building on each other. Today's Firewall Visibility
+  already tests general public-IP reachability from outside (FW as the
+  external vantage point) — this extends that same idea to a specific,
+  real question users actually have: "did I set up port forwarding to
+  this device correctly?", which a router's own admin UI can't answer
+  since it can only show what's *configured*, never confirm what
+  actually happens from outside.
+
+  **First idea**: this Mac temporarily takes over the static IP that's
+  the configured DNAT target, then FW attempts to reach the forwarded
+  public port and confirms whether traffic actually arrives here — a
+  real, external, black-box proof the rule works end to end, not just a
+  configuration-looks-right check.
+
+  **Second idea, raised right after, a real refinement**: rather than
+  requiring the user to repoint their *existing* forwarding rule at
+  NMS's temporary IP (which would briefly break whatever real service
+  that rule normally forwards to), coach the user through creating a
+  **parallel** rule instead — a different external port, forwarding to
+  the same internal port on NMS's temporary static IP — so FW can test
+  that isolated rule without disturbing the real one at all.
+
+  Real, unscoped complexity worth being honest about before this goes
+  further, not glossed over:
+  - Taking over a static IP on this Mac is itself disruptive to the
+    Mac's *own* connectivity for the duration of the test — a real user-
+    facing cost, not free.
+  - "Coach the user" has to mean guided instructions, not NMS silently
+    editing router configuration — every router's admin UI is different,
+    and creating firewall/NAT rules is exactly the kind of privileged,
+    security-sensitive change that shouldn't be automated out from under
+    the user, same policy already raised this session for CLI-command
+    semi-automation (see the scamper guided-setup entry above) — the
+    parallel-rule idea is presumably partly motivated by making that
+    manual step smaller/safer (one new rule to add and later remove,
+    not editing something already load-bearing).
+  - Needs real scoping next time this is picked up: how NMS actually
+    takes over a specific static IP cleanly (and releases it after),
+    what the guided instructions look like given routers vary widely,
+    and how the temporary parallel rule gets cleaned up afterward so it
+    doesn't linger as a forgotten, unused open port.
+
+  Not built — a real, distinct feature idea from general Firewall
+  Visibility, not a small addition to it.
+
+- [ ] **Noe Cafe, same field-test session, 2026-08-06 — two live UI
+  findings, screenshot-confirmed.** Real specifics left out, same
+  convention as every entry above.
+
+  - **Confirmed bug, not a wording nitpick: DHCP row shows a green
+    status dot next to the text "Not checked."** Screenshot-verified
+    directly, twice — including after clicking "Refresh," which didn't
+    change it. Green conventionally means "confirmed good" everywhere
+    else in this same tile (HTTP, DNS, Internet by Address, ISP Edge
+    Router, Router all show green only once actually checked and
+    healthy) — a "hasn't been checked yet" state showing the same green
+    as a real positive result is actively misleading, not just an odd
+    label. Plausible, not yet confirmed, explanation for why "Refresh"
+    didn't help: its own tooltip already documents it as not covering
+    everything ("doesn't re-run Path to Internet or SNMP Devices, which
+    refresh independently") — DHCP may simply not be one of the three
+    things this specific button touches (`viewModel.refresh()`,
+    `publicIP.check()`, `wifiSSID.refresh`), rather than the check
+    itself being broken. Worth checking whatever DHCP's own status-color
+    logic and refresh trigger actually are against the pattern every
+    other row in this tile already follows correctly. **Check the
+    iMac's DHCP work before re-diagnosing this from scratch** — raised
+    live, the iMac was already improving DHCP handling the same day
+    (for its own dual-network setup, not pushed yet as of this note).
+    Plausibly the same underlying gap, plausibly unrelated; worth
+    comparing against whatever that change actually does once it lands
+    rather than assuming either way.
+  - **SSID/WiFi identification gap, confirmed to survive a manual
+    Refresh — a second live occurrence of an already-open suspicion,
+    now with a stronger finding than before.** Reported live: connected
+    to the cafe's Wi-Fi, no separate WiFi tile or SSID name appeared
+    anywhere, even though the merged Network tile's own "Network" row
+    correctly showed "Wi-Fi" as the interface type. Tried the footer
+    "Refresh" button (confirmed via its own code to call
+    `wifiSSID.refresh(isWiFi:)` directly) — **screenshot-confirmed after
+    clicking it: still no SSID/WiFi tile.** This rules out "just a
+    one-time race that a manual refresh papers over" — the gap is more
+    persistent than that. Ties directly to this file's own already-open
+    "Network tile slow to update right after joining a new network — do
+    we still have a race condition?" suspicion and the separate "show
+    SSID in the Wi-Fi/Network tile" idea. Worth real investigation next
+    session, now that "try Refresh" is ruled out as a fix: check whether
+    `WiFiSSIDViewModel.currentSSID` is actually being set to a real
+    value at all on this network (a genuine data problem, e.g. a macOS
+    location/Wi-Fi permission gate silently failing) versus the tile
+    simply not re-rendering when it does update (a SwiftUI/Observable
+    wiring problem) — those need different fixes and this evidence alone
+    doesn't distinguish them.
 
 - [ ] **Brief in-tile explanatory text for each test feature — "I keep
   forgetting how each test works."** Raised directly. Checked what
