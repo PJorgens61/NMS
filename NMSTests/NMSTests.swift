@@ -2219,6 +2219,128 @@ struct FWClientDecodingTests {
         #expect(job.startedAt != nil)
         #expect(job.completedAt != nil)
     }
+
+    @Test("decodes a start-trace response")
+    func decodesStartTraceResponse() throws {
+        let json = """
+        { "job_id": "t3r4c3", "status": "queued", "poll_after_ms": 500 }
+        """
+        let job = try FWClient.decodeStartTraceResponse(Data(json.utf8))
+        #expect(job.id == "t3r4c3")
+        #expect(job.status == "queued")
+        #expect(job.pollAfterMs == 500)
+        #expect(job.hops.isEmpty)
+    }
+
+    /// Matches FW's own contract (`PJorgens61/FW#1`): a non-responding
+    /// hop stays in position with every field `nil`, not omitted —
+    /// mirrors Globalping's own gap convention, and is exactly what
+    /// `FWTraceService.convert` needs to preserve hop *position*
+    /// correctly.
+    @Test("decodes a complete trace-status response, preserving a silent hop in position")
+    func decodesCompleteTraceStatus() throws {
+        let json = """
+        {
+          "job_id": "t3r4c3",
+          "status": "complete",
+          "started_at": "2026-08-05T02:31:00.347476-07:00",
+          "completed_at": "2026-08-05T02:31:04.812-07:00",
+          "hops": [
+            { "address": "10.0.0.1", "hostname": null, "rtt_ms": 1.2 },
+            { "address": null, "hostname": null, "rtt_ms": null },
+            { "address": "203.0.113.7", "hostname": "edge.example.net", "rtt_ms": 14.6 }
+          ]
+        }
+        """
+        let job = try FWClient.decodeTraceStatusResponse(Data(json.utf8))
+        #expect(job.status == "complete")
+        #expect(job.hops == [
+            FWClient.TraceHop(address: "10.0.0.1", hostname: nil, rttMs: 1.2),
+            FWClient.TraceHop(address: nil, hostname: nil, rttMs: nil),
+            FWClient.TraceHop(address: "203.0.113.7", hostname: "edge.example.net", rttMs: 14.6)
+        ])
+    }
+}
+
+// MARK: - FWTraceService.convert
+
+@Suite("FWTraceService.convert")
+struct FWTraceServiceConvertTests {
+    @Test("hop array order becomes 1-based hopNumber, matching Globalping's own convention")
+    func hopOrderBecomesHopNumber() {
+        let job = FWClient.TraceJob(
+            id: "t1",
+            status: "complete",
+            pollAfterMs: 500,
+            hops: [
+                FWClient.TraceHop(address: "10.0.0.1", hostname: nil, rttMs: 1.2),
+                FWClient.TraceHop(address: "203.0.113.7", hostname: "edge.example.net", rttMs: 14.6)
+            ]
+        )
+        let result = FWTraceService.convert(job, target: "198.51.100.9", serverHost: "fw.example.com")
+        #expect(result.hops.map(\.hopNumber) == [1, 2])
+        #expect(result.hops[0].address == "10.0.0.1")
+        #expect(result.hops[1].hostname == "edge.example.net")
+    }
+
+    @Test("a silent hop (all fields nil) is preserved in position, not dropped")
+    func silentHopPreservedInPosition() {
+        let job = FWClient.TraceJob(
+            id: "t1",
+            status: "complete",
+            pollAfterMs: 500,
+            hops: [
+                FWClient.TraceHop(address: "10.0.0.1", hostname: nil, rttMs: 1.2),
+                FWClient.TraceHop(address: nil, hostname: nil, rttMs: nil),
+                FWClient.TraceHop(address: "203.0.113.7", hostname: nil, rttMs: 14.6)
+            ]
+        )
+        let result = FWTraceService.convert(job, target: "198.51.100.9", serverHost: nil)
+        #expect(result.hops.count == 3)
+        #expect(result.hops[1].hopNumber == 2)
+        #expect(result.hops[1].address == nil)
+        #expect(result.hops[2].hopNumber == 3)
+    }
+
+    /// `resolvedAddress`/label fields -- confirms the whole point of
+    /// this conversion: a completed FW trace looks, to `TopologyBuilder`,
+    /// like one more Globalping-shaped probe result. `sourceLabel`'s own
+    /// join logic (`TopologyBuilder.swift`) renders `city`/`network` here
+    /// as "Firewall Visibility · fw.example.com", visibly distinct from
+    /// a real Globalping "City, Country · Provider · ASN" source.
+    @Test("resolvedAddress is the target, city/network give the honest 'not a real city' label")
+    func labelAndResolvedAddress() {
+        let job = FWClient.TraceJob(id: "t1", status: "complete", pollAfterMs: 500, hops: [])
+        let result = FWTraceService.convert(job, target: "198.51.100.9", serverHost: "fw.example.com")
+        #expect(result.resolvedAddress == "198.51.100.9")
+        #expect(result.city == "Firewall Visibility")
+        #expect(result.network == "fw.example.com")
+        #expect(result.country == nil)
+        #expect(result.asn == nil)
+    }
+
+    @Test("no server host configured: network is nil, not a crash or empty string")
+    func noServerHostConfigured() {
+        let job = FWClient.TraceJob(id: "t1", status: "complete", pollAfterMs: 500, hops: [])
+        let result = FWTraceService.convert(job, target: "198.51.100.9", serverHost: nil)
+        #expect(result.network == nil)
+    }
+
+    @Test("a single rtt_ms value becomes a single-element roundTripTimesMs array; nil becomes empty")
+    func rttMsMapping() {
+        let job = FWClient.TraceJob(
+            id: "t1",
+            status: "complete",
+            pollAfterMs: 500,
+            hops: [
+                FWClient.TraceHop(address: "10.0.0.1", hostname: nil, rttMs: 3.5),
+                FWClient.TraceHop(address: nil, hostname: nil, rttMs: nil)
+            ]
+        )
+        let result = FWTraceService.convert(job, target: "198.51.100.9", serverHost: nil)
+        #expect(result.hops[0].roundTripTimesMs == [3.5])
+        #expect(result.hops[1].roundTripTimesMs == [])
+    }
 }
 
 // MARK: - FirewallVisibilityViewModel.diff

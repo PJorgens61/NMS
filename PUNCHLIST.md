@@ -13,6 +13,57 @@ off as of those dates, full reasoning intact.
 
 ## Open
 
+- [x] **FW as a stable, always-present vantage point in Path Discovery —
+  NMS-side built and shipped, same night the plan was approved.** Full
+  reasoning and contract in `PJorgens61/NMS#6`/`PJorgens61/FW#1`: today's
+  Path Discovery only draws from Globalping's randomly-drawn probe pool,
+  so there's no fixed baseline to compare "did my path change since last
+  time" against. FW (the free companion service already used for
+  Firewall Visibility) running its own independent traceroute gives one
+  more corroborating source, merged into the same
+  `[GlobalpingReverseTraceService.ProbeTraceResult]` array Globalping's
+  results already flow through — `TopologyBuilder`/the comparison table
+  don't need to know or care where a trace came from, since they already
+  treat each entry generically.
+
+  **What got built**: `FWClient.startTrace`/`pollTraceJob` (mirrors
+  `startScan`/`pollJob` exactly, same async-job-plus-poll pattern), a new
+  `FWTraceService.swift` (`#if DEBUG`, the one place allowed to know
+  about both `FWClient` and Globalping's shape) with a poll loop mirroring
+  `FirewallVisibilityViewModel.runScan`'s own, and a one-line splice into
+  `DebugToolsView.runPathDiscovery()` — reuses the existing
+  `firewallVisibility` flag + `FWClient`/`FWKeychain`, no new feature
+  flag, silently no-ops if FW isn't configured or a trace fails so a
+  broken FW can never break the Globalping-only path that already works.
+  7 new fixture tests (183 total, all pass) covering hop-order→hopNumber
+  conversion, a silent hop staying in position rather than being dropped
+  (matches FW's own gap convention, same as Globalping's), and the
+  honest "Firewall Visibility · `<host>`" labeling that keeps this
+  visibly distinct from a real Globalping source in the diagram.
+
+  **Verified live, not just unit tests** — FW's real endpoint doesn't
+  exist yet (`PJorgens61/FW#1` still open, 0 comments), so a throwaway
+  local Python stub implementing just the two-endpoint contract stood in
+  for it: pointed `FeatureFlags.firewallServerURL` at `127.0.0.1`
+  temporarily (saved and restored the real
+  `https://pjorgens61-fw.fly.dev` value immediately after — this touches
+  the same setting Preferences' UI writes to, not a separate test-only
+  path), ran the real app, clicked Path Discovery for real. Confirmed in
+  the actual rendered export: "Firewall Visibility · 127.0.0.1" as its
+  own source in both the topology diagram and the comparison table, the
+  comparison table correctly picked `198.51.100.42
+  (stub-edge.example.net)` as the edge candidate — the *last* responsive
+  hop, correctly skipping past the stub's deliberately-included silent
+  gap hop in the middle — and the full-path section showed `resolved
+  192.184.170.5` (the real public IP target). Proves the whole NMS-side
+  wire-up end to end.
+
+  **Not done**: the FW-side endpoint itself — separate private repo
+  (`github.com/PJorgens61/FW`), not cloned on this Mac, tracked as
+  `PJorgens61/FW#1`. Nothing on the NMS side is blocked waiting for it;
+  whenever it lands (here or on the iMac), FW should just start showing
+  up as a real source in the diagram with zero further NMS-side changes.
+
 - [x] **Build pipeline felt slow — raised directly ("the full build
   pipeline has gotten slow. any ideas for improvement?").** Investigated
   two candidate causes, measured before touching either rather than

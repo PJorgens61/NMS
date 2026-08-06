@@ -102,7 +102,26 @@ struct DebugToolsView: View {
             do {
                 let measurementID = try await globalpingService.createMeasurement(target: target)
                 let rawResults = try await globalpingService.fetchResult(measurementID: measurementID)
-                let results = await enrichBacksideHostnames(rawResults)
+                var results = await enrichBacksideHostnames(rawResults)
+
+                // FW as a stable, always-present vantage point alongside
+                // Globalping's randomly-drawn pool -- see PJorgens61/NMS#6
+                // and PJorgens61/FW#1. Reuses the same `firewallVisibility`
+                // flag + `FWClient`/`FWKeychain` exactly as
+                // `FirewallVisibilityViewModel.scanNow()` does, no new
+                // feature flag. Deliberately not gated on
+                // `snapshotStore.isCurrentNetworkHome()` the way port-
+                // scanning is -- a trace back to this Mac's current public
+                // IP is meaningful from any network, exactly like
+                // Globalping's own trace already is. Silently no-ops if FW
+                // isn't configured or the trace fails -- a broken/
+                // unconfigured FW should never break the Globalping-only
+                // path that already works.
+                if FeatureFlags.firewallVisibility,
+                   let fwClient = FWClient(baseURLString: FeatureFlags.firewallServerURL, token: FWKeychain.token()),
+                   let fwResult = try? await FWTraceService.run(client: fwClient, target: target) {
+                    results.append(fwResult)
+                }
 
                 var confirmedAddress: String?
                 if let address = traceroute.monitoredHopAddress {

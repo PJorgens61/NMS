@@ -42,6 +42,28 @@ struct FWClient {
         let state: String
     }
 
+    /// One hop of a `/v1/traces` result — mirrors Globalping's own
+    /// gap convention (see `GlobalpingReverseTraceService`'s doc
+    /// comment): a non-responding hop still appears in position with
+    /// every field `nil`, rather than being omitted, matching FW's own
+    /// contract (PJorgens61/FW#1).
+    struct TraceHop: Codable, Equatable {
+        let address: String?
+        let hostname: String?
+        let rttMs: Double?
+    }
+
+    /// Same shape/reasoning as `ScanJob` above, for `/v1/traces`
+    /// instead of `/v1/scans` — covers both the just-started shape
+    /// (`hops` empty) and the polled shape (`hops` populated once
+    /// `status == "complete"`).
+    struct TraceJob {
+        let id: String
+        let status: String
+        let pollAfterMs: Int
+        let hops: [TraceHop]
+    }
+
     /// One `/v1/scans` or `/v1/scans/{id}` round-trip's worth of state —
     /// covers both the just-started shape (`targetIPv4`/`targetIPv6` set,
     /// `results` empty) and the polled shape (`startedAt`/`completedAt`/
@@ -91,6 +113,26 @@ struct FWClient {
         return try Self.decodeJobStatusResponse(data)
     }
 
+    /// Unlike `startScan`, the target isn't inferred from the requester's
+    /// own address — NMS supplies it directly (this Mac's own public IP,
+    /// per `FWTraceService`), since a reverse trace needs an explicit
+    /// destination the way a port scan of "your own exposed ports"
+    /// doesn't.
+    func startTrace(target: String) async throws -> TraceJob {
+        var request = makeRequest(path: "v1/traces", method: "POST")
+        request.httpBody = try JSONEncoder().encode(StartTraceRequestBody(target: target))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.validate(response, data: data)
+        return try Self.decodeStartTraceResponse(data)
+    }
+
+    func pollTraceJob(id: String) async throws -> TraceJob {
+        let request = makeRequest(path: "v1/traces/\(id)", method: "GET")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.validate(response, data: data)
+        return try Self.decodeTraceStatusResponse(data)
+    }
+
     /// Pure and `static` — directly unit-testable against sample JSON
     /// with no live network call, same discipline
     /// `SaaSStatusService.parseStatuspage`/`parseSlack` already follow for
@@ -123,6 +165,21 @@ struct FWClient {
             startedAt: body.startedAt,
             completedAt: body.completedAt,
             results: (body.results ?? []).map { PortResult(address: $0.address, port: $0.port, state: $0.state) }
+        )
+    }
+
+    static func decodeStartTraceResponse(_ data: Data) throws -> TraceJob {
+        let body = try decoder.decode(StartTraceResponseBody.self, from: data)
+        return TraceJob(id: body.jobID, status: body.status, pollAfterMs: body.pollAfterMs, hops: [])
+    }
+
+    static func decodeTraceStatusResponse(_ data: Data) throws -> TraceJob {
+        let body = try decoder.decode(TraceStatusResponseBody.self, from: data)
+        return TraceJob(
+            id: body.jobID,
+            status: body.status,
+            pollAfterMs: body.pollAfterMs ?? 500,
+            hops: (body.hops ?? []).map { TraceHop(address: $0.address, hostname: $0.hostname, rttMs: $0.rttMs) }
         )
     }
 
@@ -233,4 +290,49 @@ private struct JobStatusResponseBody: Decodable {
 
 private struct ErrorBody: Decodable {
     let error: String
+}
+
+private struct StartTraceRequestBody: Encodable {
+    let target: String
+}
+
+private struct StartTraceResponseBody: Decodable {
+    let jobID: String
+    let status: String
+    let pollAfterMs: Int
+
+    enum CodingKeys: String, CodingKey {
+        case jobID = "job_id"
+        case status
+        case pollAfterMs = "poll_after_ms"
+    }
+}
+
+private struct TraceHopBody: Decodable {
+    let address: String?
+    let hostname: String?
+    let rttMs: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case address, hostname
+        case rttMs = "rtt_ms"
+    }
+}
+
+private struct TraceStatusResponseBody: Decodable {
+    let jobID: String
+    let status: String
+    let pollAfterMs: Int?
+    let startedAt: Date?
+    let completedAt: Date?
+    let hops: [TraceHopBody]?
+
+    enum CodingKeys: String, CodingKey {
+        case jobID = "job_id"
+        case status
+        case pollAfterMs = "poll_after_ms"
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
+        case hops
+    }
 }
