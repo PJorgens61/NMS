@@ -13,7 +13,9 @@ connects to and remembers what it learns. Discovers SNMP devices and
 monitors for software changes and restarts.
 
 Built with SwiftUI (a `MenuBarExtra` popover) and SwiftData for local
-persistence, with no third-party dependencies. It reads network state
+persistence, with no third-party code bundled or linked (see
+[License](#license) for the one optional exception, used only as a
+subprocess). It reads network state
 through macOS's own SystemConfiguration framework, calls directly into
 system libraries for the checks that run most often (`getaddrinfo` for
 DNS, `URLSession` for HTTP and throughput), and shells out to the
@@ -40,6 +42,12 @@ section means, and common troubleshooting — lives at
 [`docs/user-guide.md`](https://github.com/PJorgens61/NMS/blob/main/docs/user-guide.md),
 rendered directly by GitHub — no separate build or deploy step, just push.
 
+No reputation, no company behind this — just one person's commit log.
+Rather than ask you to take that on faith, [**TRUST.md**](TRUST.md) has
+a ready-to-use prompt for having your own LLM audit this codebase
+directly (privacy, security, dependencies, licensing), plus pointers to
+exactly what to check its answer against.
+
 ## Contents
 
 - [Running it](#running-it)
@@ -65,6 +73,7 @@ rendered directly by GitHub — no separate build or deploy step, just push.
 - [Notes on sandboxing](#notes-on-sandboxing)
 - [Signed and notarized releases](#signed-and-notarized-releases)
 - [Network activity and privacy](#network-activity-and-privacy)
+- [Trust and verification](TRUST.md)
 - [Tests](#tests)
 - [Known limitations](#known-limitations)
 - [Contributing](#contributing)
@@ -872,7 +881,13 @@ equivalent), and without a *shared* scheme a CI checkout — which has no
 
 [MIT](LICENSE) © 2026 Paul Jorgensen.
 
-No third-party dependencies — everything used is an Apple system
-framework (SwiftUI, SwiftData, Network, CoreLocation) or a standard
-macOS command-line tool invoked at runtime (`ping`, `traceroute`, `arp`,
-`snmpget`). No bundled third-party licenses to comply with.
+No third-party code is bundled or linked — everything used is an Apple
+system framework (SwiftUI, SwiftData, Network, CoreLocation) or a
+command-line tool invoked at runtime as a subprocess: the standard
+macOS tools (`ping`, `traceroute`, `arp`, `snmpget`), plus one optional
+one you install yourself — [scamper](https://www.caida.org/catalog/software/scamper/)
+(GPL-2.0), used only if present for a more rigorous check on whether
+two addresses belong to the same router. Never bundled, never linked —
+called as a subprocess exactly like the standard tools above, which is
+what keeps its GPL-2.0 license from applying to this app's own MIT
+license at all. No bundled third-party licenses to comply with.

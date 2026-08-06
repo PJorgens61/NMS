@@ -1759,6 +1759,37 @@ off as of those dates, full reasoning intact.
   Not built — a real, distinct feature idea from general Firewall
   Visibility, not a small addition to it.
 
+  **Third refinement, raised much later the same day, a real design
+  discussion worth keeping in full**: the two-phase framing (prove
+  destination-forwarding first, layer in source restriction after) is
+  genuinely valuable — it decomposes an otherwise opaque "my port
+  forward doesn't work" into two independently testable steps. Without
+  it, a user with a broken rule has no way to tell "my destination-
+  forwarding is wrong" from "my source-restriction is wrong"; they just
+  see failure and guess. Same "external vantage point replaces
+  guesswork with a real answer" theme as everything else this app
+  already does (Path Discovery, Firewall Visibility itself).
+
+  **The source-IP-restriction complication, raised in the same
+  breath, is real and needs honest UI framing, not glossed over**: FW
+  tests from its own fixed address, so if a rule restricts the DNAT to
+  specific allowed source IPs that aren't FW's, the test correctly
+  *fails* even when the destination-forwarding half is perfect — a
+  failed result alone can't distinguish "broken rule" from "correctly
+  restricted to someone else." Whatever UI this becomes needs to say
+  that explicitly, not just report "unreachable" and let the user
+  assume their rule is broken.
+
+  **A second real use case worth supporting, not just the from-scratch
+  build order above**: a lot of real users are debugging an *existing*,
+  already-restrictive rule, not building fresh — for that case the
+  practical technique is the reverse of "build destination first, add
+  source after": temporarily add FW's own address to the allow-list,
+  confirm the base rule connects, then remove it again. A real pattern
+  network engineers already use (loosen to test, re-tighten after), and
+  a genuinely different workflow from the build-from-scratch framing —
+  worth designing for both, not picking just one.
+
 - [ ] **Noe Cafe, same field-test session, 2026-08-06 — two live UI
   findings, screenshot-confirmed.** Real specifics left out, same
   convention as every entry above.
