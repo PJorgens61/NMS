@@ -1,0 +1,139 @@
+## license
+MIT License
+
+Copyright (c) 2026 Paul Jorgensen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+## spm-dependencies
+0
+## network-endpoints
+http://127.0.0.1
+http://captive.apple.com/hotspot-detect.html
+https://...
+https://api.globalping.io/v1/measurements
+https://api.hoiho.caida.org/lookups
+https://api.ipify.org
+https://cdn.jsdelivr.net/npm/mermaid
+https://discordstatus.com/api/v2/summary.json
+https://example.com
+https://example.com/injected-incident
+https://rdap.org/ip/
+https://slack-status.com/...
+https://slack-status.com/api/v2.0.0/current
+https://sonicstatus.com/
+https://speed.cloudflare.com/__down
+https://speed.cloudflare.com/__up
+https://status.asana.com/api/v2/summary.json
+https://status.atlassian.com/api/v2/summary.json
+https://status.claude.com/api/v2/summary.json
+https://status.cloud.google.com/incidents.json
+https://status.docusign.com/api/v2/summary.json
+https://status.dropbox.com/api/v2/summary.json
+https://status.figma.com/api/v2/summary.json
+https://status.hubspot.com/api/v2/summary.json
+https://status.openai.com/api/v2/summary.json
+https://status.zendesk.com/api/incidents/active
+https://trello.status.atlassian.com/api/v2/summary.json
+https://www.att.com/outages/
+https://www.cloudflarestatus.com/api/v2/summary.json
+https://www.cox.com/residential/support/outages/ca-outage-map.html
+https://www.githubstatus.com/api/v2/summary.json
+https://www.google.com/appsstatus/dashboard/incidents.json
+https://www.monkeybrains.net/map/
+https://www.notion-status.com/api/v2/summary.json
+https://www.spectrum.net/outage-map
+https://www.xfinity.com/support/statusmap
+https://www.zoomstatus.com/api/v2/summary.json
+https://your-fw-server.example.com
+## telemetry-sdks
+## shelled-out-binaries
+"/sbin/ping"
+"/usr/bin/dig"
+"/usr/bin/lpstat"
+"/usr/bin/networkQuality"
+"/usr/bin/snmpget"
+"/usr/local/bin/scamper"
+"/usr/sbin/arp"
+"/usr/sbin/ipconfig"
+"/usr/sbin/networksetup"
+"/usr/sbin/scutil"
+"/usr/sbin/traceroute"
+## shell-string-risk
+## app-sandbox-and-entitlements
+426:				ENABLE_APP_SANDBOX = NO;
+471:				ENABLE_APP_SANDBOX = NO;
+./NMS/NMS.entitlements
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)Thistle.NMS</string>
+	</array>
+</dict>
+</plist>
+## oauth-signin
+## hardcoded-secrets
+NMS/ViewModels/FirewallVisibilityViewModel.swift:14:/// (`FWClient(baseURLString:token:)` returns `nil`), this view model is
+NMS/ViewModels/FirewallVisibilityViewModel.swift:36:    /// FW's own per-token rate limit is one scan per 10 seconds, so
+NMS/ViewModels/SNMPViewModel.swift:284:    /// `NotificationCenter`'s own strong hold on the observer token;
+NMS/ViewModels/SNMPViewModel.swift:285:    /// `deinit` removes the token itself, since a weak closure alone
+NMS/ViewModels/DHCPLeaseViewModel.swift:37:    /// an administrator password" acknowledgment — same shape as
+NMS/Views/PreferencesView.swift:103:            // above — a server URL and token field are meaningless noise
+NMS/Views/DHCPHistoryTile.swift:43:                .accessibilityHint("Forces a fresh DHCP negotiation on this Mac's active interface. Briefly disrupts the connection and may prompt for an administrator password.")
+NMS/Views/DHCPHistoryTile.swift:46:                    "Forces a fresh DHCP negotiation on this Mac's active interface. Briefly disrupts the connection and may prompt for an administrator password.",
+NMS/Views/DHCPHistoryTile.swift:59:                    Text("This forces a fresh DHCP negotiation on this Mac's active interface, briefly disrupting the connection, and may prompt for an administrator password — continue?")
+NMS/Views/CommunityRow.swift:4:/// strings are shared read-only passwords, not per-user secrets, and
+NMS/Views/FirewallVisibilityServerSection.swift:6:/// token deliberately never touches `UserDefaults`, unlike every other
+NMS/Views/FirewallVisibilityServerSection.swift:10:/// design notes): the token is generated server-side from `FW_TOKENS` and
+NMS/Views/FirewallVisibilityServerSection.swift:17:    @State private var tokenFieldText = ""
+NMS/Views/FirewallVisibilityServerSection.swift:18:    @State private var hasStoredToken = false
+NMS/Views/FirewallVisibilityServerSection.swift:27:                SecureField(hasStoredToken ? "Token saved — paste a new one to replace it" : "Device token", text: $tokenFieldText)
+NMS/Views/FirewallVisibilityServerSection.swift:29:                    .accessibilityIdentifier("preferences.firewall.token")
+NMS/Views/FirewallVisibilityServerSection.swift:30:                Button("Save") { saveToken() }
+NMS/Views/FirewallVisibilityServerSection.swift:31:                    .disabled(tokenFieldText.trimmingCharacters(in: .whitespaces).isEmpty)
+NMS/Views/FirewallVisibilityServerSection.swift:32:                    .accessibilityIdentifier("preferences.firewall.token.save")
+NMS/Views/FirewallVisibilityServerSection.swift:36:            if hasStoredToken {
+NMS/Views/FirewallVisibilityServerSection.swift:47:    private func saveToken() {
+NMS/Views/FirewallVisibilityServerSection.swift:48:        let trimmed = tokenFieldText.trimmingCharacters(in: .whitespaces)
+NMS/Views/FirewallVisibilityServerSection.swift:50:        hasStoredToken = true
+NMS/Views/FirewallVisibilityServerSection.swift:51:        tokenFieldText = ""
+NMS/Services/LANDiscoveryService.swift:77:        let hostnameToken = nsLine.substring(with: match.range(at: 1))
+NMS/Services/LANDiscoveryService.swift:87:            hostname: hostnameToken == "?" ? nil : hostnameToken,
+NMS/Services/FWClient.swift:21:        /// No server URL and/or device token configured yet — see
+NMS/Services/FWClient.swift:30:                return "Firewall Visibility isn't configured yet — set a server URL and device token in Preferences."
+NMS/Services/FWClient.swift:84:    private let token: String
+NMS/Services/FWClient.swift:89:    init?(baseURLString: String?, token: String?) {
+NMS/Services/FWClient.swift:92:            let token, !token.isEmpty,
+NMS/Services/FWClient.swift:98:        self.token = token
+NMS/Services/FWClient.swift:189:        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+NMS/Services/LocalDiagnosticServer.swift:36:/// per-launch path token** (defense in depth on top of the loopback
+NMS/Services/LocalDiagnosticServer.swift:51:    /// unconditionally tore down the listener and minted a fresh token —
+NMS/Services/LocalDiagnosticServer.swift:55:    /// listener/token, once started, stays up and serves both sections —
+NMS/Services/LocalDiagnosticServer.swift:75:    private var pathToken = ""
+NMS/Services/LocalDiagnosticServer.swift:85:    /// and token rather than restarting — restarting would invalidate the
+NMS/Services/LocalDiagnosticServer.swift:86:    /// token any other already-open tab is using.
+NMS/Services/LocalDiagnosticServer.swift:201:    /// Returns the base `http://127.0.0.1:<port>/<token>` URL, starting
+NMS/Services/LocalDiagnosticServer.swift:223:            return URL(string: "http://127.0.0.1:\(port.rawValue)/\(pathToken)")
+NMS/Services/LocalDiagnosticServer.swift:226:        pathToken = Self.randomToken()
+NMS/Services/LocalDiagnosticServer.swift:266:                        let url = URL(string: "http://127.0.0.1:\(port.rawValue)/\(self.pathToken)")
+NMS/Services/LocalDiagnosticServer.swift:344:        let prefix = "/\(pathToken)"
+NMS/Services/LocalDiagnosticServer.swift:352:            // the token as a path segment, not get merged over it.
+NMS/Services/LocalDiagnosticServer.swift:393:    private static func randomToken() -> String {
+NMS/Services/GlobalpingReverseTraceService.swift:13:/// measurement API works fully anonymously, no account/token/credits,
+NMS/Services/FeatureFlags.swift:220:    /// The FW server's base URL — plain configuration, not a secret, so
+NMS/Services/FeatureFlags.swift:222:    /// The device token that authenticates against it is deliberately
+NMS/Services/SubprocessTracer.swift:35:    /// Logs the start of a subprocess and returns a token to close it with.
+NMS/Services/EthernetLinkService.swift:69:        guard let baseToken = active.split(separator: " ").first, baseToken != "none" else {
+NMS/Services/EthernetLinkService.swift:79:        return Info(speedMbps: Self.speedMbps(fromMediaToken: String(baseToken)), duplex: duplex)
+NMS/Services/EthernetLinkService.swift:86:    private static func speedMbps(fromMediaToken token: String) -> Double? {
+NMS/Services/EthernetLinkService.swift:88:        var index = token.startIndex
+NMS/Services/EthernetLinkService.swift:89:        while index < token.endIndex, token[index].isNumber {
+NMS/Services/EthernetLinkService.swift:90:            digits.append(token[index])
+NMS/Services/EthernetLinkService.swift:91:            index = token.index(after: index)
+NMS/Services/EthernetLinkService.swift:94:        if index < token.endIndex, token[index] == "G" || token[index] == "g" {
+## ci-workflows
+.github/workflows/codeql.yml
+.github/workflows/gitleaks.yml
+.github/workflows/tests.yml

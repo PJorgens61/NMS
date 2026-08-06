@@ -883,6 +883,17 @@ Three workflows run in CI:
 - **gitleaks** (`.github/workflows/gitleaks.yml`) — scans full history
   for committed secrets, on push, PR, and weekly.
 
+A fourth check, `script/privacy-security-check.sh`, isn't wired into CI
+— run it manually before tagging a release. It re-runs the greps behind
+`docs/reviews/*-privacy-security-review.md`/`*-trust-assessment.md`
+(network endpoints, telemetry SDKs, shell-out safety, sandbox/
+entitlements, hardcoded secrets) and diffs the output against
+`script/privacy-security-baseline.txt`, the snapshot from the last
+review that actually read and signed off on the results. A clean diff
+means nothing privacy/security-relevant changed since then; a diff is
+the specific delta worth a fresh look, not a reason to redo the whole
+review.
+
 Note `NMS.xcodeproj/xcshareddata/xcschemes/NMS.xcscheme` is committed
 deliberately: `xcodebuild test` requires a scheme (there's no `-target`
 equivalent), and without a *shared* scheme a CI checkout — which has no

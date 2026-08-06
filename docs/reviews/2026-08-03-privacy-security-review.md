@@ -181,3 +181,13 @@ greps automatically and flags anything that doesn't match the previous
 review — rather than a fresh manual pass each time. Not built yet;
 this file is the first instance of the process, written to make that
 follow-up easy to scope.
+
+**Implemented 2026-08-06**: `script/privacy-security-check.sh` re-runs
+every check above (plus a few more, added for the 2026-08-06 trust
+assessment — see `docs/reviews/2026-08-06-trust-assessment.md`) and
+diffs the output against `script/privacy-security-baseline.txt`, the
+snapshot from that review. Run it with no arguments before a release;
+a clean diff means nothing privacy/security-relevant changed since the
+last reviewed commit, and any diff is exactly the delta worth a fresh
+look. `--update-baseline` records new output as the baseline once a
+review has actually confirmed it's fine.
