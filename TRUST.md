@@ -48,6 +48,30 @@ For every claim, cite the specific file and line number so I can
 verify it myself rather than taking it on faith.
 ```
 
+## If your LLM says the repo doesn't exist or is private
+
+It's public — `https://github.com/PJorgens61/NMS` returns HTTP 200 to a
+plain, anonymous, unauthenticated request, both the repo page itself and
+the raw README. If an LLM tells you otherwise, that's not a finding
+about this repo — it's a sign that LLM doesn't actually have live
+web/repo access in whatever mode you're using, and rather than saying
+so, it fabricated a plausible-sounding but false explanation instead.
+Confirmed live: this happened with a real model during this document's
+own writing.
+
+**Before trusting any LLM's verdict on this repo (or any repo), confirm
+it actually fetched something real** — ask it something a guess
+couldn't answer correctly, like the exact SHA of the latest commit on
+`main`, or the literal first sentence of `README.md`. If it can't answer
+that correctly, it didn't really read the repository, and nothing else
+it told you about privacy, security, or dependencies came from the
+actual source either — no matter how confident or specific it sounded.
+Different products vary in whether this needs to be explicitly turned
+on: a coding-agent-style tool that can actually `git clone` will have
+real access by default; a plain chat interface often needs a specific
+browsing/repo-connector feature enabled first, and won't always tell you
+when it's missing.
+
 ## What to check the answer against
 
 An LLM's review is only as good as what it can verify — and its own
