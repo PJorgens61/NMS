@@ -13,6 +13,77 @@ off as of those dates, full reasoning intact.
 
 ## Open
 
+- [ ] **Field-test sweep, 2026-08-06 — three locations, summary and
+  index.** Real specifics left out, same convention as every entry
+  above. Today's findings were mostly written up in full detail as
+  their own entries already, scattered through this file as they
+  happened rather than batched — this entry is the index/summary tying
+  them together, not a duplicate of the detail.
+
+  **1. Martha's Coffee, Church St (return visit)** — two real findings,
+  both fully written up elsewhere in this file (search "Return visit,
+  Martha's Coffee"): the double-NAT topology confirmed identical to the
+  2026-08-04 visit (cafe's own router → un-bridged ISP-supplied gateway
+  → first public hop), and a serious, taken-at-face-value connectivity
+  incident — NMS running appeared to break the MacBook's own Wi-Fi
+  (iPhone unaffected), resolved by killing NMS. Not yet root-caused.
+
+  **2. Noe Cafe** — four things, all written up elsewhere (search "Noe
+  Cafe" and "Second occurrence, same day"): a **second occurrence** of
+  the same NMS/Wi-Fi connectivity pattern from Martha's, strengthening
+  it from "maybe a fluke" to "worth prioritizing"; a **controlled
+  retest** of Path Discovery specifically (the user's own lead — the
+  Martha's incident began right when Path Discovery was triggered) with
+  real before/after ping monitoring, which did **not** reproduce here —
+  a clean result, not a full exoneration; a confirmed DHCP-row bug
+  (green status dot next to "Not checked" text, survives a manual
+  Refresh); and a confirmed SSID/WiFi-tile gap (no WiFi tile or SSID
+  shown despite being connected, also survives Refresh).
+
+  **3. Cloe's Cafe** — brief stop, minimal detail captured live (network
+  conditions made live capture slow — see this file's own note on that,
+  if written up, or just this entry). ISP possibly Sonic, **not
+  confirmed** — flagged with a "?" live, not verified. Connection
+  described as very slow. Nothing else captured before moving on; worth
+  a fresh look if this location gets visited again rather than treating
+  this as a real finding.
+
+  **Overall priority carried out of today**: the NMS/Wi-Fi connectivity
+  question (two occurrences, one specific lead tested and not
+  reproduced) is the single most important open thread from today —
+  see the detailed entries above for the actual investigation notes.
+
+- [ ] **Idea: keep the suggested-edge-hop arrow visible in Path to
+  Internet's hop list even after the user confirms a hop.** Raised
+  directly, live. Checked the exact current behavior in code, not
+  assumed: `PathToInternetTile.swift:231` gates the arrow icon on
+  `traceroute.monitoredHopNumber == nil` — so the moment *any* hop gets
+  confirmed, the arrow disappears entirely, regardless of which hop was
+  actually confirmed or whether it matches the suggestion. Real,
+  concrete use case for keeping it: lets a user see at a glance whether
+  their confirmed hop matches NMS's own heuristic guess or whether they
+  deliberately picked something different — useful context to keep
+  around, not just a one-time hint that's only relevant pre-confirmation.
+  **Reframed slightly, raised right after**: this isn't just "keep a
+  reference visible" — it's specifically a durable record that the
+  recommended hop was *overruled* by the user, for both the user and
+  NMS itself to remember later. A user re-opening this tile days later
+  might otherwise forget they deliberately chose against the suggestion
+  (and why); NMS itself has no persisted memory of that disagreement
+  either today, only the confirmed hop number
+  (`SnapshotStore.confirmedEdgeHopNumber`) with no record that it once
+  differed from `suggestedEdgeHop`'s own guess. Worth keeping in mind if
+  this gets scoped further — the arrow alone is a UI-only fix; a real
+  "overruled" record might belong in persisted state too, not just the
+  live view, if it's ever meant to survive a relaunch or feed back into
+  anything (e.g. a future heuristic improvement, or the ISP-identity-
+  mismatch idea elsewhere in this file).
+
+  Not built — worth deciding whether the arrow should show on both rows
+  when they differ (suggested hop *and* confirmed hop), or just persist
+  on the suggested hop's own row regardless of confirmation state, next
+  time this is picked up.
+
 - [ ] **Idea: guide the user through scamper setup step by step, instead
   of one static button per state.** Raised directly, motivated by a
   real live case: hit `.notPrivileged` in this exact session — scamper
@@ -868,6 +939,42 @@ off as of those dates, full reasoning intact.
   above ever gets built, these existing per-run topology exports are a
   natural data source to diff against, once they're actually
   labeled/network-scoped rather than anonymous timestamped files.
+
+  **Two real refinements, raised together much later the same day**:
+
+  1. **Generalize from "before/after a deliberate change" to "any two
+     points in time"** — the original framing was specifically about
+     comparing right before vs. right after a hardware/config change,
+     but the same underlying feature is just as useful as a plain
+     day-over-day baseline: "compare my network right now against how
+     it looked yesterday," with no deliberate change necessarily having
+     happened at all. Same data/diff mechanism either way — this is a
+     framing broadening, not a different feature, but worth keeping
+     explicit since it changes how snapshots get triggered/retained
+     (an ongoing periodic history to diff against any prior point, not
+     just two manually-bookended captures around one event).
+
+  2. **A second, concrete use case for Firewall Visibility
+     specifically: help a user refactor complex firewall rules by
+     showing how external visibility changed before vs. after.** Real,
+     well-motivated scenario distinct from the general network-config
+     comparison above — someone editing a router's port-forward/ACL
+     rules (especially a messy, grown-over-time ruleset) has no good
+     way today to confirm "did my refactor actually preserve the
+     reachability I meant to keep, and close what I meant to close"
+     other than manually re-testing each port by hand. A snapshot of
+     Firewall Visibility's own results (what's reachable, on which
+     ports) taken before a rule change, diffed against a fresh run
+     after, would answer that directly — the same "external vantage
+     point proves what actually changed" pattern already used elsewhere
+     in this app (Path Discovery's own corroboration checks), just
+     applied to firewall-rule refactoring specifically.
+
+  Still not scoped in technical detail — both refinements make the
+  general idea more clearly worth building, not less, but the actual
+  data model (what gets snapshotted, how often, how long retained) and
+  UI (presumably a diff view) still need a real design pass next time
+  this is picked up.
 
 - [x] **Give NMS a real (free Personal Team) code-signing identity —
   approved, deferred, then done the same day once home ("signed in, go
