@@ -832,6 +832,25 @@ off as of those dates, full reasoning intact.
   sync issue (#6) is still worth posting once the iMac side gets this
   pulled and needs its own Apple ID signed into its own Xcode.
 
+  **Real cross-machine cost of sharing one free Personal Team, found
+  after the iMac actually did its own Xcode setup**: a build on this
+  Mac failed with "Signing certificate is invalid... may have been
+  revoked" — the certificate was locally present and looked fine
+  (`security find-identity` still showed it), but Apple's server-side
+  had genuinely invalidated it. Root cause, not just a guess: a free
+  Personal Team has a low per-account limit on valid development
+  certificates, and the iMac generating its own certificate under the
+  same account is exactly the kind of thing that can silently bump an
+  older one elsewhere. Fixed with `xcodebuild -allowProvisioningUpdates`
+  — issued a fresh replacement certificate automatically (confirmed by
+  the codesign identity's own hash changing), same one-time fix as the
+  original provisioning-profile-needed error. **Worth expecting again**:
+  any time either machine regenerates its certificate (a new Mac, a
+  reinstalled Xcode, anything that touches Signing & Capabilities), the
+  other machine's cert can go stale — `-allowProvisioningUpdates` (or
+  reopening Signing & Capabilities in Xcode's own GUI) is the fix each
+  time, not something to chase further.
+
 - [ ] **Idea: per-host fallback probe method (HTTP/HTTPS/DNS, not just
   ICMP) for connectivity targets.** Raised directly (2026-08-04) while
   comparing NMS against `NetViews` (a paid, professional macOS network
