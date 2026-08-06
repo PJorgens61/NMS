@@ -64,6 +64,8 @@ final class LocalDiagnosticServer {
         let siblingAddresses: [String: [String: String]]
         let frontsideHops: [TracerouteHop]
         let networkName: String?
+        let geoHints: [String: String]
+        let scamperVerdicts: [String: Bool]
     }
 
     private var listener: NWListener?
@@ -115,16 +117,33 @@ final class LocalDiagnosticServer {
     /// (`DebugToolsView`) since this type has no network-identity
     /// dependency of its own. `nil` when neither is available (e.g.
     /// Ethernet with no `KnownNetwork` label).
+    /// `geoHints` is Hoiho's own hostname -> display-string lookup
+    /// (`HoihoService.lookup`, already resolved by the caller before this
+    /// is called -- see `TopologyBuilder.renderMermaid`'s own doc comment
+    /// for why that stays a pure caller-supplied dictionary rather than a
+    /// network call made in here or in `TopologyBuilder` itself). Empty
+    /// by default, same "stays callable the simple way" reasoning as
+    /// `confirmedAddress`/`siblingAddresses` above.
+    /// `scamperVerdicts` maps a candidate address to scamper's Ally
+    /// verdict (`true`/`false`) for whether it's the same device as the
+    /// confirmed hop — only present for addresses `DebugToolsView`
+    /// already flagged as a device-stem match, a real second opinion on
+    /// that specific claim. See `ScamperService`'s own doc comment for
+    /// why this is `[String: Bool]`, not `[String: Bool?]`: an
+    /// inconclusive result (`nil`) is simply never inserted, same
+    /// "absence means unknown" shape `geoHints` already uses.
     func showReverseTrace(
         target: String,
         results: [GlobalpingReverseTraceService.ProbeTraceResult],
         confirmedAddress: String? = nil,
         siblingAddresses: [String: [String: String]] = [:],
         frontsideHops: [TracerouteHop] = [],
-        networkName: String? = nil
+        networkName: String? = nil,
+        geoHints: [String: String] = [:],
+        scamperVerdicts: [String: Bool] = [:]
     ) async -> URL? {
-        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName)
-        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName)
+        reverseTraceContent = ReverseTraceContent(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName, geoHints: geoHints, scamperVerdicts: scamperVerdicts)
+        Self.exportReverseTraceHTML(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName, geoHints: geoHints, scamperVerdicts: scamperVerdicts)
         guard let base = await ensureRunning() else { return nil }
         return base.appendingPathComponent("path-discovery")
     }
@@ -148,7 +167,9 @@ final class LocalDiagnosticServer {
         confirmedAddress: String?,
         siblingAddresses: [String: [String: String]],
         frontsideHops: [TracerouteHop],
-        networkName: String?
+        networkName: String?,
+        geoHints: [String: String],
+        scamperVerdicts: [String: Bool]
     ) {
         let dir = projectRoot().appendingPathComponent("script/diagnostic-exports")
 
@@ -168,7 +189,7 @@ final class LocalDiagnosticServer {
         let fileStem = networkSlug.map { "path-discovery-\($0)" } ?? "path-discovery"
         let file = dir.appendingPathComponent("\(fileStem)-\(formatter.string(from: Date())).html")
 
-        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName)
+        let html = renderReverseTracePage(target: target, results: results, confirmedAddress: confirmedAddress, siblingAddresses: siblingAddresses, frontsideHops: frontsideHops, networkName: networkName, geoHints: geoHints, scamperVerdicts: scamperVerdicts)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try html.write(to: file, atomically: true, encoding: .utf8)
@@ -346,7 +367,7 @@ final class LocalDiagnosticServer {
                 // `showReverseTrace`'s own doc comment for why a live
                 // Globalping round trip per page reload would be the
                 // wrong tradeoff here.
-                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses, frontsideHops: content.frontsideHops, networkName: content.networkName))
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses, frontsideHops: content.frontsideHops, networkName: content.networkName, geoHints: content.geoHints, scamperVerdicts: content.scamperVerdicts))
             } else {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Path Discovery", message: "No run yet — click \u{201c}Path Discovery\u{2026}\u{201d} in Debug Tools."))
             }
@@ -575,9 +596,24 @@ final class LocalDiagnosticServer {
         confirmedAddress: String?,
         siblingAddresses: [String: [String: String]],
         frontsideHops: [TracerouteHop],
-        networkName: String?
+        networkName: String?,
+        geoHints: [String: String] = [:],
+        scamperVerdicts: [String: Bool] = [:]
     ) -> String {
         let neutral = "var(--label)", positive = "var(--positive)", warning = "var(--warning)"
+
+        // The confirmed hop's own hostname, looked up from this Mac's own
+        // trace -- needed so the comparison table below can fall back to
+        // a device-stem match, not just an exact address match. See
+        // `TracerouteViewModel.reverseTraceCorroborates`'s own doc
+        // comment for the real case this fixes: a multi-homed edge
+        // router answering a different probe's inbound path on a
+        // different interface address than the one this Mac's own trace
+        // confirmed, which used to read as "no match" even though it's
+        // the same physical device.
+        let confirmedHostname = confirmedAddress.flatMap { address in
+            frontsideHops.first(where: { $0.address == address })?.hostname
+        }
 
         // Layered ISP-topology diagram -- merges frontside (this Mac's own
         // trace) and backside (these probes) by hop-distance, raised
@@ -585,7 +621,7 @@ final class LocalDiagnosticServer {
         // router... keep expanding upwards until the 5 paths diverge").
         // See `TopologyBuilder`'s own doc comment for the full algorithm.
         let topology = TopologyBuilder.build(frontsideHops: frontsideHops, backsideResults: results, siblingAddresses: siblingAddresses)
-        let mermaidText = TopologyBuilder.renderMermaid(tiers: topology.tiers, sources: topology.sources, colors: topologyColors)
+        let mermaidText = TopologyBuilder.renderMermaid(tiers: topology.tiers, sources: topology.sources, colors: topologyColors, geoHints: geoHints)
         let topologySection = results.isEmpty ? "" : """
             <h2>ISP topology</h2>
             <div class="card diagram-card">
@@ -613,7 +649,21 @@ final class LocalDiagnosticServer {
             let networkLabel = [row.probe.network, row.probe.asn.map { "ASN \($0)" }].compactMap { $0 }.joined(separator: " · ")
             let address = row.hop?.address ?? "*"
             let hostname = row.hop?.hostname.map { " (\($0))" } ?? ""
-            let matches = confirmedAddress != nil && row.hop?.address == confirmedAddress
+            let exactMatch = confirmedAddress != nil && row.hop?.address == confirmedAddress
+            // Same device, different interface -- see the doc comment on
+            // `confirmedHostname` above and on `TracerouteViewModel
+            // .reverseTraceCorroborates` for the real case this covers.
+            // Kept visually distinct from an exact match rather than
+            // folded into the same "✓", since it's genuinely a weaker
+            // claim (same box, not the same address this Mac itself
+            // confirmed).
+            let stemMatch = !exactMatch
+                && TracerouteViewModel.reverseTraceCorroborates(
+                    row.probe.hops,
+                    destination: row.probe.resolvedAddress,
+                    confirmedAddress: confirmedAddress ?? "",
+                    confirmedHostname: confirmedHostname
+                )
             // A gap means the real last hop is unknown -- not a confident
             // "confirmed different device," and not a confident match
             // either. Flagged distinctly rather than silently read as a
@@ -628,8 +678,24 @@ final class LocalDiagnosticServer {
             } else if confirmedAddress == nil {
                 matchCell = "—"
                 matchColor = neutral
-            } else if matches {
+            } else if exactMatch {
                 matchCell = "✓"
+                matchColor = positive
+            } else if stemMatch {
+                // A real, protocol-level second opinion on this exact
+                // guess -- see `ScamperService`'s own doc comment.
+                // Absent (not run, or scamper wasn't `.ready`) leaves
+                // today's wording untouched; present but `false` is
+                // real, worth surfacing information (the hostname-stem
+                // heuristic guessed wrong), not hidden just because it
+                // contradicts the guess above.
+                let scamperNote: String
+                if let verdict = row.hop?.address.flatMap({ scamperVerdicts[$0] }) {
+                    scamperNote = verdict ? " — confirmed by scamper" : " — scamper disagrees"
+                } else {
+                    scamperNote = ""
+                }
+                matchCell = "✓ (same device, different interface)\(scamperNote)"
                 matchColor = positive
             } else {
                 matchCell = ""

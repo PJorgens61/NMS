@@ -70,6 +70,12 @@ enum TopologyBuilder {
     struct Source: Equatable {
         var label: String
         var connectsToDistance: Int
+        /// Which node *within* `connectsToDistance`'s tier this source
+        /// actually belongs to — a tier can have more than one node (a
+        /// genuine multi-way split), and `renderMermaid` needs to know
+        /// which one, not just the distance. Defaults to `0`, correct for
+        /// every tier that only ever has one node (the common case).
+        var connectsToNodeIndex: Int = 0
     }
 
     /// Fill/stroke/text colors for the diagram's three visually distinct
@@ -132,7 +138,10 @@ enum TopologyBuilder {
         // only the majority's own sources keep expanding outward past
         // that point.
         var activeSourceIndices = Set(backsideResults.indices)
-        var connectDistance: [Int: Int] = [:]
+        // Distance *and* node index -- see `Source.connectsToNodeIndex`'s
+        // own doc comment for why the index matters as much as the
+        // distance does.
+        var connectInfo: [Int: (distance: Int, nodeIndex: Int)] = [:]
 
         var distance = 2
         var lastAppendedDistance = tiers.last!.distanceFromNMS
@@ -166,6 +175,28 @@ enum TopologyBuilder {
             }
             groups.sort { $0.node.label < $1.node.label }
 
+            // Recorded unconditionally, for every source in every group at
+            // this tier -- not just the ones branching off as a minority.
+            // A majority source that keeps expanding just has this
+            // overwritten on the next iteration; one that stops (minority
+            // cutoff, no-majority split, or simply running out of hops
+            // once the loop ends) keeps whatever's recorded here as its
+            // real, final attachment point. Real bug this fixes (found
+            // live, 2026-08-06, mixing in international Path Discovery
+            // probes for the first time): the old code recorded only a
+            // *distance*, and `renderMermaid` always drew every source's
+            // edge to that distance's node *index 0* -- correct only when
+            // the final tier happened to have exactly one node. A tier
+            // with more than one node (a genuine multi-way split, common
+            // with international vantage points crossing very different
+            // transit) silently misattached sources to the wrong node, or
+            // left a real, unconnected-looking node with no source edge
+            // at all (a Cogent hop that "didn't seem to be on a path to
+            // any host").
+            for (nodeIndex, group) in groups.enumerated() {
+                for i in group.sourceIndices { connectInfo[i] = (distance, nodeIndex) }
+            }
+
             tiers.append(Tier(distanceFromNMS: distance, nodes: groups.map(\.node)))
             lastAppendedDistance = distance
 
@@ -177,29 +208,25 @@ enum TopologyBuilder {
             let totalSources = groups.reduce(0) { $0 + $1.sourceIndices.count }
             if totalSources > 0, let majority = groups.max(by: { $0.sourceIndices.count < $1.sourceIndices.count }),
                majority.sourceIndices.count * 2 > totalSources {
-                for group in groups where group.sourceIndices != majority.sourceIndices {
-                    for i in group.sourceIndices { connectDistance[i] = distance }
-                }
                 activeSourceIndices = majority.sourceIndices
                 distance += 1
                 continue
             }
 
             // No clean majority -- nothing left to call "the shared
-            // trunk." Every source visible at this tier attaches directly
-            // to its own node here instead of continuing further.
-            for group in groups {
-                for i in group.sourceIndices { connectDistance[i] = distance }
-            }
+            // trunk." Every source visible at this tier already got its
+            // attachment point recorded above; nothing left to do but
+            // stop expanding.
             break
         }
 
-        for i in backsideResults.indices where connectDistance[i] == nil {
-            connectDistance[i] = lastAppendedDistance
+        for i in backsideResults.indices where connectInfo[i] == nil {
+            connectInfo[i] = (lastAppendedDistance, 0)
         }
 
-        let sources = backsideResults.enumerated().map { i, probe in
-            Source(label: sourceLabel(probe), connectsToDistance: connectDistance[i] ?? lastAppendedDistance)
+        let sources = backsideResults.enumerated().map { i, probe -> Source in
+            let info = connectInfo[i] ?? (lastAppendedDistance, 0)
+            return Source(label: sourceLabel(probe), connectsToDistance: info.distance, connectsToNodeIndex: info.nodeIndex)
         }
         return (tiers, sources)
     }
@@ -222,7 +249,15 @@ enum TopologyBuilder {
     ///   Still directional under the hood for Mermaid's own layout
     ///   purposes (the A/B order above still matters), just rendered
     ///   without an arrowhead.
-    static func renderMermaid(tiers: [Tier], sources: [Source], colors: NodeColors = .default) -> String {
+    /// `geoHints` maps a hostname (any of a node's `interfaces`' hostnames,
+    /// not just its label) to a short display string — sourced externally
+    /// (`HoihoService.lookup`, a real network call) and passed in
+    /// already-resolved, same pattern `siblingAddresses` already
+    /// established: this function stays pure/network-call-free, the
+    /// caller (`LocalDiagnosticServer`) does the fetching first. Empty by
+    /// default so every existing call site (and every test below) keeps
+    /// working unchanged.
+    static func renderMermaid(tiers: [Tier], sources: [Source], colors: NodeColors = .default, geoHints: [String: String] = [:]) -> String {
         func nodeID(_ distance: Int, _ index: Int) -> String { "t\(distance)n\(index)" }
         func classDefLine(_ name: String, _ style: NodeColors.Style) -> String {
             "  classDef \(name) fill:\(style.fill),stroke:\(style.stroke),color:\(style.text),stroke-width:2px"
@@ -236,7 +271,7 @@ enum TopologyBuilder {
         for tier in tiers {
             for (index, node) in tier.nodes.enumerated() {
                 let id = nodeID(tier.distanceFromNMS, index)
-                lines.append("  \(id)[\"\(nodeText(node))\"]")
+                lines.append("  \(id)[\"\(nodeText(node, geoHints: geoHints))\"]")
                 lines.append("  class \(id) \(tier.distanceFromNMS == 0 ? "thisMac" : "hop")")
             }
         }
@@ -253,8 +288,14 @@ enum TopologyBuilder {
             let sourceID = "src\(index)"
             lines.append("  \(sourceID)[\"\(mermaidEscape(source.label))\"]")
             lines.append("  class \(sourceID) source")
-            if tiers.contains(where: { $0.distanceFromNMS == source.connectsToDistance }) {
-                lines.append("  \(nodeID(source.connectsToDistance, 0)) --- \(sourceID)")
+            // Bounds-checked, not just a distance match -- `connectsToNodeIndex`
+            // is only ever meaningful relative to the *same* build() run
+            // that produced it, and a caller passing a hand-built `tiers`
+            // (as the tests below do) could otherwise ask for an index
+            // that tier doesn't have.
+            if let tier = tiers.first(where: { $0.distanceFromNMS == source.connectsToDistance }),
+               tier.nodes.indices.contains(source.connectsToNodeIndex) {
+                lines.append("  \(nodeID(source.connectsToDistance, source.connectsToNodeIndex)) --- \(sourceID)")
             }
         }
 
@@ -272,10 +313,32 @@ enum TopologyBuilder {
     /// interface, unnamed, already identical to the node's own label (the
     /// common "plain address, no stem resolved" case) — nothing new to
     /// say twice.
-    private static func nodeText(_ node: Node) -> String {
-        if node.interfaces.isEmpty { return mermaidEscape(node.label) }
+    /// `sourceCount` was already tracked (`mergeIntoGroups`'s
+    /// `group.sourceIndices.count`) but never actually shown — a real
+    /// gap found live (2026-08-06): a majority node that keeps expanding
+    /// past a fork only ever gets a direct "source" box drawn at
+    /// whichever *later* tier its sources finally stop (see `build`'s own
+    /// per-tier `connectInfo` doc comment for why), so a real 3-source
+    /// waypoint sitting right between a 1-source fork and where those 3
+    /// sources eventually diverge again showed with no source
+    /// attribution at all — reading as an orphan next to its 1-source
+    /// sibling, which *does* get a direct box right there. The count was
+    /// always real, correct data; it just wasn't rendered anywhere.
+    private static func nodeText(_ node: Node, geoHints: [String: String]) -> String {
+        // Any one of this node's interfaces' hostnames matching is enough
+        // -- they're all names for the same physical device (that's what
+        // put them on one node in the first place), so the first hit,
+        // sorted for determinism, stands in for the whole node.
+        let allHostnames = node.interfaces.flatMap(\.hostnames)
+        let geoHint = allHostnames.sorted().compactMap { geoHints[$0] }.first
+        var label = geoHint.map { "\(node.label) (\($0))" } ?? node.label
+        if node.sourceCount > 0 {
+            label += " · \(node.sourceCount) source\(node.sourceCount == 1 ? "" : "s")"
+        }
+
+        if node.interfaces.isEmpty { return mermaidEscape(label) }
         if node.interfaces.count == 1, node.interfaces[0].hostnames.isEmpty, node.interfaces[0].address == node.label {
-            return mermaidEscape(node.label)
+            return mermaidEscape(label)
         }
         var rows: [String] = []
         for iface in node.interfaces.sorted(by: { $0.address < $1.address }) {
@@ -287,7 +350,7 @@ enum TopologyBuilder {
                 }
             }
         }
-        return ([node.label] + rows).map(mermaidEscape).joined(separator: "<br/>")
+        return ([label] + rows).map(mermaidEscape).joined(separator: "<br/>")
     }
 
     // MARK: - Merging

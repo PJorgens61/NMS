@@ -1,6 +1,6 @@
 {
-  "probeCount": 5,
-  "locations": ["USA"],
+  "probeCount": 20,
+  "locations": ["USA", "Europe", "Asia", "South America"],
   "maxAttempts": 6,
   "delaySeconds": 2,
   "timeoutSeconds": 10

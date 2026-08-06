@@ -292,12 +292,36 @@ final class TracerouteViewModel {
         return hops[destinationIndex - 1].address == nil
     }
 
+    /// Exact-address match first; falls back to a device-stem match
+    /// (`GlobalpingReverseTraceService.deviceStem`) when both hostnames
+    /// are known and resolve to the same stem — a real gap found live
+    /// (2026-08-06, mixing international Path Discovery probes in for
+    /// the first time): Falkenstein/Ashburn's own last hop before their
+    /// destination was `198.27.244.58 (ae0.eo-sw1-2.snfcca05.sonic.net)`,
+    /// a genuinely different device one hop further out than the
+    /// confirmed edge — but Buffalo/LA's was `157.131.209.36
+    /// (305.ae0.bng3.snfcca05.sonic.net)`, the *same physical router* as
+    /// the confirmed `75.101.33.52 (bng3.snfcca05.sonic.net)`, just
+    /// answering on a different interface for that inbound path. Exact-
+    /// address matching alone read both as equally "no match," losing
+    /// the distinction a multi-homed edge router's sibling interfaces
+    /// need. `confirmedHostname: nil` (the default) falls back to
+    /// address-only matching, same as before this existed — this is
+    /// genuinely unknowable, not a shim, for any caller that hasn't
+    /// resolved the confirmed hop's hostname.
     nonisolated static func reverseTraceCorroborates(
         _ hops: [GlobalpingReverseTraceService.ProbeTraceResult.Hop],
         destination: String?,
-        confirmedAddress: String
+        confirmedAddress: String,
+        confirmedHostname: String? = nil
     ) -> Bool {
-        lastHopBeforeDestination(hops, destination: destination)?.address == confirmedAddress
+        guard let hop = lastHopBeforeDestination(hops, destination: destination) else { return false }
+        if hop.address == confirmedAddress { return true }
+        guard let confirmedHostname, let hopHostname = hop.hostname,
+              let confirmedStem = GlobalpingReverseTraceService.deviceStem(fromHostname: confirmedHostname),
+              let hopStem = GlobalpingReverseTraceService.deviceStem(fromHostname: hopHostname)
+        else { return false }
+        return confirmedStem == hopStem
     }
 
     /// Gap-aware summary across a full Path Discovery run. Probes with a
@@ -314,11 +338,12 @@ final class TracerouteViewModel {
     /// persisted numbers instead of the results-table UI.
     nonisolated static func corroboratingSummary(
         _ results: [GlobalpingReverseTraceService.ProbeTraceResult],
-        confirmedAddress: String
+        confirmedAddress: String,
+        confirmedHostname: String? = nil
     ) -> (effectiveProbeCount: Int, corroboratingCount: Int) {
         let effective = results.filter { !hasGapBeforeDestination($0.hops, destination: $0.resolvedAddress) }
         let corroborating = effective.filter {
-            reverseTraceCorroborates($0.hops, destination: $0.resolvedAddress, confirmedAddress: confirmedAddress)
+            reverseTraceCorroborates($0.hops, destination: $0.resolvedAddress, confirmedAddress: confirmedAddress, confirmedHostname: confirmedHostname)
         }.count
         return (effective.count, corroborating)
     }

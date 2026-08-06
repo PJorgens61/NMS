@@ -230,10 +230,30 @@ struct GlobalpingReverseTraceService {
         let decoded = try JSONDecoder().decode(MeasurementResponse.self, from: data)
         let probeResults = (decoded.results ?? []).map { entry -> ProbeTraceResult in
             let hops = (entry.result.hops ?? []).enumerated().map { index, hop in
-                ProbeTraceResult.Hop(
+                // Real bug, found live (2026-08-06): Globalping's own
+                // `resolvedHostname` isn't always `null` when reverse DNS
+                // has nothing -- it can come back as the numeric address
+                // itself (confirmed: a hop's `resolvedHostname` equal to
+                // its own `resolvedAddress`, `"38.104.141.82"` for both).
+                // Passed through as a "real" hostname, that then broke
+                // `GlobalpingReverseTraceService.deviceStem`'s numeric-
+                // interface-label stripping (built for real hostnames
+                // like `305.ae0.bng3...`, where a leading all-digit label
+                // is a VLAN/interface number to strip) -- it doesn't know
+                // an IP address's octets aren't that, and mangled
+                // `38.104.141.82` down to `104.141.82`. Same "never treat
+                // a numeric address as if it were a real hostname"
+                // principle `ReverseDNSService`'s own `NI_NAMEREQD` flag
+                // already enforces for this app's *local* reverse-DNS
+                // path -- applied here too, right where a third party's
+                // hostname first enters this app, so every downstream
+                // reader (not just `deviceStem`) sees a clean `nil`
+                // instead of having to defend against this individually.
+                let hostname = (hop.resolvedHostname == hop.resolvedAddress) ? nil : hop.resolvedHostname
+                return ProbeTraceResult.Hop(
                     hopNumber: index + 1,
                     address: hop.resolvedAddress,
-                    hostname: hop.resolvedHostname,
+                    hostname: hostname,
                     roundTripTimesMs: hop.timings.compactMap(\.rtt)
                 )
             }

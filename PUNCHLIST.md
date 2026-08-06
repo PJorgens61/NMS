@@ -13,6 +13,52 @@ off as of those dates, full reasoning intact.
 
 ## Open
 
+- [ ] **Revisit scamper's actual value once field-tested against another
+  ISP.** Built and working tonight (`ScamperService.swift`, optional,
+  Homebrew-only, GPL-2.0 kept out of NMS's own license by running as a
+  subprocess only — see `DESIGN-NOTES.md`'s "RRDtool for historical
+  storage" for the precedent this followed) — but the one real test
+  available (Sonic's own confirmed edge, `75.101.33.52`/`157.131.209.36`)
+  showed close to zero practical value so far, and the reason why is the
+  actual finding worth discussing further:
+
+  Scamper's Ally technique needs a real, varying IP-ID counter on both
+  addresses being compared. Sonic's bng3 edge router replies with a fixed
+  `ipid: 0` on every single probe (confirmed live, repeatedly) — common,
+  deliberate hardening on modern carrier-grade gear (RFC 6864 permits a
+  zero IP-ID on atomic/non-fragmentable datagrams) — which structurally
+  breaks Ally for *any* pair involving that device, including the
+  genuinely-aliased one. `ScamperService.parseVerdict` already detects
+  this (no variation across replies → inconclusive, `nil`, never a wrong
+  confident guess) rather than trusting scamper's own `"not-aliases"`
+  answer, which was simply wrong here.
+
+  The open question: independent, geographically-dispersed Globalping
+  probes converging on the same `deviceStem` guess (3 of 5, tonight) is
+  arguably *already* stronger practical corroboration than a single Ally
+  check can offer, precisely because Ally's blind spot is systematic
+  across an entire class of modern hardware while independent-probe
+  agreement isn't (caveat: probe agreement only guards against random
+  error, not a systematic bug shared by every probe's own `deviceStem`
+  call). Worth revisiting once tested against an ISP whose edge hardware
+  *doesn't* zero out its IP-ID, to see whether scamper ever actually adds
+  a real, independent confirmation in practice — and separately, whether
+  it's worth surfacing *why* scamper stayed silent (the degenerate-IP-ID
+  finding, in the comparison table itself) so "checked and genuinely
+  can't tell" reads differently from "never checked at all."
+
+  **Also try MIDAR before writing Ally off entirely.** Surfaced reviewing
+  CAIDA's software catalog (catalog.caida.org) — MIDAR is itself one of
+  scamper's own `dealias` methods (`-m midarest`/`-m midardisc`,
+  alongside `ally`), built specifically to be more robust than Ally
+  ("Internet-Scale IPv4 Alias Resolution With MIDAR"). Not tried tonight.
+  Still fundamentally an IP-ID technique though, so it may hit the exact
+  same wall if bng3's IP-ID is truly always `0` rather than just
+  *sometimes* degenerate — worth confirming either way, not assuming.
+  CAIDA's own `iffinder` and `bdrmapIT` ("how to infer which IPs belong
+  to the same router") are also purpose-built for this exact question and
+  worth a look if MIDAR doesn't help either.
+
 - [x] **FW as a stable, always-present vantage point in Path Discovery —
   NMS-side built and shipped, same night the plan was approved.** Full
   reasoning and contract in `PJorgens61/NMS#6`/`PJorgens61/FW#1`: today's

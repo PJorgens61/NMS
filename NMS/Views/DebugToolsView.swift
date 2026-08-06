@@ -39,6 +39,11 @@ struct DebugToolsView: View {
 
     @State private var isRunningPathDiscovery = false
     @State private var pathDiscoveryError: String?
+    /// Re-checked in `.onAppear`, not on every render — a real `stat`
+    /// call per `body` evaluation would be wasteful for something that
+    /// only ever changes when the user runs a command in Terminal, well
+    /// outside this window's own lifecycle.
+    @State private var scamperAvailability: ScamperService.ScamperAvailability = .notInstalled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -81,10 +86,61 @@ struct DebugToolsView: View {
                     .foregroundStyle(.red)
             }
 
+            Divider()
+
+            scamperStatusSection
+
             Spacer()
         }
         .padding(16)
-        .frame(minWidth: 320, minHeight: 200, alignment: .topLeading)
+        .frame(minWidth: 320, minHeight: 320, alignment: .topLeading)
+        .onAppear { scamperAvailability = ScamperService.checkAvailability() }
+    }
+
+    /// Setup-status-only, deliberately — see `ScamperService`'s own doc
+    /// comment for why there's no "run scamper" button here at all: once
+    /// `.ready`, the check itself runs from the *existing* "Path
+    /// Discovery…" button above (`runPathDiscovery()`), not a second
+    /// trigger. This section exists purely so the one-time setup step
+    /// (which NMS deliberately never automates — see `checkAvailability`'s
+    /// doc comment) is easy to get right on the first try: a real,
+    /// already-detected path handed back with one click, not a command
+    /// the user has to adapt themselves for their own Mac's architecture.
+    @ViewBuilder
+    private var scamperStatusSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Scamper (optional)")
+                .font(.system(size: 12, weight: .semibold))
+            switch scamperAvailability {
+            case .notInstalled:
+                Text("Not installed — used for a rigorous second opinion on Path Discovery's \u{201c}same device, different interface\u{201d} calls.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                copyCommandButton(label: "Copy Install Command", command: "brew install scamper")
+            case .notPrivileged(let path):
+                Text("Installed, but needs a one-time setup step before NMS can use it.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                copyCommandButton(label: "Copy Setup Command", command: "sudo chown root:wheel \(path) && sudo chmod u+s \(path)")
+            case .ready:
+                Text("Ready — used automatically by Path Discovery.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .help(tooltip(
+            "Scamper is a free, separately-installed tool (not part of NMS) that gives a rigorous second opinion on whether two addresses are really the same router.",
+            technical: "GPL-2.0-licensed, invoked as a subprocess only — never bundled or linked, so it never changes NMS's own license. Needs a one-time setuid step Homebrew doesn't set automatically, since it needs the same raw-socket access traceroute gets for free from macOS."
+        ))
+    }
+
+    private func copyCommandButton(label: String, command: String) -> some View {
+        Button(label) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+        }
+        .accessibilityHint("Copies \u{201c}\(command)\u{201d} to the clipboard, to paste into Terminal.")
+        .help("Copies: \(command)")
     }
 
     /// Runs the actual Globalping round trip, then feeds the result both
@@ -123,6 +179,13 @@ struct DebugToolsView: View {
                     results.append(fwResult)
                 }
 
+                // Falls back to the persisted `ProviderEdgeRecord` the
+                // same way `monitoredHopAddress` itself does (see that
+                // property's own doc comment) -- an outage that blanks
+                // the live hop shouldn't also lose the device-stem
+                // fallback this feeds `reverseTraceCorroborates`.
+                let confirmedHostname = traceroute.monitoredHop?.hostname ?? snapshotStore.latestProviderEdge()?.hostname
+
                 var confirmedAddress: String?
                 if let address = traceroute.monitoredHopAddress {
                     confirmedAddress = address
@@ -130,13 +193,44 @@ struct DebugToolsView: View {
                     // comment: a probe that hit a reply gap right before
                     // its destination is excluded, not counted as a
                     // non-match.
-                    let summary = TracerouteViewModel.corroboratingSummary(results, confirmedAddress: address)
+                    let summary = TracerouteViewModel.corroboratingSummary(results, confirmedAddress: address, confirmedHostname: confirmedHostname)
                     snapshotStore.recordPathDiscoveryRun(
                         address: address,
                         probeCount: summary.effectiveProbeCount,
                         corroboratingCount: summary.corroboratingCount,
                         isKnownComplexTopology: TracerouteViewModel.includesConfirmedCGNAT(traceroute.hops)
                     )
+                }
+
+                // Scamper's Ally technique, a real second opinion on
+                // exactly the "same device, different interface" guess
+                // `reverseTraceCorroborates`'s stem fallback makes below
+                // -- runs only for the specific candidate addresses that
+                // fallback already flagged as a stem match, not for an
+                // exact match (nothing to double-check) or a genuine
+                // non-match (not in question). No-ops entirely when
+                // scamper isn't `.ready` -- see `ScamperService`'s own
+                // doc comment for why this is the one place it's ever
+                // triggered from, no separate button.
+                var scamperVerdicts: [String: Bool] = [:]
+                if case .ready(let scamperPath) = ScamperService.checkAvailability(), let confirmedAddress {
+                    for probe in results {
+                        guard let hop = TracerouteViewModel.lastHopBeforeDestination(probe.hops, destination: probe.resolvedAddress),
+                              let candidateAddress = hop.address,
+                              candidateAddress != confirmedAddress,
+                              scamperVerdicts[candidateAddress] == nil
+                        else { continue }
+                        let isStemMatch = TracerouteViewModel.reverseTraceCorroborates(
+                            probe.hops,
+                            destination: probe.resolvedAddress,
+                            confirmedAddress: confirmedAddress,
+                            confirmedHostname: confirmedHostname
+                        )
+                        guard isStemMatch,
+                              let verdict = try? ScamperService.confirmAlias(confirmedAddress, candidateAddress, scamperPath: scamperPath)
+                        else { continue }
+                        scamperVerdicts[candidateAddress] = verdict
+                    }
                 }
 
                 // The focus, raised directly, is the ISP edge specifically
@@ -150,13 +244,28 @@ struct DebugToolsView: View {
                 })
                 let siblingAddresses = await lookUpSiblingAddresses(deviceStems: edgeStems)
 
+                // Every hostname seen anywhere in this run -- both sides
+                // of the topology diagram (this Mac's own frontside trace
+                // and every probe's backside hops) -- gathered once and
+                // sent to Hoiho in a single bulk call, matching its own
+                // "use POST for bulk requests" guidance. `try?`: a Hoiho
+                // outage or timeout should never break the Path Discovery
+                // page that already worked fine before this existed, it
+                // should just render without location hints, same
+                // tolerance `lookUpSiblingAddresses`'s own dig lookups get.
+                let allHostnames = Set(results.flatMap { $0.hops.compactMap(\.hostname) } + traceroute.hops.compactMap(\.hostname))
+                let geoInfo = (try? await HoihoService.lookup(hostnames: Array(allHostnames))) ?? [:]
+                let geoHints = geoInfo.compactMapValues(\.displayLabel)
+
                 if let url = await diagnosticServer.showReverseTrace(
                     target: target,
                     results: results,
                     confirmedAddress: confirmedAddress,
                     siblingAddresses: siblingAddresses,
                     frontsideHops: traceroute.hops,
-                    networkName: currentNetworkName
+                    networkName: currentNetworkName,
+                    geoHints: geoHints,
+                    scamperVerdicts: scamperVerdicts
                 ) {
                     NSWorkspace.shared.open(url)
                 }

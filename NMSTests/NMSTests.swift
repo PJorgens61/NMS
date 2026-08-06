@@ -1685,6 +1685,41 @@ struct GlobalpingReverseTraceServiceTests {
         #expect(results.isEmpty)
     }
 
+    /// Real bug, found live (2026-08-06): a hop whose reverse DNS truly
+    /// has nothing can still come back from Globalping with
+    /// `resolvedHostname` equal to its own `resolvedAddress`
+    /// (`"38.104.141.82"` for both), not `null` the way an unresolved
+    /// hop is documented/expected to look. Passed through as if it were
+    /// a real hostname, `deviceStem`'s numeric-interface-label stripping
+    /// (built for real hostnames like `305.ae0.bng3...`) mangled it to
+    /// `104.141.82`, corrupting the topology diagram's own node label.
+    /// `parseMeasurement` now normalizes this to `nil` at the one place a
+    /// third party's hostname first enters this app, same "never treat a
+    /// numeric address as if it were a real hostname" principle
+    /// `ReverseDNSService`'s `NI_NAMEREQD` flag already enforces locally.
+    @Test("parseMeasurement: a hostname identical to its own address is normalized to nil, not passed through")
+    func parseMeasurementNormalizesHostnameEqualToAddress() throws {
+        let json = Data(#"""
+        {
+          "id": "abc", "type": "traceroute", "status": "finished", "target": "1.1.1.1",
+          "results": [{
+            "probe": { "country": "US", "asn": 36352, "network": "HostPapa" },
+            "result": {
+              "status": "finished",
+              "resolvedAddress": "1.1.1.1",
+              "hops": [
+                { "resolvedAddress": "38.104.141.82", "resolvedHostname": "38.104.141.82", "timings": [{"rtt": 5.0}] }
+              ]
+            }
+          }]
+        }
+        """#.utf8)
+        let (_, results) = try GlobalpingReverseTraceService.parseMeasurement(json)
+        let hop = try #require(results.first?.hops.first)
+        #expect(hop.address == "38.104.141.82")
+        #expect(hop.hostname == nil)
+    }
+
     /// The real device stem this was built from (2026-08-04, live):
     /// `lo0.bng3.snfcca05.sonic.net` and `305.ae0.bng3.snfcca05.sonic.net`
     /// both really do reduce to `bng3.snfcca05.sonic.net` -- confirmed via
@@ -1711,6 +1746,227 @@ struct GlobalpingReverseTraceServiceTests {
     @Test("deviceStem: too short to have a real stem left over returns nil")
     func deviceStemTooShortReturnsNil() {
         #expect(GlobalpingReverseTraceService.deviceStem(fromHostname: "lo0.sonic.net") == nil)
+    }
+}
+
+@Suite("ScamperService")
+struct ScamperServiceTests {
+    /// Real temp files with controlled permissions -- deliberately not
+    /// depending on whatever scamper install (if any) happens to exist
+    /// on the machine running these tests, same reasoning
+    /// `availability(forCandidatePaths:)`'s own doc comment gives for why
+    /// it's split out from `checkAvailability()` in the first place.
+    private func makeExecutable(setuid: Bool) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scamper-test-\(UUID().uuidString)")
+            .path
+        FileManager.default.createFile(atPath: path, contents: Data("#!/bin/sh\n".utf8))
+        var permissions = 0o755
+        if setuid { permissions |= 0o4000 }
+        try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: path)
+        return path
+    }
+
+    /// The actual bug found live (2026-08-06) testing against a real,
+    /// genuinely root-owned-and-setuid scamper install: Homebrew installs
+    /// `scamper` as a symlink into its Cellar, and `FileManager
+    /// .attributesOfItem` does *not* follow symlinks -- it reports the
+    /// link's own attributes (owned by whoever installed it, never
+    /// setuid), not the real target's, so `.ready` was unreachable
+    /// through the Homebrew-visible path no matter what the actual
+    /// target file's permissions were. This constructs the same shape
+    /// (a symlink pointing at a separately-permissioned target) without
+    /// needing real root: the target has the setuid bit but -- same
+    /// constraint as `notPrivilegedWhenSetuidButNotRootOwned` above --
+    /// is still owned by the test process, not root, so the *correct*
+    /// answer through the resolved symlink is still `.notPrivileged`,
+    /// with the returned path being the symlink (`path`), not the
+    /// resolved target -- exactly what `DebugToolsView` should show and
+    /// copy. What this actually pins down is that the check happens
+    /// against the *resolved* target's attributes at all, not the link's.
+    private func makeSymlinkToExecutable(setuid: Bool) throws -> (symlinkPath: String, targetPath: String) {
+        let targetPath = try makeExecutable(setuid: setuid)
+        let symlinkPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scamper-symlink-test-\(UUID().uuidString)")
+            .path
+        try FileManager.default.createSymbolicLink(atPath: symlinkPath, withDestinationPath: targetPath)
+        return (symlinkPath, targetPath)
+    }
+
+    @Test("no candidate path exists on disk at all: notInstalled")
+    func notInstalledWhenNoCandidateExists() {
+        let result = ScamperService.availability(forCandidatePaths: ["/nonexistent/scamper-a", "/nonexistent/scamper-b"])
+        #expect(result == .notInstalled)
+    }
+
+    @Test("executable exists but the setuid bit isn't set: notPrivileged, with the real path found")
+    func notPrivilegedWhenSetuidBitMissing() throws {
+        let path = try makeExecutable(setuid: false)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let result = ScamperService.availability(forCandidatePaths: ["/nonexistent/scamper-a", path])
+        #expect(result == .notPrivileged(path: path))
+    }
+
+    /// The actual bug this test is pinned against (found live, 2026-08-06):
+    /// the setuid bit alone is not enough. A file a normal test process
+    /// creates is inescapably owned by that same user, never root, so
+    /// this is also the only "setuid" state this test suite can
+    /// construct without real root access -- which turns out to be
+    /// exactly the case that matters. `.ready` genuinely can't be unit
+    /// tested here for the same reason (would need a real root-owned
+    /// fixture); it's covered by the plan's own manual verification step
+    /// instead, against a real setuid-*and*-root-owned scamper.
+    @Test("setuid bit set but not owned by root: still notPrivileged, not ready")
+    func notPrivilegedWhenSetuidButNotRootOwned() throws {
+        let path = try makeExecutable(setuid: true)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let result = ScamperService.availability(forCandidatePaths: [path])
+        #expect(result == .notPrivileged(path: path))
+    }
+
+    /// Honest about what this can and can't prove without real root:
+    /// since the ownership check independently blocks `.ready` for any
+    /// test-constructed fixture (see `notPrivilegedWhenSetuidButNotRootOwned`),
+    /// checking `availability(forCandidatePaths:)`'s *return value*
+    /// against a symlink-to-a-setuid-target can't actually distinguish
+    /// "resolved the symlink and then correctly failed the ownership
+    /// check" from "never resolved the symlink at all" -- both paths
+    /// land on the identical `.notPrivileged` result. What's directly
+    /// testable instead is the exact primitive the fix depends on:
+    /// `(path as NSString).resolvingSymlinksInPath` actually returning
+    /// the real target, for the same symlink shape Homebrew installs
+    /// (`/usr/local/bin/scamper -> ../Cellar/scamper/<version>/bin/scamper`).
+    /// Full end-to-end confirmation that `.ready` is reachable through a
+    /// real Homebrew symlink is what the plan's own manual verification
+    /// step against a real setuid-and-root-owned install is for.
+    @Test("symlink resolution: the primitive checkAvailability's fix depends on actually follows the link")
+    func symlinkResolutionFollowsToRealTarget() throws {
+        let (symlinkPath, targetPath) = try makeSymlinkToExecutable(setuid: true)
+        defer {
+            try? FileManager.default.removeItem(atPath: symlinkPath)
+            try? FileManager.default.removeItem(atPath: targetPath)
+        }
+        #expect((symlinkPath as NSString).resolvingSymlinksInPath == targetPath)
+    }
+
+    @Test("the first matching candidate path wins, not the last")
+    func firstMatchingCandidateWins() throws {
+        let path = try makeExecutable(setuid: false)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let result = ScamperService.availability(forCandidatePaths: [path, "/nonexistent/scamper-b"])
+        #expect(result == .notPrivileged(path: path))
+    }
+
+    /// Real capture, live, 2026-08-06 (`scamper -O json`'s actual
+    /// newline-delimited output -- `cycle-start`, the `dealias` result,
+    /// `cycle-stop`) -- Sonic's own bng3 edge router (`75.101.33.52`,
+    /// this session's own confirmed ISP edge) against `157.131.209.36`,
+    /// a real second interface *already confirmed to be the same
+    /// physical device* by every other signal this session gathered
+    /// (device-stem match, Hoiho, three independent Globalping probes
+    /// converging on it). `result` says `"not-aliases"` — wrong, given
+    /// everything else known — because `replies[].ipid` is a fixed `0`
+    /// on every single probe to `75.101.33.52`, real hardening on modern
+    /// carrier-grade gear (RFC 6864 permits zero IP-ID on atomic
+    /// datagrams) that structurally breaks Ally's core assumption for
+    /// *any* pair involving this address. This is the test that
+    /// justifies the whole IP-ID-variation guard in `parseVerdict`.
+    private static let bngDegenerateIPIDCapture = Data("""
+    {"type":"cycle-start", "list_name":"default", "id":0, "hostname":"Pauls-iMac-2.local", "start_time":1786008121}
+    {"type":"dealias","version":"0.2","method":"ally", "userid":0, "result":"not-aliases", "start":{"sec":1786008121, "usec":311800}, "wait_probe":150, "wait_timeout":5, "attempts":5, "fudge":0, "probedefs":[{"id":0, "src":"10.0.0.161", "dst":"75.101.33.52", "ttl":255, "size":30, "method":"icmp-echo", "icmp_id":33828, "icmp_csum":0}, {"id":1, "src":"10.0.0.161", "dst":"157.131.209.36", "ttl":255, "size":30, "method":"icmp-echo", "icmp_id":33828, "icmp_csum":0}], "probes":[{"probedef_id":0,"seq":0,"tx":{"sec":1786008121,"usec":311997}, "ipid":65535, "replies":[{"src":"75.101.33.52","rx":{"sec":1786008121,"usec":313734},"ttl":254, "size":30, "ipid":0, "proto":1, "icmp_type":0, "icmp_code":0}]}, {"probedef_id":1,"seq":0,"tx":{"sec":1786008121,"usec":462172}, "ipid":65278, "replies":[{"src":"157.131.209.36","rx":{"sec":1786008121,"usec":463730},"ttl":254, "size":30, "ipid":0, "proto":1, "icmp_type":0, "icmp_code":0}]}, {"probedef_id":0,"seq":1,"tx":{"sec":1786008121,"usec":613065}, "ipid":65021, "replies":[{"src":"75.101.33.52","rx":{"sec":1786008121,"usec":614822},"ttl":254, "size":30, "ipid":0, "proto":1, "icmp_type":0, "icmp_code":0}]}]}
+    {"type":"cycle-stop", "list_name":"default", "id":0, "hostname":"Pauls-iMac-2.local", "stop_time":1786008121}
+    """.utf8)
+
+    @Test("a real capture with a degenerate (fixed) IP-ID counter is inconclusive, even though result says not-aliases")
+    func parseVerdictInconclusiveForDegenerateIPID() {
+        #expect(ScamperService.parseVerdict(Self.bngDegenerateIPIDCapture) == nil)
+    }
+
+    /// Real, ordinary hosts (1.1.1.1/1.0.0.1) genuinely varying their own
+    /// IP-ID across probes (54396→36198, 41108→47773) -- captured live
+    /// the same session, as the contrasting "Ally actually has signal
+    /// here" case. Synthesized down to just the fields `parseVerdict`
+    /// reads, with a `result` this pair didn't actually produce
+    /// (`"not-aliases"`, correctly, since they're unrelated Cloudflare
+    /// resolvers) -- swapped to `"aliases"` here specifically to prove
+    /// the varying-IP-ID case reaches `result` at all, rather than being
+    /// swallowed by the same guard as the bng3 case above.
+    // Deliberately all on one line -- `parseVerdict` splits real
+    // scamper output by newline (see its own doc comment), so a
+    // pretty-printed multi-line literal here would fragment into
+    // unparseable pieces and silently return `nil`, masking exactly
+    // what these two tests are meant to check.
+    @Test("varying IP-IDs on both sides: result is trusted, not overridden")
+    func parseVerdictTrustsResultWhenIPIDVaries() {
+        let json = Data(#"{"type":"dealias","result":"aliases","probes":[{"probedef_id":0,"replies":[{"ipid":54396}]},{"probedef_id":1,"replies":[{"ipid":41108}]},{"probedef_id":0,"replies":[{"ipid":36198}]},{"probedef_id":1,"replies":[{"ipid":47773}]}]}"#.utf8)
+        #expect(ScamperService.parseVerdict(json) == true)
+    }
+
+    @Test("varying IP-IDs, result not-aliases: a genuine, trusted non-match")
+    func parseVerdictFalseForGenuineNonAlias() {
+        let json = Data(#"{"type":"dealias","result":"not-aliases","probes":[{"probedef_id":0,"replies":[{"ipid":54396}]},{"probedef_id":1,"replies":[{"ipid":41108}]},{"probedef_id":0,"replies":[{"ipid":36198}]},{"probedef_id":1,"replies":[{"ipid":47773}]}]}"#.utf8)
+        #expect(ScamperService.parseVerdict(json) == false)
+    }
+
+    @Test("no probes field at all: falls back to trusting result directly")
+    func parseVerdictTrustsResultWhenNoProbesField() {
+        let json = Data(#"{"type":"dealias","result":"aliases"}"#.utf8)
+        #expect(ScamperService.parseVerdict(json) == true)
+    }
+
+    @Test("parseVerdict returns nil for unparsable data, not a crash")
+    func parseVerdictNilForGarbageData() {
+        #expect(ScamperService.parseVerdict(Data("not json".utf8)) == nil)
+    }
+
+    @Test("parseVerdict returns nil when no line has type dealias")
+    func parseVerdictNilForWrongType() {
+        let json = Data(#"{"type":"trace"}"#.utf8)
+        #expect(ScamperService.parseVerdict(json) == nil)
+    }
+
+    @Test("parseVerdict returns nil for an unrecognized result value, not a guess")
+    func parseVerdictNilForUnrecognizedResult() {
+        let json = Data(#"{"type":"dealias","result":"something-new-scamper-added"}"#.utf8)
+        #expect(ScamperService.parseVerdict(json) == nil)
+    }
+}
+
+@Suite("HoihoService.HostnameInfo.displayLabel")
+struct HoihoServiceTests {
+    private func info(place: String? = nil, st: String? = nil, iata: String? = nil, clli: String? = nil, locode: String? = nil) -> HoihoService.HostnameInfo {
+        HoihoService.HostnameInfo(hostname: "example.net", place: place, st: st, cc: nil, lat: nil, lng: nil, iata: iata, clli: clli, locode: locode)
+    }
+
+    /// Real shape confirmed live against the actual API (2026-08-06):
+    /// `be3906.ccr22.sfo01.atlas.cogentco.com` returned `place: "San
+    /// Francisco", st: "CA"` alongside the raw `iata: "sfo"` match.
+    @Test("a resolved place and state renders as 'Place, ST'")
+    func placeAndStateJoined() {
+        #expect(info(place: "San Francisco", st: "CA").displayLabel == "San Francisco, CA")
+    }
+
+    @Test("a resolved place with no state renders as just the place")
+    func placeAloneNoState() {
+        #expect(info(place: "Toronto").displayLabel == "Toronto")
+    }
+
+    /// Real shape confirmed live: `305.ae0.bng3.snfcca05.sonic.net`
+    /// matched `clli: "snfcca"` with no `place` resolved at all -- the
+    /// raw code is still real, partial signal worth showing, not nothing.
+    @Test("no resolved place falls back to the raw CLLI code")
+    func fallsBackToCLLIWhenNoPlace() {
+        #expect(info(clli: "snfcca").displayLabel == "snfcca")
+    }
+
+    @Test("no resolved place falls back to the raw IATA code when no CLLI either")
+    func fallsBackToIATAWhenNoPlaceOrCLLI() {
+        #expect(info(iata: "sfo").displayLabel == "sfo")
+    }
+
+    @Test("nothing usable at all returns nil, not an empty string")
+    func nilWhenNothingMatched() {
+        #expect(info().displayLabel == nil)
     }
 }
 
@@ -2469,6 +2725,36 @@ struct TopologyBuilderTests {
         #expect(sources.allSatisfy { $0.connectsToDistance == 3 })
     }
 
+    /// The actual bug this whole `connectsToNodeIndex` field grew out of
+    /// (found live, 2026-08-06, mixing international Path Discovery
+    /// probes in for the first time): the old code tracked only which
+    /// *distance* a source attached to, and `renderMermaid` always drew
+    /// the edge to that distance's node *index 0* -- correct only when
+    /// the final tier happened to have exactly one node. Reuses
+    /// `divergenceStopsExpansionAtLastConvergedTier`'s own fixture (a
+    /// clean 1-vs-1 split at tier 3, two distinct nodes) since that's
+    /// exactly the shape that exposes it: both sources used to wire to
+    /// the same node regardless of which one they actually reported,
+    /// leaving the other real node's source edge dropped entirely -- a
+    /// node that then "doesn't seem to be on a path to any host."
+    @Test("each source in a multi-node final tier connects to its own node, not always index 0")
+    func sourcesConnectToOwnNodeNotAlwaysIndexZero() {
+        let probeA = probe([hop("70.0.0.1"), hop("198.51.100.1"), hop("203.0.113.5")], resolvedAddress: "203.0.113.5")
+        let probeB = probe([hop("70.0.0.2"), hop("198.51.100.1"), hop("203.0.113.9")], resolvedAddress: "203.0.113.9")
+        let (tiers, sources) = TopologyBuilder.build(frontsideHops: [], backsideResults: [probeA, probeB], siblingAddresses: [:])
+        let tier3 = try! #require(tiers.first(where: { $0.distanceFromNMS == 3 }))
+        #expect(tier3.nodes.map(\.label) == ["70.0.0.1", "70.0.0.2"])
+        #expect(sources[0].connectsToNodeIndex == 0)
+        #expect(sources[1].connectsToNodeIndex == 1)
+
+        let text = TopologyBuilder.renderMermaid(tiers: tiers, sources: sources)
+        #expect(text.contains("t3n0 --- src0"))
+        #expect(text.contains("t3n1 --- src1"))
+        // The old bug, made concrete: both sources would wire to t3n0,
+        // leaving t3n1 -- a real node -- with no incoming source edge.
+        #expect(!text.contains("t3n0 --- src1"))
+    }
+
     /// The real case this whole refinement grew out of: 4 of 5 probes
     /// agreeing is a true majority (4 > 5/2), so the edge tier is kept
     /// *with* the one disagreeing probe shown too -- not discarded the
@@ -2610,7 +2896,7 @@ struct TopologyBuilderTests {
         let text = TopologyBuilder.renderMermaid(tiers: tiers, sources: sources)
         #expect(text.hasPrefix("flowchart BT"))
         #expect(text.contains("t0n0[\"This Mac\"]"))
-        #expect(text.contains("t2n0[\"edge.example.net<br/>lo0.edge.example.net: 198.51.100.1<br/>old.edge.example.net: 198.51.100.1<br/>198.51.100.2\"]"))
+        #expect(text.contains("t2n0[\"edge.example.net · 2 sources<br/>lo0.edge.example.net: 198.51.100.1<br/>old.edge.example.net: 198.51.100.1<br/>198.51.100.2\"]"))
         // Plain lines (`---`), not arrows (`-->`) -- and never the arrow
         // syntax anywhere in the output.
         #expect(text.contains("t0n0 --- t2n0"))
@@ -2620,6 +2906,37 @@ struct TopologyBuilderTests {
         // the top row instead of the bottom.
         #expect(text.contains("src0[\"Ashburn, US\"]"))
         #expect(text.contains("t2n0 --- src0"))
+    }
+
+    /// `geoHints` is looked up by hostname, not by the node's own label
+    /// (its label is a device *stem*, e.g. "bng3.snfcca05.sonic.net" --
+    /// Hoiho matches against real hostnames like
+    /// "305.ae0.bng3.snfcca05.sonic.net", which show up in `interfaces`,
+    /// not `label`). Confirms the lookup checks every interface hostname,
+    /// not just one.
+    @Test("renderMermaid appends a matching geoHint to the node's label")
+    func renderMermaidAppendsGeoHint() {
+        let tiers = [
+            TopologyBuilder.Tier(distanceFromNMS: 0, nodes: [TopologyBuilder.Node(label: "This Mac", interfaces: [], sourceCount: 0)]),
+            TopologyBuilder.Tier(distanceFromNMS: 2, nodes: [TopologyBuilder.Node(
+                label: "bng3.snfcca05.sonic.net",
+                interfaces: [TopologyBuilder.Interface(hostnames: ["305.ae0.bng3.snfcca05.sonic.net"], address: "157.131.209.36")],
+                sourceCount: 1
+            )])
+        ]
+        let text = TopologyBuilder.renderMermaid(tiers: tiers, sources: [], geoHints: ["305.ae0.bng3.snfcca05.sonic.net": "San Francisco, CA"])
+        #expect(text.contains("bng3.snfcca05.sonic.net (San Francisco, CA)"))
+    }
+
+    @Test("renderMermaid leaves the label alone when nothing matches geoHints")
+    func renderMermaidNoGeoHintLeavesLabelPlain() {
+        let tiers = [
+            TopologyBuilder.Tier(distanceFromNMS: 0, nodes: [TopologyBuilder.Node(label: "This Mac", interfaces: [], sourceCount: 0)]),
+            TopologyBuilder.Tier(distanceFromNMS: 1, nodes: [TopologyBuilder.Node(label: "router.local", interfaces: [], sourceCount: 0)])
+        ]
+        let text = TopologyBuilder.renderMermaid(tiers: tiers, sources: [])
+        #expect(text.contains("t1n0[\"router.local\"]"))
+        #expect(!text.contains("("))
     }
 
     /// Raised directly ("can we change colors for the traceroute hosts
