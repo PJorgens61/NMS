@@ -4657,6 +4657,33 @@ from this list. This one remains, since it's an idea, not a defect):
   it for a non-trivial visual experiment; not worth it for a one-line
   tooltip change.
 
+- [ ] **Rewrite `docs/user-guide.md`.** Raised directly. Checked the
+  current file first rather than assuming: it still describes NMS as a
+  menu-bar app with a **popover** ("The menu bar icon," "Anatomy of the
+  popover," §§2-3) — stale. The popover was removed in commit `4e4e83a`
+  ("Rebuild NMS as a traditional single-window app, drop the popover"),
+  well before today; the app is a normal single-window app now. The
+  guide's install/authorize steps, permission-prompt text, and screenshots
+  all need a pass against the current UI regardless of anything else
+  below.
+
+  **User's own follow-up**: the rewrite might be informed by the NMS
+  website, not just the app itself. Two site branches exist, not one —
+  `gh-pages` (last commit `4361a25`, 2026-08-02, currently what
+  `https://pjorgens61.github.io/NMS/` actually serves per GitHub Pages'
+  default branch) and `website-v2` (last commit `250d7c7`, 2026-08-05,
+  newer, adds `topology-diagram.html`, repositions the product as
+  "Mission Control for your home network" with a bright modern-SaaS
+  visual redesign — its own CSS comment notes the redesign was
+  deliberate, distinct from a tweak). Worth reading both before starting:
+  `website-v2` is more current and may already contain settled copy/
+  hooks worth reusing in the guide's framing, but it isn't necessarily
+  what's live yet, so check which one the user actually wants reflected
+  before treating either as ground truth. The mockup-harness idea
+  immediately above this entry is a related but separate concern (visual
+  polish for the *app*, native styling) — this entry is about the
+  *user guide's* written content and accuracy, not app UI work.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
