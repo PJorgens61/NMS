@@ -24,6 +24,18 @@ struct AppleNetworkQualityService {
         case unavailable
         case processFailed(Int32)
         case unparseable
+        /// Real JSON, decoded fine, but `responsiveness` itself wasn't
+        /// there — found live (2026-08-06): `-M 5`'s 5s budget is usually
+        /// enough for parallel mode to finish, but confirmed directly
+        /// that it isn't always; two immediate reruns of the identical
+        /// command both succeeded right after one that came back missing
+        /// the field entirely. Distinct from `.unparseable` (genuinely
+        /// broken/unexpected output) on purpose — this is valid output
+        /// that simply didn't get far enough in time, same shape as
+        /// `Measurement.downloadResponsivenessRPM`'s own doc comment
+        /// already documents for the full (`-s`) test, just not
+        /// previously extended to this quicker, parallel-mode path.
+        case incomplete
     }
 
     struct Measurement {
@@ -118,7 +130,7 @@ struct AppleNetworkQualityService {
     /// parallel mode produces a complete, valid result every field
     /// present.
     private struct RawQuickResult: Decodable {
-        let responsiveness: Double
+        let responsiveness: Double?
     }
 
     /// Blocking — call off the main thread, same contract as
@@ -219,7 +231,10 @@ struct AppleNetworkQualityService {
             guard let raw = try? JSONDecoder().decode(RawQuickResult.self, from: data) else {
                 return .failure(.unparseable)
             }
-            return .success(Int(raw.responsiveness.rounded()))
+            guard let responsiveness = raw.responsiveness else {
+                return .failure(.incomplete)
+            }
+            return .success(Int(responsiveness.rounded()))
         }
     }
 

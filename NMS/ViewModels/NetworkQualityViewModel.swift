@@ -231,6 +231,16 @@ final class NetworkQualityViewModel {
                 case .failure(.unparseable):
                     self.lastError = "networkQuality produced unreadable output."
                     self.runningSource = nil
+                // Exhaustiveness only -- `measure(interfaceName:)` decodes
+                // via `RawResult`, whose `dl_responsiveness`/
+                // `ul_responsiveness` are already `Double?` for exactly
+                // this reason (see that type's own doc comment), so this
+                // path never actually produces `.incomplete`. Only
+                // `measureQuick(interfaceName:)`'s single combined
+                // `responsiveness` field can be missing outright.
+                case .failure(.incomplete):
+                    self.lastError = "networkQuality didn't finish in time."
+                    self.runningSource = nil
                 }
             }
         }
@@ -294,6 +304,14 @@ final class NetworkQualityViewModel {
                     self.quickCheckError = "check failed (status \(code))"
                 case .failure(.unparseable):
                     self.quickCheckError = "check produced unreadable output"
+                // Real, valid output, just cut off before `responsiveness`
+                // was computed -- see `QualityError.incomplete`'s own doc
+                // comment. Worded distinctly from `.unparseable` (a
+                // genuine parsing failure) since this one's actionable:
+                // confirmed live, an immediate retry of the identical
+                // command succeeded right after one that hit this.
+                case .failure(.incomplete):
+                    self.quickCheckError = "didn't finish in time — try again"
                 }
             }
         }
