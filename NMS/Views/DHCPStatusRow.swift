@@ -34,15 +34,21 @@ struct DHCPStatusRow: View {
     /// tracks — a link-local (APIPA) fallback, meaning DHCP failed
     /// outright, and a renewal that's run past its expected T2 deadline
     /// — checked first so an abnormal state always wins over a merely-
-    /// recent change. Yellow is "the current lease is new" (within
-    /// `recentChangeWindow` of its own `firstObservedAt`), not a
-    /// separate tracked flag — a real lease change already gets its own
-    /// `AppEventKind` pair (`.dhcpLeaseChanged`) for the Events log; this
-    /// only needs "is that recent enough to still matter here."
+    /// recent change. Yellow is "the lease's real *content* — address,
+    /// gateway, DNS servers — genuinely differs from before" (within
+    /// `recentChangeWindow` of `lastGenuineChangeAt`), deliberately not
+    /// just "a new lease record exists": every renewal gets a fresh
+    /// transaction ID and a new row even when nothing else moved (a
+    /// routine renewal, or — found live, 2026-08-06 — a dual-homed Mac's
+    /// Ethernet and Wi-Fi both re-renewing within seconds of waking from
+    /// sleep), and treating either as "changed" turned a boring, healthy
+    /// renewal into a false yellow flag. `lastGenuineChangeAt` is exactly
+    /// the same field-level comparison that already gates the
+    /// `.dhcpLeaseChanged` Events log entry, just also exposed here.
     private var color: Color {
         if dhcpLease.isFallenBackToLinkLocal || dhcpLease.isRenewalOverdue { return .red }
-        if let firstObservedAt = dhcpLease.history.first?.firstObservedAt,
-           Date().timeIntervalSince(firstObservedAt) < Self.recentChangeWindow {
+        if let lastGenuineChangeAt = dhcpLease.lastGenuineChangeAt,
+           Date().timeIntervalSince(lastGenuineChangeAt) < Self.recentChangeWindow {
             return .yellow
         }
         return .green
@@ -51,8 +57,8 @@ struct DHCPStatusRow: View {
     private var detailText: String {
         if dhcpLease.isFallenBackToLinkLocal { return "Link-local fallback" }
         if dhcpLease.isRenewalOverdue { return "Renewal overdue" }
-        if let firstObservedAt = dhcpLease.history.first?.firstObservedAt,
-           Date().timeIntervalSince(firstObservedAt) < Self.recentChangeWindow {
+        if let lastGenuineChangeAt = dhcpLease.lastGenuineChangeAt,
+           Date().timeIntervalSince(lastGenuineChangeAt) < Self.recentChangeWindow {
             return "Changed recently"
         }
         // "Nominal," not "Normal" — tried directly, on request, as this
@@ -67,7 +73,7 @@ struct DHCPStatusRow: View {
         return dhcpLease.history.isEmpty ? "Not checked" : "Nominal"
     }
 
-    /// How long a fresh lease (by `firstObservedAt`) still reads as
+    /// How long a real change (by `lastGenuineChangeAt`) still reads as
     /// "changed" rather than settling back to "normal" — a few multiples
     /// of `DHCPLeaseViewModel.checkInterval` (5 minutes), long enough
     /// that the yellow dot is still there for someone who glances at the

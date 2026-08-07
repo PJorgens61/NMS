@@ -27,6 +27,19 @@ final class DHCPLeaseViewModel {
     /// state already existed for `.dhcpRenewalOverdue`/`.dhcpRenewalRecovered`
     /// event logging, it just wasn't readable by the UI before now.
     private(set) var isRenewalOverdue = false
+    /// When `fieldChanges` last found a real, substantive difference from
+    /// the previous lease on the same interface — `nil` until the first
+    /// one this session. Distinct from any record's own `firstObservedAt`
+    /// on purpose: a fresh `DHCPLeaseRecord` row gets inserted on *every*
+    /// renewal (a new transaction ID, by protocol definition — see that
+    /// type's own doc comment), including routine ones where nothing
+    /// else moved, so `DHCPStatusRow`'s "recently changed" yellow needs
+    /// this narrower signal, not just "a row exists that's new." Real gap
+    /// found live (2026-08-06): a dual-homed Mac (Ethernet + Wi-Fi both
+    /// active) waking from sleep re-renews both interfaces within
+    /// seconds, and the status dot read that as "changed" even though
+    /// neither interface's actual lease was any different than before.
+    private(set) var lastGenuineChangeAt: Date?
     /// True while a user-triggered `renew()` is in flight — separate from
     /// `isChecking`, which fires on every routine poll and would otherwise
     /// make the Renew button flicker disabled during ordinary background
@@ -197,8 +210,12 @@ final class DHCPLeaseViewModel {
 
         // Captured before the insert below, so it's the lease this poll is
         // being compared *against* — `recordDHCPLeaseIfChanged` would
-        // otherwise already have replaced it.
-        let previous = snapshotStore.latestDHCPLease()
+        // otherwise already have replaced it. Scoped to this same
+        // interface (not `snapshotStore.latestDHCPLease()`'s plain
+        // "whatever's most recent") — see `latestDHCPLease(forInterface:)`'s
+        // own doc comment for the real bug that fixes on a Mac running
+        // both Ethernet and Wi-Fi at once.
+        let previous = snapshotStore.latestDHCPLease(forInterface: checkedInterfaceName)
 
         let (changed, isFirstEver) = snapshotStore.recordDHCPLeaseIfChanged(lease)
         if changed {
@@ -219,12 +236,22 @@ final class DHCPLeaseViewModel {
                 if !changes.isEmpty {
                     snapshotStore.logEvent(.dhcpLeaseChanged, message: "DHCP lease changed: \(changes.joined(separator: ", "))")
                     onEventLogged?()
+                    // See this property's own doc comment: the narrower
+                    // signal `DHCPStatusRow`'s yellow needs, distinct
+                    // from "a new record exists."
+                    lastGenuineChangeAt = lease.checkedAt
                 }
             }
         }
         checkRenewalOverdue()
     }
 
+    /// Not `private` — `NMSTests` reaches this directly via `@testable
+    /// import`, same reasoning as `TracerouteViewModel`'s many
+    /// `nonisolated static` helpers: pure comparison logic (no
+    /// MainActor-only state touched), directly testable without a live
+    /// view model. `nonisolated` for the same reason those are.
+    ///
     /// Every field that differs between the previous lease and this one,
     /// as "`label` old → new" strings — deliberately every parsed field,
     /// not a curated subset, since the point (per the scenario this was
@@ -233,7 +260,7 @@ final class DHCPLeaseViewModel {
     /// changed, not just that something did. The transaction ID itself is
     /// excluded — it changes on every renewal by protocol definition, so
     /// listing it would never be informative.
-    private static func fieldChanges(from previous: DHCPLeaseRecord, to lease: DHCPLeaseInfo) -> [String] {
+    nonisolated static func fieldChanges(from previous: DHCPLeaseRecord, to lease: DHCPLeaseInfo) -> [String] {
         var changes: [String] = []
         if previous.serverIdentifier != lease.serverIdentifier {
             changes.append("server \(previous.serverIdentifier) → \(lease.serverIdentifier)")

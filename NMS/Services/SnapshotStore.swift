@@ -562,6 +562,27 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor))?.first
     }
 
+    /// Same as `latestDHCPLease()`, additionally scoped to one specific
+    /// interface — the fix for a real bug found live (2026-08-06) on a
+    /// Mac that keeps both Ethernet and Wi-Fi active at once: the
+    /// unscoped lookup returns whichever interface happened to report
+    /// *most recently*, so a routine, unchanged renewal on `en1` compared
+    /// itself against `en0`'s last lease instead of `en1`'s own —
+    /// producing a bogus "address 10.0.0.158 → 10.0.0.161" Events log
+    /// entry, when neither interface's actual lease had changed at all.
+    /// `recordDHCPLeaseIfChanged` and `DHCPLeaseViewModel.apply`'s own
+    /// `fieldChanges` comparison both need "this interface's previous
+    /// lease," never any interface's.
+    func latestDHCPLease(forInterface interfaceName: String) -> DHCPLeaseRecord? {
+        let fingerprint = currentNetworkFingerprint
+        var descriptor = FetchDescriptor<DHCPLeaseRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint && $0.interfaceName == interfaceName },
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
     /// The full history of DHCP lease changes on the current network —
     /// every real renewal/rebind, not a per-poll log — so a stalled or
     /// flapping DHCP server is visible as a pattern over time, not just
@@ -623,7 +644,10 @@ final class SnapshotStore {
     @discardableResult
     func recordDHCPLeaseIfChanged(_ info: DHCPLeaseInfo) -> (changed: Bool, isFirstEver: Bool) {
         guard let fingerprint = currentNetworkFingerprint else { return (false, false) }
-        let previous = latestDHCPLease()
+        // Scoped to this same interface -- see `latestDHCPLease(forInterface:)`'s
+        // own doc comment for the real cross-interface bug this fixes on
+        // a Mac that keeps Ethernet and Wi-Fi both active.
+        let previous = latestDHCPLease(forInterface: info.interfaceName)
         guard previous?.transactionID != info.transactionID else { return (false, false) }
         context.insert(DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt, networkFingerprint: fingerprint))
         try? context.save()

@@ -1602,6 +1602,149 @@ struct DDNSSyncStateTests {
     }
 }
 
+@Suite("DHCPLeaseViewModel.fieldChanges")
+struct DHCPLeaseFieldChangesTests {
+    private func info(
+        interfaceName: String = "en0",
+        serverIdentifier: String = "10.0.0.1",
+        assignedAddress: String = "10.0.0.161",
+        subnetMask: String? = "255.255.255.0",
+        router: String? = "10.0.0.1",
+        dnsServers: [String] = ["10.0.0.1"],
+        leaseSeconds: Int = 86400,
+        t1Seconds: Int = 43200,
+        t2Seconds: Int = 75600,
+        transactionID: String = "0x1"
+    ) -> DHCPLeaseInfo {
+        DHCPLeaseInfo(
+            interfaceName: interfaceName, serverIdentifier: serverIdentifier, assignedAddress: assignedAddress,
+            subnetMask: subnetMask, broadcastAddress: nil, router: router, dnsServers: dnsServers, domainName: nil,
+            leaseSeconds: leaseSeconds, t1Seconds: t1Seconds, t2Seconds: t2Seconds, transactionID: transactionID,
+            clientHardwareAddress: nil, checkedAt: Date()
+        )
+    }
+
+    private func record(from info: DHCPLeaseInfo) -> DHCPLeaseRecord {
+        DHCPLeaseRecord(from: info, firstObservedAt: info.checkedAt, networkFingerprint: "test")
+    }
+
+    /// The real case this whole fix grew out of (2026-08-06): a routine
+    /// renewal, or a dual-homed Mac's second interface reporting in right
+    /// after the first, produces a fresh transaction ID and T1/T2 tick
+    /// but *identical* address/router/DNS/lease -- no genuine change, so
+    /// nothing should show up here (transactionID is deliberately never
+    /// compared at all).
+    @Test("identical lease content, only a new transaction ID: no changes")
+    func identicalContentNoChanges() {
+        let previous = record(from: info(transactionID: "0x1"))
+        let lease = info(transactionID: "0x2")
+        #expect(DHCPLeaseViewModel.fieldChanges(from: previous, to: lease).isEmpty)
+    }
+
+    @Test("a genuinely different assigned address is reported")
+    func differentAddressReported() {
+        let previous = record(from: info(assignedAddress: "10.0.0.158"))
+        let lease = info(assignedAddress: "10.0.0.161")
+        let changes = DHCPLeaseViewModel.fieldChanges(from: previous, to: lease)
+        #expect(changes == ["address 10.0.0.158 → 10.0.0.161"])
+    }
+
+    @Test("T1/T2 ticking down alone (the routine-renewal shape) produces no changes")
+    func routineRenewalTimersAloneNoChanges() {
+        // Real shape confirmed live: T1/T2 shrink as the lease ages, on
+        // every renewal, even when nothing else about the lease moved.
+        let previous = record(from: info(t1Seconds: 43200, t2Seconds: 75600))
+        let lease = info(t1Seconds: 39634, t2Seconds: 72034)
+        #expect(!DHCPLeaseViewModel.fieldChanges(from: previous, to: lease).isEmpty)
+    }
+
+    @Test("a genuinely different router (gateway) is reported")
+    func differentRouterReported() {
+        let previous = record(from: info(router: "10.0.0.1"))
+        let lease = info(router: "10.0.0.254")
+        let changes = DHCPLeaseViewModel.fieldChanges(from: previous, to: lease)
+        #expect(changes == ["gateway 10.0.0.1 → 10.0.0.254"])
+    }
+
+    @Test("multiple genuine changes are all reported, not just the first")
+    func multipleChangesAllReported() {
+        let previous = record(from: info(assignedAddress: "10.0.0.158", router: "10.0.0.1"))
+        let lease = info(assignedAddress: "10.0.0.161", router: "10.0.0.254")
+        let changes = DHCPLeaseViewModel.fieldChanges(from: previous, to: lease)
+        #expect(changes.contains("address 10.0.0.158 → 10.0.0.161"))
+        #expect(changes.contains("gateway 10.0.0.1 → 10.0.0.254"))
+    }
+}
+
+@Suite("SnapshotStore.latestDHCPLease(forInterface:) and recordDHCPLeaseIfChanged")
+@MainActor
+struct DHCPLeaseInterfaceScopingTests {
+    private func makeStore() throws -> SnapshotStore {
+        let schema = Schema([
+            NetworkSnapshot.self, DiscoveredDeviceRecord.self, ConnectivityCheckRecord.self,
+            KnownNetwork.self, PublicIPRecord.self, DHCPLeaseRecord.self, NetworkQualityRecord.self,
+            AppEventRecord.self, ProviderEdgeRecord.self, SNMPDeviceRecord.self,
+            WiFiSampleRecord.self, WiFiStressTestRecord.self
+        ])
+        let container = try ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
+        let store = SnapshotStore(context: container.mainContext)
+        // `recordDHCPLeaseIfChanged` no-ops entirely with no recognized
+        // network -- see its own doc comment.
+        store.setCurrentNetworkFingerprint("test-network")
+        return store
+    }
+
+    private func info(interfaceName: String, assignedAddress: String, transactionID: String) -> DHCPLeaseInfo {
+        DHCPLeaseInfo(
+            interfaceName: interfaceName, serverIdentifier: "10.0.0.1", assignedAddress: assignedAddress,
+            subnetMask: "255.255.255.0", broadcastAddress: nil, router: "10.0.0.1", dnsServers: ["10.0.0.1"],
+            domainName: nil, leaseSeconds: 86400, t1Seconds: 43200, t2Seconds: 75600, transactionID: transactionID,
+            clientHardwareAddress: nil, checkedAt: Date()
+        )
+    }
+
+    /// The actual bug (found live, 2026-08-06, on a Mac that keeps both
+    /// Ethernet and Wi-Fi active): the unscoped lookup returned whichever
+    /// interface reported *most recently*, so comparing against it while
+    /// checking a *different* interface produced a bogus "address
+    /// changed" reading even though neither interface's own lease had
+    /// moved. Two different interfaces' own latest leases must be
+    /// independently retrievable.
+    @Test("latestDHCPLease(forInterface:) returns that interface's own record, not another interface's more recent one")
+    func interfaceScopedLookupIgnoresOtherInterface() throws {
+        let store = try makeStore()
+        store.recordDHCPLeaseIfChanged(info(interfaceName: "en0", assignedAddress: "10.0.0.161", transactionID: "0x1"))
+        store.recordDHCPLeaseIfChanged(info(interfaceName: "en1", assignedAddress: "10.0.0.158", transactionID: "0x2"))
+        let en0Latest = store.latestDHCPLease(forInterface: "en0")
+        #expect(en0Latest?.assignedAddress == "10.0.0.161")
+        let en1Latest = store.latestDHCPLease(forInterface: "en1")
+        #expect(en1Latest?.assignedAddress == "10.0.0.158")
+    }
+
+    @Test("recordDHCPLeaseIfChanged: a repeat of the same transaction ID on the same interface is not inserted again")
+    func sameTransactionIDNotReinserted() throws {
+        let store = try makeStore()
+        let (firstChanged, _) = store.recordDHCPLeaseIfChanged(info(interfaceName: "en0", assignedAddress: "10.0.0.161", transactionID: "0x1"))
+        #expect(firstChanged)
+        let (secondChanged, _) = store.recordDHCPLeaseIfChanged(info(interfaceName: "en0", assignedAddress: "10.0.0.161", transactionID: "0x1"))
+        #expect(!secondChanged)
+    }
+
+    /// The other half of the real bug: two interfaces reporting
+    /// back-to-back with *different* transaction IDs (always true across
+    /// interfaces) must not fool the same-interface dedup into thinking
+    /// either one is a duplicate of the other.
+    @Test("two different interfaces each get their own row, neither treated as a duplicate of the other")
+    func twoInterfacesBothRecorded() throws {
+        let store = try makeStore()
+        let (en0Changed, _) = store.recordDHCPLeaseIfChanged(info(interfaceName: "en0", assignedAddress: "10.0.0.161", transactionID: "0x1"))
+        let (en1Changed, _) = store.recordDHCPLeaseIfChanged(info(interfaceName: "en1", assignedAddress: "10.0.0.158", transactionID: "0x2"))
+        #expect(en0Changed)
+        #expect(en1Changed)
+        #expect(store.fetchDHCPLeaseHistory().count == 2)
+    }
+}
+
 @Suite("GlobalpingReverseTraceService parsers")
 struct GlobalpingReverseTraceServiceTests {
     /// The real shape of a measurement-creation response, confirmed live
