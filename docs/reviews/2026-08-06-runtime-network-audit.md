@@ -147,3 +147,10 @@ spanning a full 300-second poll cycle (or several) would let the
 curated-list findings from the static reviews be confirmed the same
 live way the captive-portal and ipify findings were here — not done in
 this pass.
+
+**Closed 2026-08-06**: see
+[2026-08-06-expanded-trust-prompt-run.md](2026-08-06-expanded-trust-prompt-run.md)
+— a later spot-check caught a full SaaS Status poll round live
+(~15 simultaneous connections, each matched by reverse DNS against
+this doc's own forward-resolved IPs), confirming the curated-list
+destinations the same live way this doc confirmed ipify/captive.apple.com.
