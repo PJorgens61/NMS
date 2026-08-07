@@ -77,6 +77,68 @@ scroll-view content-offset changes alongside `UIStateLogger`, which
 might correlate the visual glitch to a specific offset/velocity
 condition without needing to catch it visually at all.
 
+### SwiftData in-memory fetch crashes the test host — confirmed to spread to a second model, not a fixed, known-bad list
+
+- **Status**: Open — root cause is inside `SwiftData.framework` itself,
+  not this app's code, so there's nothing here to fix directly. Worked
+  around the same way the first occurrence was: the affected test suite
+  is `.disabled` with a doc comment explaining why, rather than left
+  crashing the host on every run.
+- **Severity**: Low for the shipped app (both known occurrences are
+  specific to a *fresh, in-memory* `ModelContainer` in the test harness;
+  the real, on-disk store has shown no equivalent crash) — but real, and
+  worth tracking: it means new SwiftData-backed unit tests can't be
+  trusted to just work on this machine/OS build without checking first,
+  and the set of affected models is apparently not fixed.
+- **Found in build**: `c2c77f5`
+- **Confirmed via**: `script/test-quick.sh`, macOS 26.5.2 (Build 25F84),
+  MacBook Air — crash report pulled from the `.xcresult` bundle
+  (`xcrun xcresulttool export attachments`), not just the console log.
+
+**First occurrence** (pre-existing, not newly found today): `NMSTests.swift:2440-2457`
+documents `SnapshotStore.recordPathDiscoveryRun`'s whole test suite as
+`.disabled`, having traced a crash to `latestProviderEdge()` fetching
+`ProviderEdgeRecord` from a fresh in-memory container — confirmed there
+not to be about query shape, since a fully bare
+`FetchDescriptor<ProviderEdgeRecord>()` with no predicate/sort/limit
+crashed identically. That same comment states, as of when it was
+written, that `latestDHCPLease()` — the *exact* same predicate/sort
+shape, just a different model — did **not** crash, and used that as
+evidence the bug was specific to `ProviderEdgeRecord`.
+
+**Second occurrence, found today, contradicts that.** Confirming the
+DHCP dual-homed fix (`9c71948`, "Fix DHCP status dot false-flagging on a
+dual-homed Mac's routine renewal") by running its new dedicated tests
+(`DHCPLeaseInterfaceScopingTests`, added in the same commit) crashed the
+test host the same way: `EXC_BREAKPOINT`/`SIGTRAP` inside
+`SnapshotStore.latestDHCPLease(forInterface:)`, called from
+`recordDHCPLeaseIfChanged(_:)`, fetching `DHCPLeaseRecord` from a fresh
+in-memory `ModelContainer` — same predicate/sort/fetch-limit shape as
+the already-known-safe `latestDHCPLease()`, same in-memory-only
+container pattern as the `ProviderEdgeRecord` crash. So "which models
+are affected" isn't a fixed, enumerable list from one investigation —
+it can apparently grow to a previously-fine model/shape combination on
+a given OS build (this one: macOS 26.5.2 / Build 25F84), which is worth
+knowing before trusting any *other* passing SwiftData-backed test on
+this machine as durable evidence it'll keep passing after an OS update.
+
+**Workaround applied**: `DHCPLeaseInterfaceScopingTests` is now
+`.disabled` (`NMSTests.swift:1679`), matching the `ProviderEdgeRecord`
+precedent exactly — a doc comment states the crash and cross-references
+the earlier occurrence, rather than silently skipping or deleting the
+tests. The interface-scoping logic itself
+(`latestDHCPLease(forInterface:)`/`recordDHCPLeaseIfChanged`'s own doc
+comments in `SnapshotStore.swift`) is unverified by an automated test
+right now — covered only by manual review — same caveat as the
+`ProviderEdgeRecord`-dependent logic already carries.
+
+**Not yet done**: reproducing the actual real-world scenario the DHCP
+fix addresses (a Mac with two simultaneously active interfaces) against
+the real, on-disk store, to confirm the fix works outside the crashing
+in-memory test harness. Not possible on this machine at the time this
+was written — only Wi-Fi was active, no second interface to make it
+genuinely dual-homed.
+
 ## Fixed
 
 ### `NMSUITests` launches the real app against the real, on-disk production store
