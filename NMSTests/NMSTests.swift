@@ -1655,7 +1655,15 @@ struct DHCPLeaseFieldChangesTests {
         // every renewal, even when nothing else about the lease moved.
         let previous = record(from: info(t1Seconds: 43200, t2Seconds: 75600))
         let lease = info(t1Seconds: 39634, t2Seconds: 72034)
-        #expect(!DHCPLeaseViewModel.fieldChanges(from: previous, to: lease).isEmpty)
+        #expect(DHCPLeaseViewModel.fieldChanges(from: previous, to: lease).isEmpty)
+    }
+
+    @Test("a genuinely different lease duration is reported")
+    func differentLeaseDurationReported() {
+        let previous = record(from: info(leaseSeconds: 86400))
+        let lease = info(leaseSeconds: 43200)
+        let changes = DHCPLeaseViewModel.fieldChanges(from: previous, to: lease)
+        #expect(changes == ["lease 24h → 12h"])
     }
 
     @Test("a genuinely different router (gateway) is reported")

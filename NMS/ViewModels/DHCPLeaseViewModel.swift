@@ -252,14 +252,26 @@ final class DHCPLeaseViewModel {
     /// MainActor-only state touched), directly testable without a live
     /// view model. `nonisolated` for the same reason those are.
     ///
-    /// Every field that differs between the previous lease and this one,
-    /// as "`label` old → new" strings — deliberately every parsed field,
-    /// not a curated subset, since the point (per the scenario this was
-    /// built for: spotting a change someone *else* made to the network,
-    /// like an admin editing the DHCP scope) is knowing exactly what
-    /// changed, not just that something did. The transaction ID itself is
-    /// excluded — it changes on every renewal by protocol definition, so
-    /// listing it would never be informative.
+    /// Every *substantive* field that differs between the previous lease
+    /// and this one, as "`label` old → new" strings — the point (per the
+    /// scenario this was built for: spotting a change someone *else* made
+    /// to the network, like an admin editing the DHCP scope) is knowing
+    /// exactly what changed, not just that something did. Two fields are
+    /// deliberately excluded, both for the same reason: they tick on
+    /// their own during a perfectly routine renewal, not because anything
+    /// about the lease actually changed. The transaction ID is excluded —
+    /// it changes on every renewal by protocol definition. T1/T2 are
+    /// excluded too — confirmed live (2026-08-07/08): this router hands
+    /// back a slightly different T1/T2 on essentially every renewal (the
+    /// same address/gateway/DNS/lease duration throughout, exacerbated
+    /// that session by real Wi-Fi/Ethernet interface flapping), which was
+    /// firing `lastGenuineChangeAt`/`DHCPStatusRow`'s yellow "Changed
+    /// recently" and logging a "DHCP lease changed" event on almost every
+    /// renewal — exactly the false-alarm-on-a-healthy-renewal problem this
+    /// function's callers exist to avoid. `leaseSeconds` (the actual
+    /// granted lease duration) stays in the comparison — unlike T1/T2 it
+    /// doesn't drift renewal to renewal on its own, so a real difference
+    /// there means the server's lease policy itself changed.
     nonisolated static func fieldChanges(from previous: DHCPLeaseRecord, to lease: DHCPLeaseInfo) -> [String] {
         var changes: [String] = []
         if previous.serverIdentifier != lease.serverIdentifier {
@@ -285,12 +297,6 @@ final class DHCPLeaseViewModel {
         }
         if previous.leaseSeconds != lease.leaseSeconds {
             changes.append("lease \(DHCPLeaseInfo.durationText(previous.leaseSeconds)) → \(DHCPLeaseInfo.durationText(lease.leaseSeconds))")
-        }
-        if previous.t1Seconds != lease.t1Seconds {
-            changes.append("T1 \(DHCPLeaseInfo.durationText(previous.t1Seconds)) → \(DHCPLeaseInfo.durationText(lease.t1Seconds))")
-        }
-        if previous.t2Seconds != lease.t2Seconds {
-            changes.append("T2 \(DHCPLeaseInfo.durationText(previous.t2Seconds)) → \(DHCPLeaseInfo.durationText(lease.t2Seconds))")
         }
         return changes
     }
