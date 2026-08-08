@@ -38,16 +38,29 @@ struct SNMPService {
     /// `snmpget` process, so this is a deliberate ceiling on process count,
     /// not on network traffic — every concurrent probe targets a
     /// *different* address, so raising this doesn't risk hammering any
-    /// single device, only running more `snmpget`s at once. At 64, a
-    /// 254-host /24 takes roughly 4 waves × ~2s ≈ 8s worst case (nearly
+    /// single device, only running more `snmpget`s at once. At 32, a
+    /// 254-host /24 takes roughly 8 waves × ~2s ≈ 16s worst case (nearly
     /// all hosts silent) — times the number of community strings
     /// configured, since a silent host has to time out on each one before
-    /// it can be ruled out. The now-1024-host `SubnetCalculator
-    /// .maxSweepHosts` ceiling (a real /22) is ~32s worst case at 64,
-    /// down from ~64s at the previous 32 — real measured response times
-    /// on this Mac's own network (~130-155ms per answering device, see
-    /// `ui-state.log`) leave plenty of headroom below that.
-    static let sweepConcurrency = 64
+    /// it can be ruled out. The 1024-host `SubnetCalculator.maxSweepHosts`
+    /// ceiling (a real /22) is ~64s worst case at 32 — real measured
+    /// response times on this Mac's own network (~130-155ms per answering
+    /// device, see `ui-state.log`) leave plenty of headroom below that.
+    ///
+    /// Dropped back down from 64 (2026-08-08) after a real iMac hang —
+    /// full system freeze, hard power-cycle required, mouse moved but no
+    /// clicks/keyboard registered (severe scheduler starvation, not a
+    /// kernel panic) — whose unified-log trace showed NMS's own network
+    /// activity as the very last thing logged before ~85s of total system
+    /// silence. Not conclusively proven as the cause (nothing logs during
+    /// an actual freeze, by definition, so the exact trigger couldn't be
+    /// isolated), and this specific ceiling was never confirmed as the
+    /// culprit either — but it's the one clearly *unbounded-by-anything-
+    /// else* burst of concurrent subprocess creation this app does at
+    /// launch, on a Mac that had just started NMS shortly before the
+    /// freeze. Halving it is cheap, safe insurance either way: doesn't
+    /// change sweep correctness, only worst-case burst size and duration.
+    static let sweepConcurrency = 32
 
     static var isAvailable: Bool {
         FileManager.default.isExecutableFile(atPath: executablePath)

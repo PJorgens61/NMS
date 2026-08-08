@@ -191,12 +191,67 @@ final class SaaSMonitoringViewModel {
         }
     }
 
-    /// Checks every monitored service concurrently — same task-group
-    /// shape as `ConnectivityService.check(targets:)`, so three WAN
-    /// fetches are bounded by the slowest one, not their sum. A single
-    /// service's fetch failing (timeout, malformed JSON, a non-200) is
-    /// reported as `.unknown` for that service alone rather than losing
-    /// the whole round — one flaky status page shouldn't hide the other
+    /// How many `checkStatus` calls run at once, shared by `checkAll()`
+    /// and `checkUserAddedSites()`. Added 2026-08-08, alongside the same
+    /// day's `SNMPService.sweepConcurrency` reduction — see that
+    /// constant's own doc comment for the real iMac hang that motivated
+    /// both. `checkAll()`'s own built-in list is a fixed, small 17
+    /// entries, never the standout risk here on its own; `checkUserAddedSites()`
+    /// has no such ceiling at all today — a user could add an unbounded
+    /// number of sites in Preferences, each fetched via `URLSession
+    /// .shared.data(for:)`, which always buffers the *entire* response
+    /// body regardless of `.reachabilityOnly` only needing the status
+    /// code (see `GitHub#18`) — so an unbounded fan-out there is the more
+    /// plausible risk of the two, not just a symmetry choice.
+    private static let maxConcurrentChecks = 8
+
+    /// Runs `checkStatus` for every item in `services`, at most
+    /// `maxConcurrentChecks` at a time, returning results in the same
+    /// order as `services` — same ordered-by-offset shape `checkAll()`/
+    /// `checkUserAddedSites()` both already used before this was factored
+    /// out, just with a real ceiling on how many run at once instead of
+    /// firing the whole list into one `TaskGroup` immediately. Refills a
+    /// task as soon as one finishes, not in fixed batches, so a handful of
+    /// slow services can't stall the rest behind them the way waiting for
+    /// a whole batch to complete would.
+    private static func checkBounded(
+        _ items: [SaaSStatusService.MonitoredService],
+        service: SaaSStatusService,
+        onFailure: @escaping (SaaSStatusService.MonitoredService) -> ServiceStatus
+    ) async -> [ServiceStatus] {
+        await withTaskGroup(of: (offset: Int, status: ServiceStatus).self) { group in
+            var nextIndex = 0
+            func addNext() {
+                guard nextIndex < items.count else { return }
+                let index = nextIndex
+                let item = items[index]
+                nextIndex += 1
+                group.addTask {
+                    do {
+                        let result = try await service.checkStatus(item)
+                        return (index, ServiceStatus(name: item.name, indicator: result.indicator, description: result.description, url: result.url))
+                    } catch {
+                        return (index, onFailure(item))
+                    }
+                }
+            }
+            for _ in 0..<min(maxConcurrentChecks, items.count) { addNext() }
+            var ordered = [ServiceStatus?](repeating: nil, count: items.count)
+            for await result in group {
+                ordered[result.offset] = result.status
+                addNext()
+            }
+            return ordered.compactMap { $0 }
+        }
+    }
+
+    /// Checks every monitored service concurrently, bounded by
+    /// `maxConcurrentChecks` — same task-group shape as
+    /// `ConnectivityService.check(targets:)`, so three WAN fetches are
+    /// bounded by the slowest one, not their sum. A single service's
+    /// fetch failing (timeout, malformed JSON, a non-200) is reported as
+    /// `.unknown` for that service alone rather than losing the whole
+    /// round — one flaky status page shouldn't hide the other
     /// two.
     ///
     /// **Overlapping rounds are dropped, not queued.** Reasoned through
@@ -215,27 +270,12 @@ final class SaaSMonitoringViewModel {
         let service = self.service
         let services = activeServices
         Task { @MainActor [weak self] in
-            let results = await withTaskGroup(of: (offset: Int, status: ServiceStatus).self) { group in
-                for (index, monitored) in services.enumerated() {
-                    group.addTask {
-                        do {
-                            let result = try await service.checkStatus(monitored)
-                            return (index, ServiceStatus(name: monitored.name, indicator: result.indicator, description: result.description, url: result.url))
-                        } catch {
-                            // Still a real link, same reasoning as every
-                            // other fallback here: this Mac failing to
-                            // reach the endpoint says nothing about
-                            // whether the status page itself is up.
-                            let fallbackURL = SaaSStatusService.generalStatusPageURL(for: monitored)
-                            return (index, ServiceStatus(name: monitored.name, indicator: .unknown, description: "Could not check status", url: fallbackURL))
-                        }
-                    }
-                }
-                var ordered = [ServiceStatus?](repeating: nil, count: services.count)
-                for await result in group {
-                    ordered[result.offset] = result.status
-                }
-                return ordered.compactMap { $0 }
+            let results = await Self.checkBounded(services, service: service) { monitored in
+                // Still a real link, same reasoning as every other
+                // fallback here: this Mac failing to reach the endpoint
+                // says nothing about whether the status page itself is up.
+                let fallbackURL = SaaSStatusService.generalStatusPageURL(for: monitored)
+                return ServiceStatus(name: monitored.name, indicator: .unknown, description: "Could not check status", url: fallbackURL)
             }
             self?.isChecking = false
             self?.apply(results)
@@ -317,22 +357,8 @@ final class SaaSMonitoringViewModel {
         isCheckingUserAdded = true
         let service = self.service
         Task { @MainActor [weak self] in
-            let results = await withTaskGroup(of: (offset: Int, status: ServiceStatus).self) { group in
-                for (index, site) in monitored.enumerated() {
-                    group.addTask {
-                        do {
-                            let result = try await service.checkStatus(site)
-                            return (index, ServiceStatus(name: site.name, indicator: result.indicator, description: result.description, url: result.url))
-                        } catch {
-                            return (index, ServiceStatus(name: site.name, indicator: .unknown, description: "Not reachable", url: site.endpoint.absoluteString))
-                        }
-                    }
-                }
-                var ordered = [ServiceStatus?](repeating: nil, count: monitored.count)
-                for await result in group {
-                    ordered[result.offset] = result.status
-                }
-                return ordered.compactMap { $0 }
+            let results = await Self.checkBounded(monitored, service: service) { site in
+                ServiceStatus(name: site.name, indicator: .unknown, description: "Not reachable", url: site.endpoint.absoluteString)
             }
             self?.isCheckingUserAdded = false
             self?.userAddedStatuses = results
