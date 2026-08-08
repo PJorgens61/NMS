@@ -135,6 +135,19 @@ struct SaaSStatusService {
         // fetch to a third party with no reason to assume sub-second
         // response times.
         request.timeoutInterval = 5
+        // HEAD, not the default GET, specifically for `.reachabilityOnly`
+        // — that shape only ever looks at the status code below, but a
+        // plain GET downloads the *entire* response body first regardless,
+        // discarded unread. Confirmed live (GitHub #18): a user-added real
+        // webpage (unlike the curated list's small JSON endpoints) pulled
+        // 337KB on a single poll for a check that only cares whether the
+        // server answered — real bandwidth spent every 5-minute cycle.
+        // HEAD asks the server itself not to send a body, so the saving is
+        // on the wire, not just a client-side discard of data already paid
+        // for.
+        if service.shape == .reachabilityOnly {
+            request.httpMethod = "HEAD"
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw SaaSStatusError.unexpectedResponse
