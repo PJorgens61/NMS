@@ -4684,6 +4684,120 @@ from this list. This one remains, since it's an idea, not a defect):
   polish for the *app*, native styling) — this entry is about the
   *user guide's* written content and accuracy, not app UI work.
 
+- [ ] **Idea: NMS integrates directly with Claude (API) to help
+  troubleshoot network trouble, for users who have an account.** Raised
+  directly. Explicitly told to set aside the obvious catch-22 (the worst
+  outages — the ones a user most wants help with — are exactly the ones
+  where NMS can't reach Claude either), so that's noted here rather than
+  solved: a real design still needs an answer for it (queue the
+  diagnostic bundle and analyze once connectivity returns? degrade to
+  "explain what's already visible" when only some checks are failing?),
+  not just a caveat to wave off.
+
+  **A real gap in the framing worth surfacing before this goes further**:
+  "has an account with Claude" (claude.ai) isn't the same thing as "has
+  Anthropic API access" — a consumer claude.ai login doesn't carry an API
+  key, and this would need one regardless of whether the user has a
+  claude.ai subscription. So this can't be "sign in with your Claude
+  account" — it'd be a bring-your-own-API-key flow, same shape as
+  `FeatureFlags.firewallServerURL`/`FWKeychain`'s existing pattern (a
+  user-supplied endpoint/credential, key in Keychain, URL in
+  `UserDefaults` since it's not itself a secret). Worth deciding early
+  whether that friction (get a key from console.anthropic.com, paste it
+  in Preferences) is acceptable for the target user, or a dealbreaker.
+
+  **The real design question is what gets sent, not whether the API call
+  works.** To be useful, "explain my network trouble" needs to hand
+  Claude real diagnostic state — likely some bundle of current
+  `NetworkSnapshot`/connectivity-check results, recent `AppEventRecord`
+  history, DHCP lease info, SNMP device descriptions, traceroute hops,
+  Wi-Fi SSID/BSSID. That's a materially bigger disclosure than anything
+  NMS does today: every existing WAN reach is either a read-only public
+  status-page fetch (no user data leaves the Mac — SaaS Monitoring) or a
+  narrow, single-purpose lookup (the Mac's own public IP, to `rdap.org`).
+  Nothing today bundles this much LAN topology/identity data — the same
+  categories the 2026-08-06 factual inventory
+  (`docs/reviews/2026-08-06-inventory.md`, §3) flags as identifying a
+  person/household/location — and ships it to a third party at once.
+  README's own current framing ("No account, no cloud service, no
+  phone-home") would need real revision, not a footnote, since this is
+  the first feature that's actually that.
+
+  **Precedent already in the codebase for how to gate this, if built**:
+  same pattern as `FeatureFlags.firewallVisibility` — off by default, an
+  explicit Preferences description of what leaves the Mac and to whom,
+  not just a toggle. Given the scope of data involved, this one arguably
+  needs the disclosure to be more prominent than a Preferences toggle,
+  possibly a confirmation at the point of each use (a "send this to
+  Claude?" review step showing what's about to be sent), not just a
+  one-time settings opt-in — unscoped, worth deciding deliberately rather
+  than defaulting to the lighter existing pattern just because it's
+  there.
+
+  **Yes, the existing data model genuinely supports going past "reboot
+  the router and your MacBook," for specific problem classes — this
+  isn't just optimistic hand-waving.** NMS already separates "LAN infra
+  (router/switch/AP) reachable" from "ISP edge router reachable" from
+  "internet by address reachable" from "DNS working" from "HTTP
+  working" into distinct checks — a pattern like "LAN fine, ISP edge
+  router unreachable, DNS/HTTP failing" is real evidence the fault is
+  upstream, not the user's own gear, and Claude narrating that
+  correctly overrides "reboot your router" with "this isn't your
+  equipment, here's the evidence, call your ISP." Same story for
+  double-NAT (already detected via hop-counting — narrating *why* that
+  breaks port forwarding/VoIP/gaming NAT beats a vague "check your
+  router"), DHCP flapping (real lease-*change* history per interface,
+  not just T1/T2 ticking, can distinguish pool exhaustion/short lease
+  times from routine renewal — exactly the distinction the 2026-08-06
+  dual-homed DHCP fix, `9c71948`, had to get right at the code level),
+  SNMP-correlated device restarts (a switch's uptime resetting at the
+  exact moment connectivity failed is specific evidence *that device*
+  crashed, not downstream noise), and Wi-Fi RF quality (RSSI/SNR/
+  channel/band plus stress-test packet loss under load supports "weak
+  signal on a congested 2.4GHz channel, switch to 5GHz" over "restart
+  your router").
+
+  **The bigger lever than a one-shot summary is tool use, and this is
+  the real open fork, not a detail to defer**: (a) hand Claude a static
+  bundle of already-collected state and get one summary back, versus
+  (b) an agentic loop where Claude can call NMS's own existing services
+  as tools — request a fresh traceroute, a DHCP renew, an SNMP re-scan —
+  look at the result, and ask for more before concluding. (b) is a
+  different class of capability, much closer to how an actual live
+  troubleshooting session with a person works (ask a question, run a
+  check, look at the result, ask the next question) than reading a
+  static report. NMS's services are already well-factored for this —
+  each is close to a clean function with typed inputs/outputs
+  (`TracerouteService`, `SNMPService`, `DHCPLeaseService`, etc.) — so
+  wiring them as tool-call targets isn't a big architectural lift, but
+  it's a materially bigger scope and consent question than (a): tool
+  use means Claude can *trigger* real network activity (an SNMP scan, a
+  DHCP renewal that briefly disrupts the connection, per its own
+  existing confirmation-dialog precedent) on its own initiative mid-
+  conversation, not just read a snapshot — worth deciding this fork
+  explicitly before building either, not sliding into (a) by default
+  because it's simpler.
+
+  **Honest ceiling, regardless of which fork**: remediation itself
+  mostly still resolves to the same small action space NMS already
+  points users toward — reboot *this specific device*, call the ISP
+  *with this specific evidence*, change *this specific* router setting,
+  replace *this* cable. Matches NMS's own existing philosophy of never
+  silently touching router config — the improvement from either (a) or
+  (b) is specificity and evidence, not a fundamentally new remediation
+  menu. Some root causes (bad cable, failing hardware, ISP line noise)
+  genuinely don't have an answer smarter than reboot/replace/call, and
+  a good design should say so rather than manufacture false precision.
+
+  **Not scoped further**: which specific diagnostic state to include by
+  default vs. opt-in per-field, whether this is a new Debug Tools-style
+  panel or a first-class feature, streaming vs. one-shot response, and
+  cost/rate-limiting (this is the user's own API key and bill, not
+  NMS's — worth making that explicit in the UI so a chatty feature
+  doesn't surprise anyone's invoice). The `claude-api` skill (model ids,
+  pricing, streaming, tool use) is the reference to pull up first
+  whenever this actually gets built, not now.
+
 ## Deliberately not doing
 
 These were considered and rejected with reasons; they're here so they
