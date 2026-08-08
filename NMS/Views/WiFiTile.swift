@@ -1,10 +1,19 @@
 import SwiftUI
 
 /// The Wi-Fi tile — current signal/link characteristics for the active
-/// access point. Renders nothing at all when there's no association
-/// (`currentSSID == nil`) — mutually exclusive with `EthernetTile` by
-/// construction (a Mac's default route is either Wi-Fi or Ethernet,
-/// never both).
+/// access point. Renders nothing at all when there's no association and
+/// no reason yet known for its absence (`currentSSID == nil`, not on
+/// Wi-Fi at all) — mutually exclusive with `EthernetTile` by construction
+/// (a Mac's default route is either Wi-Fi or Ethernet, never both).
+///
+/// One exception, added after a real field gap (2026-08-06, Noe Cafe):
+/// on Wi-Fi with `currentSSID` still `nil` because Location permission
+/// was denied, this used to render nothing at all — indistinguishable
+/// from "not on Wi-Fi," and it stayed that way through a manual Refresh,
+/// since a denial doesn't re-prompt. See
+/// `LocationAuthorizationService.isDenied`'s own doc comment for why
+/// that state, specifically, is worth telling apart from the ordinary
+/// not-yet-determined gap mid-refresh.
 ///
 /// Second of the ten window tiles pulled out of `ContentView`'s single
 /// body into its own `View` type (see `PUNCHLIST.md`'s `ContentView`
@@ -47,6 +56,17 @@ struct WiFiTile: View {
                 if let security = wifiSSID.currentSecurity {
                     row("Security", security)
                 }
+            }
+        } else if wifiSSID.isCurrentInterfaceWiFi && wifiSSID.isLocationAuthorizationDenied {
+            tile(title: "Wi-Fi", fixedHeight: SectionLayout.wifi.boxHeight) {
+                Text("""
+                    Signal, channel, and security details need Location \
+                    permission, which is currently denied. Enable it in \
+                    System Settings → Privacy & Security → Location \
+                    Services, then use Refresh.
+                    """)
+                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12))
             }
         }
     }

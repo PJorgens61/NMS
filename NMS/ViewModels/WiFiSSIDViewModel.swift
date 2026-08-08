@@ -60,6 +60,20 @@ final class WiFiSSIDViewModel {
     /// "hidden outright on Ethernet" section gating.
     private var lastRequestedIsWiFi = false
 
+    /// Public read of `lastRequestedIsWiFi` above — same value, same
+    /// freshness (set on every interface change and manual Refresh, not
+    /// just at launch). `WiFiTile` needs this to tell "not on Wi-Fi, so
+    /// correctly showing nothing" apart from "on Wi-Fi, but `currentSSID`
+    /// is nil for some other reason" — currently only reachable from
+    /// inside this file otherwise.
+    var isCurrentInterfaceWiFi: Bool { lastRequestedIsWiFi }
+
+    /// See `LocationAuthorizationService.isDenied`'s own doc comment.
+    /// Exposed here rather than making `authService` itself visible,
+    /// same "narrow, single-purpose read" shape as `isCurrentInterfaceWiFi`
+    /// above.
+    var isLocationAuthorizationDenied: Bool { authService.isDenied }
+
     /// Fired when a `wifiNetworkChanged` event is logged, so the event log
     /// view refreshes — mirrors the other view models' hook.
     var onEventLogged: (() -> Void)?

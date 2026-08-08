@@ -19,6 +19,19 @@ final class LocationAuthorizationService: NSObject, CLLocationManagerDelegate {
         manager.authorizationStatus == .authorizedAlways
     }
 
+    /// `true` once the user has actively refused the prompt (or an MDM
+    /// profile/parental control restricts it) — as opposed to
+    /// `.notDetermined`, the ordinary transient state before the prompt's
+    /// been answered at all. Distinct from `isAuthorized` being merely
+    /// `false`: `WiFiTile` needs to tell "still waiting to find out" apart
+    /// from "already know, and the answer is no" to decide whether a
+    /// silent gap is worth explaining to the user or not — see that
+    /// type's own doc comment.
+    var isDenied: Bool {
+        let status = manager.authorizationStatus
+        return status == .denied || status == .restricted
+    }
+
     /// Calls `onAuthorized` immediately if already granted; otherwise
     /// triggers the system permission prompt and calls it once the user
     /// responds affirmatively. If the user denies it, `onAuthorized` is
