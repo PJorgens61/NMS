@@ -4789,6 +4789,59 @@ from this list. This one remains, since it's an idea, not a defect):
   genuinely don't have an answer smarter than reboot/replace/call, and
   a good design should say so rather than manufacture false precision.
 
+  **If tool use (fork (b) above) gets built, "firewall Claude" is the
+  right instinct, and it has to constrain what Claude can *do*, not
+  just what it can see — raised directly as its own question (can we
+  convince users this is safe on their network or a company office?),
+  worth answering concretely rather than with reassurance:**
+  - **Tier tools by blast radius, don't treat them as one bucket.**
+    Reading already-collected state is nothing like triggering a fresh
+    SNMP sweep, a DHCP renewal (disrupts the user's own connection), or
+    an external scan of the public IP (Firewall Visibility) — the
+    latter two already carry NMS's own confirmation-dialog treatment
+    for exactly this reason (DHCP Renew, Local Stress Test). Keep that
+    same tiering for Claude: freely call read-only tools, but anything
+    disruptive or externally-visible needs the same "here's what I
+    want to do, approve?" human checkpoint those already use. Nothing
+    should fire autonomously above the lowest tier.
+  - **Reuse `isCurrentNetworkHome()` as the actual firewall**, the same
+    gate DDNS checks and Firewall Visibility already use. On an
+    unrecognized or non-home network — a company office, a client
+    site, a cafe — active-scanning tools simply aren't available to
+    Claude, full stop, regardless of what it reasons its way into
+    wanting. Directly answers the office-network case: an AI agent
+    scanning infrastructure the user doesn't personally own is a real
+    security-policy question, not a privacy nuance, and "it can't,
+    there" is a more honest answer than "trust us."
+  - **This connects to a real, unresolved risk already in this repo,
+    not a hypothetical**: the not-yet-root-caused Wi-Fi-breaking
+    incident from field testing (this file, search "Return visit,
+    Martha's Coffee") has active LAN probing as its leading suspect.
+    Until that's actually understood, giving an LLM independent
+    initiative to trigger *more* probing is concretely unwise, not
+    just cautious-by-default — treat it as a hard blocker on any
+    scanning-class tool, not a caveat to note and move past.
+  - **Audit trail via the existing Events log, not a new mechanism.**
+    Every tool call Claude makes should land in `AppEventRecord` like
+    everything else NMS logs — inspectable after the fact through the
+    same Events tile a user already checks, not a separate "trust the
+    AI" black box.
+  - **Extend the `tooltipTechnicalDetail` precedent to tool
+    transparency.** That flag already exists specifically to show
+    "which command runs, which resolver, what's in or out of scope" —
+    a Preferences list of exactly which tool functions Claude can call,
+    in that same plain-mechanism language, costs nothing conceptually
+    new and directly answers "what can it actually do."
+  - **Honest option worth naming explicitly, not just a fallback**:
+    this might just not be a company-network feature, at least at
+    first. A home user deciding their own risk tolerance is a
+    fundamentally easier sell than convincing someone else's IT
+    department an AI agent should have any live access to
+    infrastructure they don't personally own. Narrowing the claim to
+    "home network only," hard-gated rather than merely suggested,
+    might be more credible than building enough guardrails to make an
+    office deployment story work at all.
+
   **Not scoped further**: which specific diagnostic state to include by
   default vs. opt-in per-field, whether this is a new Debug Tools-style
   panel or a first-class feature, streaming vs. one-shot response, and
