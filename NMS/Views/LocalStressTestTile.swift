@@ -61,12 +61,12 @@ struct LocalStressTestTile: View {
                 Text("many concurrent MTU-sized pings, ~1-2s, real traffic")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                if wifiStressTest.recentRuns.isEmpty {
+                if wifiStressTest.runs(isWiFi: isWiFi).isEmpty {
                     Text(wifiStressTest.isRunning ? "Testing…" : "No stress test run yet")
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12))
                 } else {
-                    runRows
+                    runRows(isWiFi: isWiFi)
                 }
                 if let error = wifiStressTest.lastError {
                     Text(error)
@@ -77,10 +77,13 @@ struct LocalStressTestTile: View {
         }
     }
 
-    /// Every run, newest first — a genuine time series, not deduplicated
-    /// against the previous one.
-    private var runRows: some View {
-        ForEach(wifiStressTest.recentRuns) { run in
+    /// Every run over the current medium, newest first — a genuine time
+    /// series, not deduplicated against the previous one. Filtered to
+    /// `isWiFi` since `recentRuns` is scoped by network fingerprint only,
+    /// which Ethernet and Wi-Fi share on the same router — see
+    /// `WiFiStressTestViewModel.runs(isWiFi:)`'s doc comment.
+    private func runRows(isWiFi: Bool) -> some View {
+        ForEach(wifiStressTest.runs(isWiFi: isWiFi)) { run in
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text(String(format: "%.1f%% loss", run.packetLossPercent))

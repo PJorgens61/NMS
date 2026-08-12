@@ -18,6 +18,21 @@ final class WiFiStressTestViewModel {
         didSet { UIStateLogger.log("WiFiStressTestViewModel.recentRuns", recentRuns) }
     }
 
+    /// Runs over the given medium only, newest first — `recentRuns` is
+    /// scoped to `networkFingerprint` (router + subnet), which doesn't
+    /// change between Ethernet and Wi-Fi on the same router, so without
+    /// this filter switching medium showed the other medium's old runs
+    /// mixed in (confirmed live, 2026-08-12: Ethernet→Wi-Fi on the same
+    /// home router surfaced old Ethernet-run stats under the Wi-Fi
+    /// session — real packet-loss/RTT numbers from a wired connection,
+    /// misleading if read as this Wi-Fi session's own history). Same
+    /// filter-at-the-view-model-boundary shape as
+    /// `NetworkQualityViewModel.cloudflareRuns`/`appleRuns`, just against
+    /// a caller-supplied value instead of a fixed record field.
+    func runs(isWiFi: Bool) -> [WiFiStressTestRecord] {
+        recentRuns.filter { $0.isWiFi == isWiFi }
+    }
+
     private let service = WiFiStressTestService()
     private let snapshotStore: SnapshotStore
 
