@@ -970,11 +970,31 @@ off as of those dates, full reasoning intact.
      in this app (Path Discovery's own corroboration checks), just
      applied to firewall-rule refactoring specifically.
 
-  Still not scoped in technical detail — both refinements make the
-  general idea more clearly worth building, not less, but the actual
-  data model (what gets snapshotted, how often, how long retained) and
-  UI (presumably a diff view) still need a real design pass next time
-  this is picked up.
+  3. **A concrete UI shape, raised directly 2026-08-12**: a webpage
+     (not an in-app view — ties into the "move most tiles to a webpage"
+     idea elsewhere in this file), laid out as a table where each
+     *column* is one retained snapshot and each *row* is one tracked
+     field (DHCP server, DNS servers, Wi-Fi channel, confirmed ISP edge,
+     SNMP device inventory, Firewall Visibility's open ports, etc.) —
+     N columns read across, not just a single before/after pair. A cell
+     that changed from the previous column gets flagged, proposed as
+     highlighting it in blue, so scanning down any row shows at a
+     glance which fields have ever moved across the retained window.
+     Real open questions this doesn't answer on its own: diff each
+     column against the one immediately before it, or against a pinned
+     baseline column (a "golden" snapshot taken right after a
+     known-good config)? Is N a fixed retention count, a time window,
+     or unbounded? Does a row that's never changed across all N columns
+     collapse/hide by default, so a long-stable network doesn't bury a
+     handful of real changes under a wall of unchanging rows? None of
+     this decided — recorded as the shape to design against next, not
+     a spec.
+
+  The UI now has a real proposal (refinement 3, above) — still open:
+  the actual data model (what gets snapshotted, how often, how long
+  retained) and the diff-baseline/row-collapse questions refinement 3
+  raises. Needs a real design pass next time this is picked up, not
+  guessed at here.
 
 - [x] **Give NMS a real (free Personal Team) code-signing identity —
   approved, deferred, then done the same day once home ("signed in, go
@@ -2114,6 +2134,84 @@ off as of those dates, full reasoning intact.
   install instructions ("click the menu bar icon"), its source-tree
   comments (`NMSApp.swift # ... menu bar scene`), and the website's own
   framing.
+
+- [ ] **Idea, raised directly 2026-08-12: shrink the app back down to a
+  small popover-style status surface (three colored lines — MyApps,
+  Internet, Wifi-or-Ethernet) and move most of today's window content
+  out to a webpage instead.** Not a blank-slate idea — lands directly
+  on top of two things already in this file, worth reading together
+  rather than as a fresh proposal:
+
+  1. **This app already made the opposite move once, deliberately, for
+     a stated reason.** The single-window rebuild (`4e4e83a`, replacing
+     the old `MenuBarExtra` popover) was explicitly about development
+     speed — the user-guide staleness entry above records the plan as
+     "focus development on the single app window... and only once that
+     matures, consider a separate simplified UI for non-technical
+     users," organized eventually around one mission-control-style
+     status word rather than the old dot-only glance. Today's idea is
+     arguably proposing that this is now that time — worth deciding
+     explicitly (is the tooling mature enough yet, per that stated
+     gate?) rather than starting this as if the earlier decision didn't
+     exist.
+  2. **A local webpage as an app-content surface isn't hypothetical —
+     `LocalDiagnosticServer` (`NMS/Services/LocalDiagnosticServer.swift`)
+     already does this**, serving Path Discovery and diagnostic-log
+     pages. But it's `#if DEBUG`-only, on-demand (starts explicitly,
+     idle-timeout stop), loopback-bound (`127.0.0.1` only), and gated
+     by an ephemeral port plus a random per-launch token — a trust
+     model built for "the developer, running a debug build, on demand,"
+     not "any user, in a shipped release, running continuously." Reusing
+     this plumbing for a real always-on shipped surface means
+     reconsidering each of those properties, not just extending the
+     content it renders — e.g. does a shipped version still need the
+     idle-timeout/on-demand lifecycle if the popover *is* now the
+     primary way in, and does loopback-only still make sense if the
+     popover needs to open the page in an external browser rather than
+     an embedded view.
+
+  **MyApps** maps to the existing SaaS Status feature
+  (`SaaSStatusService`/`SaaSMonitoringViewModel`) — not a new data
+  source. **Internet** and **Wifi-or-Ethernet** each roll up several of
+  today's ~10 window tiles (Path to Internet/Speed Test/DNS+HTTP checks
+  for the former; whichever of `WiFiTile`/`EthernetLinkViewModel` is
+  active, plus DHCP status, for the latter) into one line each — what
+  specifically rolls into each line, and what "worst status wins" means
+  across tiles that don't share a severity model today, is a real,
+  unscoped design question, similar in shape to the existing "Popover
+  should roll up non-green SaaS statuses" entry's own 2-line
+  problems-only box elsewhere in this file — that entry's "earn its
+  keep" pattern (show nothing when everything's healthy) is a plausible
+  starting point for these three lines too, not decided here.
+
+  **Open, and not just a detail: what's the actual linkage between the
+  popover and the webpage** — does a line click open the system browser
+  to a `localhost` URL, an embedded `WKWebView`, or something else?
+  Affects the trust-model question above directly (an embedded view
+  inside the app's own window is a very different exposure than
+  handing a clickable `127.0.0.1` URL to the system browser).
+
+  **A second, separable idea bundled into the same message, genuinely
+  bigger in scope than the rest of this entry: "can users enter scan or
+  test commands from a webpage?"** Everything `LocalDiagnosticServer`
+  serves today is read-only — it renders already-collected state, GET
+  only, nothing it serves can trigger new activity. Accepting commands
+  from the page (re-run a traceroute, kick off an SNMP scan, trigger a
+  DHCP renew) means the local server starts accepting actions, not just
+  serving content — the same category of concern already raised and
+  deliberately left unresolved in this file's Claude-API-integration
+  idea (tool use letting something external *trigger* real network
+  activity on this Mac, not just read a snapshot). Worth treating as its
+  own design question, with its own consent/confirmation story, rather
+  than folding it into "move the tiles to a webpage" as if it were the
+  same-sized change.
+
+  Not scoped further than this — real, well-motivated idea building
+  directly on standing plans and existing plumbing, but the tiling
+  breakdown (what's on the 3 lines vs. what moves to the webpage vs.
+  what a non-technical user even needs to see), the popover-to-webpage
+  linkage, and the read-only-vs-commands fork all need a real design
+  pass before any of this gets built.
 
 - [ ] **Review the internal tooling for observing this app's own UI — can
   Claude get a better view of what actually gets *rendered*, not just
@@ -3710,6 +3808,25 @@ from this list. This one remains, since it's an idea, not a defect):
   retrace that reaches the same conclusion — same "only a real
   transition logs anything" convention `logAddressingChangeIfNeeded`
   already follows for `multipleNATLayersDetected`.
+
+  **Revisited 2026-08-12, independently, as "use RDAP to resolve
+  outbound path to internet... used for reverse path discovery? needs
+  DNS lookups also?"** Close enough to the walk designed above (RDAP-ing
+  each hop outward from "home org" to find the real boundary) that it's
+  recorded here rather than as a separate entry, but two pieces of that
+  phrasing don't obviously match anything designed above and are worth
+  settling before assuming it's the same ask, not just building this: (1)
+  "reverse path discovery" could instead mean something this walk
+  doesn't do at all — observing the *return* path from a remote host
+  back to this Mac, which plain traceroute can't see and which is an
+  asymmetric-routing question, not an organization-boundary question;
+  (2) "needs DNS lookups also" isn't part of the walk as designed above,
+  which is RDAP-only (`ISPIdentityService.identify(ip:)`) —
+  reverse-DNS per hop (`ReverseDNSService`, already used for backside-hop
+  hostnames, see the Path Discovery entries elsewhere in this file) is a
+  separate, complementary signal, not something the RDAP walk itself
+  needs to function. Confirm which is meant next time this comes up,
+  rather than treating it as "go build the design above."
 
 - [ ] **An external vantage point for real firewall/ACL reachability
   testing, triggered by a firewall change or router firmware update —
