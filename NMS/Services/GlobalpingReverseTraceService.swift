@@ -15,10 +15,31 @@ import Foundation
 /// one-off measurement, and new accounts start at 0 with no way to buy
 /// more).
 struct GlobalpingReverseTraceService {
-    enum GlobalpingError: Error {
-        case unexpectedResponse
+    enum GlobalpingError: Error, LocalizedError {
+        /// A request URL couldn't be built at all — effectively
+        /// unreachable in practice (`baseURL` is a fixed string), kept
+        /// distinct from `unexpectedResponse` since it's a different kind
+        /// of failure (never even sent) rather than a bad server reply.
+        case invalidURL
+        case unexpectedResponse(statusCode: Int?)
         case measurementFailed
-        case timedOut
+        case timedOut(attempts: Int, delaySeconds: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidURL:
+                return "Path Discovery couldn't build a valid Globalping API request."
+            case let .unexpectedResponse(statusCode):
+                if let statusCode {
+                    return "Globalping returned an unexpected response (HTTP \(statusCode))."
+                }
+                return "Globalping returned an unexpected response."
+            case .measurementFailed:
+                return "The Globalping measurement failed to complete."
+            case let .timedOut(attempts, delaySeconds):
+                return "Path Discovery timed out waiting for Globalping to finish (polled \(attempts) times, \(delaySeconds)s apart)."
+            }
+        }
     }
 
     struct ProbeTraceResult {
@@ -114,7 +135,7 @@ struct GlobalpingReverseTraceService {
     /// measurement ID to poll via `fetchResult`.
     func createMeasurement(target: String, probeCount: Int? = nil) async throws -> String {
         guard let url = URL(string: Self.baseURL) else {
-            throw GlobalpingError.unexpectedResponse
+            throw GlobalpingError.invalidURL
         }
         let config = Self.loadConfig()
         var request = URLRequest(url: url)
@@ -134,7 +155,7 @@ struct GlobalpingReverseTraceService {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw GlobalpingError.unexpectedResponse
+            throw GlobalpingError.unexpectedResponse(statusCode: (response as? HTTPURLResponse)?.statusCode)
         }
         return try Self.parseMeasurementID(data)
     }
@@ -164,9 +185,10 @@ struct GlobalpingReverseTraceService {
     func fetchResult(measurementID: String, maxAttempts: Int? = nil, delaySeconds: Int? = nil) async throws -> [ProbeTraceResult] {
         let config = Self.loadConfig()
         let maxAttempts = maxAttempts ?? config.maxAttempts
-        let delayNanoseconds = UInt64(delaySeconds ?? config.delaySeconds) * 1_000_000_000
+        let resolvedDelaySeconds = delaySeconds ?? config.delaySeconds
+        let delayNanoseconds = UInt64(resolvedDelaySeconds) * 1_000_000_000
         guard let url = URL(string: "\(Self.baseURL)/\(measurementID)") else {
-            throw GlobalpingError.unexpectedResponse
+            throw GlobalpingError.invalidURL
         }
         for attempt in 0..<maxAttempts {
             if attempt > 0 {
@@ -177,7 +199,7 @@ struct GlobalpingReverseTraceService {
             request.timeoutInterval = config.timeoutSeconds
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                throw GlobalpingError.unexpectedResponse
+                throw GlobalpingError.unexpectedResponse(statusCode: (response as? HTTPURLResponse)?.statusCode)
             }
             let (status, results) = try Self.parseMeasurement(data)
             switch status {
@@ -189,7 +211,7 @@ struct GlobalpingReverseTraceService {
                 continue
             }
         }
-        throw GlobalpingError.timedOut
+        throw GlobalpingError.timedOut(attempts: maxAttempts, delaySeconds: resolvedDelaySeconds)
     }
 
     /// Not `private` — same reasoning as `parseMeasurementID` above.
