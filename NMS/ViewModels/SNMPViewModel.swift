@@ -81,7 +81,7 @@ final class SNMPViewModel {
     private weak var lanDiscovery: LANDiscoveryViewModel?
     private weak var traceroute: TracerouteViewModel?
     private var timer: Timer?
-    /// So `observeFeatureFlagChanges` can tell a real flip of
+    /// So `observeUserDefaultsChanges` can tell a real flip of
     /// `FeatureFlags.snmpDevices` from `UserDefaults.didChangeNotification`
     /// firing for an unrelated key — that notification carries no
     /// information about *which* key changed, so this is compared against
@@ -89,12 +89,20 @@ final class SNMPViewModel {
     private var isActive = false
     private var featureFlagObserver: NSObjectProtocol?
 
-    private static let communitiesDefaultsKey = "NMS.snmpCommunities"
+    /// Not `private` — `SNMPCommunityStringsSection` (Preferences) writes
+    /// this key directly rather than holding a live reference to this view
+    /// model (Settings is a separate scene instance), same
+    /// UserDefaults-as-the-channel pattern `FeatureFlags.ddnsHostnames`/
+    /// `DDNSViewModel` already establish. See `observeUserDefaultsChanges`
+    /// for the read side of that.
+    static let communitiesDefaultsKey = "NMS.snmpCommunities"
     /// Superseded by `communitiesDefaultsKey`; still read once so an
     /// existing single-string setting carries over instead of silently
-    /// reverting to the default.
-    private static let legacyCommunityDefaultsKey = "NMS.snmpCommunity"
-    private static let defaultCommunity = "public"
+    /// reverting to the default. Also not `private`, for the same reason
+    /// as `communitiesDefaultsKey` above — `SNMPCommunityStringsSection`
+    /// reads this to show the real effective value on first open.
+    static let legacyCommunityDefaultsKey = "NMS.snmpCommunity"
+    static let defaultCommunity = "public"
 
     /// Re-polls *already-discovered* devices for uptime/descriptor changes.
     /// Much lighter than discovery (a handful of known-responsive hosts, not
@@ -166,7 +174,7 @@ final class SNMPViewModel {
         if FeatureFlags.snmpDevices {
             activate()
         }
-        observeFeatureFlagChanges()
+        observeUserDefaultsChanges()
     }
 
     // `deinit` is nonisolated even on a `@MainActor` class -- reading
@@ -184,7 +192,7 @@ final class SNMPViewModel {
 
     /// Everything `init()` used to do inline, gated on the flag being on —
     /// factored out so toggling the flag on live (see
-    /// `observeFeatureFlagChanges`) can run the exact same startup
+    /// `observeUserDefaultsChanges`) can run the exact same startup
     /// sequence a fresh launch would, not a second, drifted copy of it.
     private func activate() {
         isActive = true
@@ -270,13 +278,19 @@ final class SNMPViewModel {
 
     /// `UserDefaults.didChangeNotification` carries no information about
     /// *which* key changed — it fires for any write to any default — so
-    /// every post is checked against `isActive` to detect an actual flip
-    /// of `FeatureFlags.snmpDevices` specifically, not assumed to mean
-    /// this one did. `[weak self]` avoids a retain cycle through
-    /// `NotificationCenter`'s own strong hold on the observer token;
-    /// `deinit` removes the token itself, since a weak closure alone
-    /// doesn't stop the center from calling into a dead observer's slot.
-    private func observeFeatureFlagChanges() {
+    /// every post is checked against both `isActive` (for
+    /// `FeatureFlags.snmpDevices`) and the persisted communities (for
+    /// `communitiesDefaultsKey`) rather than either being assumed. Also
+    /// how a write to `communitiesDefaultsKey` from a *different* scene
+    /// instance — `SNMPCommunityStringsSection` in the Preferences
+    /// `Settings` scene, which has no live reference to this view model —
+    /// ever reaches this one; without this, editing the community string
+    /// there would only take effect after relaunch. `[weak self]` avoids a
+    /// retain cycle through `NotificationCenter`'s own strong hold on the
+    /// observer token; `deinit` removes the token itself, since a weak
+    /// closure alone doesn't stop the center from calling into a dead
+    /// observer's slot.
+    private func observeUserDefaultsChanges() {
         featureFlagObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -289,6 +303,19 @@ final class SNMPViewModel {
             } else if !shouldBeActive, self.isActive {
                 self.deactivate()
             }
+
+            let stored = UserDefaults.standard.stringArray(forKey: Self.communitiesDefaultsKey) ?? [Self.defaultCommunity]
+            if stored != self.communities {
+                self.communities = stored
+                // Same "previously-discovered devices may not answer under
+                // the new strings" reasoning as `setCommunities` below —
+                // only while active, matching `scan()`'s own belt-and-
+                // suspenders flag check rather than probing from a
+                // notification handler while genuinely off.
+                if self.isActive {
+                    self.scan()
+                }
+            }
         }
     }
 
@@ -297,13 +324,19 @@ final class SNMPViewModel {
     /// costs a full timeout on silent hosts, so the most widely-used string
     /// belongs first. Duplicates and blanks are dropped; an entirely empty
     /// input falls back to the default rather than leaving nothing to try.
-    func setCommunities(_ value: String) {
+    /// Shared with `SNMPCommunityStringsSection`'s own parse-on-submit, so
+    /// the two never drift into accepting different input shapes.
+    static func resolvedCommunities(from value: String) -> [String] {
         var seen: Set<String> = []
         let parsed = value
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }
-        let resolved = parsed.isEmpty ? [Self.defaultCommunity] : parsed
+        return parsed.isEmpty ? [defaultCommunity] : parsed
+    }
+
+    func setCommunities(_ value: String) {
+        let resolved = Self.resolvedCommunities(from: value)
         guard resolved != communities else { return }
         communities = resolved
         UserDefaults.standard.set(resolved, forKey: Self.communitiesDefaultsKey)

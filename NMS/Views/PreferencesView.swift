@@ -13,12 +13,20 @@ import SwiftUI
 /// fix `ContentView.openWindowInFront` already needed.
 ///
 /// Deliberately narrow in scope: only `FeatureFlags`-shaped settings live
-/// here — a real on/off toggle, not a list. SNMP's community-string field
-/// stays inline in the popover (contextual, where you'd notice you need
-/// it), and Known Networks keeps its own window (a list with delete, not
-/// a toggle) — see DESIGN-NOTES.md's "Feature flags, now that friends are
-/// installing this too" for the reasoning on what does and doesn't belong
-/// here.
+/// here — a real on/off toggle, not a list — plus each toggle's own
+/// contextual sub-preferences (`SNMPCommunityStringsSection`,
+/// `SaaSServicePickerSection`/`UserAddedSitesSection`,
+/// `FirewallVisibilityServerSection`, `DDNSHostnamesSection`). Known
+/// Networks keeps its own window (a list with delete, not a toggle) — see
+/// DESIGN-NOTES.md's "Feature flags, now that friends are installing this
+/// too" for the reasoning on what does and doesn't belong here. SNMP's
+/// community-string field used to stay inline in the popover instead
+/// (contextual, where you'd notice you need it) — that field was deleted
+/// along with the rest of the old popover's tiles in the menu bar popover
+/// conversion and, until `PJorgens61/NMS#19`, never rebuilt anywhere;
+/// landed here rather than back in the popover since the popover has no
+/// budget left for a text field and this window already hosts every
+/// other feature-gated sub-preference.
 struct PreferencesView: View {
     // `@AppStorage`, not `FeatureFlags`' own plain `UserDefaults` reads —
     // this is the one place these values need to be *live*, so a toggle
@@ -75,6 +83,12 @@ struct PreferencesView: View {
                 description: "Active SNMP network probing against whatever LAN this Mac is on. Only turn this on if you're comfortable with that on your own network.",
                 identifier: "preferences.snmpDevices"
             )
+
+            // Same "only shown once the parent feature is on" reasoning as
+            // the SaaS/Firewall sub-sections below.
+            if snmpDevicesEnabled {
+                SNMPCommunityStringsSection()
+            }
 
             feature(
                 "SaaS Monitoring",
