@@ -19,7 +19,6 @@ struct NMSApp: App {
     @State private var wifiStressTest: WiFiStressTestViewModel
     @State private var wifiSSID: WiFiSSIDViewModel
     @State private var ethernetLink: EthernetLinkViewModel
-    @State private var eventLog: EventLogViewModel
     @State private var traceroute: TracerouteViewModel
     @State private var snmp: SNMPViewModel
     @State private var saasMonitoring: SaaSMonitoringViewModel
@@ -116,7 +115,6 @@ struct NMSApp: App {
         let wifiStressTest = WiFiStressTestViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let ethernetLink = EthernetLinkViewModel()
-        let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let connectivity = ConnectivityViewModel(
             networkMonitor: networkMonitor,
@@ -146,7 +144,6 @@ struct NMSApp: App {
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
-            eventLog: eventLog,
             traceroute: traceroute,
             snmp: snmp,
             networkQuality: networkQuality,
@@ -166,7 +163,6 @@ struct NMSApp: App {
         _wifiStressTest = State(wrappedValue: wifiStressTest)
         _wifiSSID = State(wrappedValue: wifiSSID)
         _ethernetLink = State(wrappedValue: ethernetLink)
-        _eventLog = State(wrappedValue: eventLog)
         _traceroute = State(wrappedValue: traceroute)
         _snmp = State(wrappedValue: snmp)
         _saasMonitoring = State(wrappedValue: saasMonitoring)
@@ -247,7 +243,6 @@ struct NMSApp: App {
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
         ethernetLink: EthernetLinkViewModel,
-        eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
         snmp: SNMPViewModel,
         networkQuality: NetworkQualityViewModel,
@@ -292,7 +287,6 @@ struct NMSApp: App {
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
-            eventLog: eventLog,
             networkIdentity: networkIdentity,
             snmp: snmp,
             traceroute: traceroute,
@@ -532,9 +526,15 @@ struct NMSApp: App {
         }
     }
 
-    /// Every producer that can write an `AppEventRecord` tells the log view
-    /// to re-read — plus the one thing that makes *already-stored* history
-    /// readable at all.
+    /// Re-checks exposure on a router/firmware signal, plus the one thing
+    /// that makes *already-stored* history readable at all once a network
+    /// is recognized (see `onNetworkRecognized` below). Used to also fan
+    /// out an `onEventLogged` refresh to `EventLogViewModel` for every
+    /// producer that could write an `AppEventRecord` — removed alongside
+    /// `EventsTile`/`EventLogViewModel` themselves (popover conversion,
+    /// Phase 4): `/log` already reads `AppEventRecord` history directly
+    /// from `SnapshotStore` on every request, no view-model cache to
+    /// invalidate.
     private static func wireHistoryRefresh(
         networkMonitor: NetworkMonitorViewModel,
         connectivity: ConnectivityViewModel,
@@ -542,7 +542,6 @@ struct NMSApp: App {
         ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
-        eventLog: EventLogViewModel,
         networkIdentity: NetworkIdentityViewModel,
         snmp: SNMPViewModel,
         traceroute: TracerouteViewModel,
@@ -552,38 +551,22 @@ struct NMSApp: App {
         ddns: DDNSViewModel,
         firewallVisibility: FirewallVisibilityViewModel
     ) {
-        networkMonitor.onEventLogged = { eventLog.refresh() }
-        connectivity.onEventLogged = { eventLog.refresh() }
-        publicIP.onEventLogged = { eventLog.refresh() }
-        ispIdentity.onEventLogged = { eventLog.refresh() }
-        dhcpLease.onEventLogged = { eventLog.refresh() }
-        wifiSSID.onEventLogged = { eventLog.refresh() }
-        snmp.onEventLogged = { eventLog.refresh() }
-        traceroute.onEventLogged = { eventLog.refresh() }
-        saasMonitoring.onEventLogged = { eventLog.refresh() }
-        ddns.onEventLogged = { eventLog.refresh() }
-        firewallVisibility.onEventLogged = { eventLog.refresh() }
         // See `FirewallVisibilityViewModel.handleRouterSignal()`'s doc
         // comment: a router reboot or firmware change can silently reset
         // port-forwarding rules, so it's worth re-checking exposure.
         snmp.onRouterOrFirewallSoftwareEvent = { firewallVisibility.handleRouterSignal() }
 
-        // Everything above fires on *new* data. This one covers stored
-        // data that was already there: all three view models fetch once
-        // in `init`, before the first LAN scan has resolved which network
-        // this is, so all three come back empty and — until now —
-        // nothing re-ran them. Events only re-read when a new event is
-        // logged, and events are logged on change, so a healthy network
-        // could sit showing "No events yet" over a full history
-        // indefinitely; DHCP history only re-read when a lease changed,
-        // typically a day out; Speed Test history only re-read after a
-        // fresh run, which may never happen this session.
+        // This covers stored data that was already there: these view
+        // models fetch once in `init`, before the first LAN scan has
+        // resolved which network this is, so they come back empty and —
+        // until now — nothing re-ran them. DHCP history only re-read when
+        // a lease changed, typically a day out; Speed Test history only
+        // re-read after a fresh run, which may never happen this session.
         //
         // SNMP needs no equivalent here: `rebuildDeviceList()` is already
         // called from `lanDiscovery.onScanCompleted`, the same scan whose
         // completion drives recognition in the first place.
         networkIdentity.onNetworkRecognized = {
-            eventLog.refresh()
             dhcpLease.reloadHistory()
             // `check()`, not just `reloadHistory()`: the launch/topology-
             // change check that raced ahead of recognition (see
@@ -612,42 +595,12 @@ struct NMSApp: App {
         }
     }
 
-    /// Built once here rather than at `body`'s own single call site —
-    /// matches the shape this had when there were two call sites (the
-    /// popover and the Expert Mode window), kept even now that there's
-    /// only one, since view-model wiring this dense is easier to read as
-    /// its own named step.
-    private func contentView() -> ContentView {
-        ContentView(
-            viewModel: networkMonitor,
-            lanDiscovery: lanDiscovery,
-            connectivity: connectivity,
-            networkIdentity: networkIdentity,
-            publicIP: publicIP,
-            ispIdentity: ispIdentity,
-            dhcpLease: dhcpLease,
-            networkQuality: networkQuality,
-            wifiStressTest: wifiStressTest,
-            wifiSSID: wifiSSID,
-            ethernetLink: ethernetLink,
-            eventLog: eventLog,
-            traceroute: traceroute,
-            snmp: snmp,
-            saasMonitoring: saasMonitoring,
-            ddns: ddns,
-            firewallVisibility: firewallVisibility,
-            buildInfo: buildInfo,
-            storeURL: storeURL,
-            snapshotStore: snapshotStore
-        )
-    }
-
     /// Opens a diagnostic-server page in the system browser — same
     /// `NSWorkspace.shared.open(url)`-via-`diagnosticServerURL(path:)`
     /// shape RoonWatch's own `openDiagnostics` closure already uses, a
     /// deliberate choice (not an embedded `WKWebView`) recorded in the
-    /// plan doc's "Decided, not open" list. `MenuBarView` calls this once
-    /// Phase 3 wires its status lines/links through.
+    /// plan doc's "Decided, not open" list. Passed into `MenuBarView`
+    /// below, which calls it for every status line/link tap.
     private func openDiagnostics(path: String) {
         Task {
             guard let url = await diagnosticServer.diagnosticServerURL(path: path) else { return }

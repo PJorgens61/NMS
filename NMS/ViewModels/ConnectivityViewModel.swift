@@ -73,11 +73,6 @@ final class ConnectivityViewModel {
     /// a sweep of its own.
     private static let maxInfrastructureTargets = 6
 
-    /// Fired whenever an `AppEventRecord` gets logged (router/internet/DNS/
-    /// HTTP became unreachable, or became reachable again), so the event
-    /// log view can refresh.
-    var onEventLogged: (() -> Void)?
-
     /// Fired specifically when the raw IP-layer check (ping to `1.1.1.1`)
     /// transitions to unreachable — not for router/DNS/HTTP, and not for
     /// recoveries. This is the earliest, strongest signal that something
@@ -631,7 +626,6 @@ final class ConnectivityViewModel {
     /// would produce one row per 30s check cycle instead of one row for the
     /// whole outage.
     private func logTransitions(previous: [ConnectivityCheck], current: [ConnectivityCheck]) {
-        var loggedAny = false
         for check in current {
             let kinds: (failure: AppEventKind, recovery: AppEventKind)
             switch check.label {
@@ -673,20 +667,15 @@ final class ConnectivityViewModel {
                     kinds.failure,
                     message: "\(FailureInjector.messagePrefix(for: check.label))\(check.label) became unreachable"
                 )
-                loggedAny = true
                 if check.label == OverallStatus.internetLabel {
                     onInternetUnreachable?()
                 }
             } else if check.success, wasFailing {
                 snapshotStore.logEvent(kinds.recovery, message: "\(check.label) reachable again")
-                loggedAny = true
                 if check.label == OverallStatus.internetLabel {
                     onInternetReachable?()
                 }
             }
-        }
-        if loggedAny {
-            onEventLogged?()
         }
     }
 

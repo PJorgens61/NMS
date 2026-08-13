@@ -74,10 +74,6 @@ final class WiFiSSIDViewModel {
     /// above.
     var isLocationAuthorizationDenied: Bool { authService.isDenied }
 
-    /// Fired when a `wifiNetworkChanged` event is logged, so the event log
-    /// view refreshes — mirrors the other view models' hook.
-    var onEventLogged: (() -> Void)?
-
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
     }
@@ -232,6 +228,5 @@ final class WiFiSSIDViewModel {
             message: "Wi-Fi network changed: \(previous) → \(ssid)",
             networkFingerprint: departingNetworkFingerprint
         )
-        onEventLogged?()
     }
 }

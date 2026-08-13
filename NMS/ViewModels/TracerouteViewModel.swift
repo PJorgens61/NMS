@@ -50,11 +50,6 @@ final class TracerouteViewModel {
     /// `connectivity.runChecks()`.
     var onTraceCompleted: (() -> Void)?
 
-    /// Fired whenever an `AppEventRecord` gets logged (a NAT-layer
-    /// change), so the event log view can refresh — mirrors every other
-    /// view model's hook. The only event this view model logs.
-    var onEventLogged: (() -> Void)?
-
     /// Whether the last trace found more than one non-internet hop before
     /// reaching the real internet — `nil` until the first trace resolves.
     /// `logAddressingChangeIfNeeded` compares against this to log only on
@@ -571,7 +566,6 @@ final class TracerouteViewModel {
             message = "Back to a single NAT layer to the internet."
         }
         snapshotStore.logEvent(.multipleNATLayersDetected, message: message)
-        onEventLogged?()
     }
 
     /// The single place a run ends, so the deferred-rerun check can't be

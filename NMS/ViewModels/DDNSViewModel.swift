@@ -50,10 +50,6 @@ final class DDNSViewModel {
     }
     private(set) var isChecking = false
 
-    /// Fired when an `AppEventRecord` gets logged, so the event log view
-    /// can refresh — same convention every other view model here uses.
-    var onEventLogged: (() -> Void)?
-
     private let service = DDNSResolutionService()
     private let snapshotStore: SnapshotStore
     private let publicIP: PublicIPViewModel
@@ -253,7 +249,6 @@ final class DDNSViewModel {
                 message = "\(result.hostname) is back in sync with this connection's public IP."
             }
             snapshotStore.logEvent(kind, message: message)
-            onEventLogged?()
         }
     }
 }

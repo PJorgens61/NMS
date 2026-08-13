@@ -114,19 +114,11 @@ final class SNMPViewModel {
 
     var isAvailable: Bool { SNMPService.isAvailable }
 
-    /// Fired when an `AppEventRecord` gets logged (a device restarted or its
-    /// software changed), so the event log view can refresh.
-    var onEventLogged: (() -> Void)?
-
     /// Fired specifically for `.snmpDeviceRestarted`/
-    /// `.snmpDeviceSoftwareChanged` (a subset of what triggers
-    /// `onEventLogged` above) — `FirewallVisibilityViewModel.handleRouterSignal()`
-    /// hooks this in `NMSApp`'s wiring to re-check external exposure after
-    /// a reboot or firmware change that could have reset port-forwarding
-    /// rules. A second, separate closure rather than widening
-    /// `onEventLogged`'s signature to carry the event kind: every other
-    /// call site only ever needed "something changed, refresh," so this
-    /// stays additive instead of touching every existing caller.
+    /// `.snmpDeviceSoftwareChanged` —
+    /// `FirewallVisibilityViewModel.handleRouterSignal()` hooks this in
+    /// `NMSApp`'s wiring to re-check external exposure after a reboot or
+    /// firmware change that could have reset port-forwarding rules.
     var onRouterOrFirewallSoftwareEvent: (() -> Void)?
 
     /// Fired when the device list actually changes — these devices are the
@@ -439,7 +431,6 @@ final class SNMPViewModel {
             enrichHostnames(for: addressesNeedingHostname)
         }
 
-        var loggedAny = false
         for device in found {
             switch snapshotStore.recordSNMPDevice(device) {
             case .firstSeen, .unchanged:
@@ -456,7 +447,6 @@ final class SNMPViewModel {
                     .snmpDeviceRestarted,
                     message: "\(prefix)\(device.displayName) restarted unexpectedly"
                 )
-                loggedAny = true
                 onRouterOrFirewallSoftwareEvent?()
             case let .softwareChanged(previousDescr, restarted):
                 let prefix = FailureInjector.isSNMPForced(device.displayName) ? "[injected] " : ""
@@ -465,12 +455,8 @@ final class SNMPViewModel {
                     .snmpDeviceSoftwareChanged,
                     message: "\(prefix)\(device.displayName) \(verb): \(previousDescr) → \(device.sysDescr)"
                 )
-                loggedAny = true
                 onRouterOrFirewallSoftwareEvent?()
             }
-        }
-        if loggedAny {
-            onEventLogged?()
         }
     }
 

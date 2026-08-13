@@ -32,10 +32,6 @@ final class NetworkMonitorViewModel {
     /// work to the same topology-change event.
     var onChangePersisted: ((NetworkSnapshot) -> Void)?
 
-    /// Fired whenever an `AppEventRecord` gets logged (interface down or back
-    /// up), so the event log view can refresh.
-    var onEventLogged: (() -> Void)?
-
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         // A plain read, not `updateInterface()` — there's no genuine
@@ -101,7 +97,6 @@ final class NetworkMonitorViewModel {
                 // log shows outage start and end, not just start.
                 let label = updated.displayName ?? updated.interfaceName
                 snapshotStore.logEvent(.interfaceUp, message: "Interface back up (\(label))")
-                onEventLogged?()
             } else if let previous, previous.interfaceName != updated.interfaceName {
                 // A different physical interface took over as primary (e.g.
                 // Ethernet <-> Wi-Fi failover) without ever fully losing
@@ -120,7 +115,6 @@ final class NetworkMonitorViewModel {
                 // arrow form leaves real headroom (~32pt) for the same
                 // real-world case.
                 snapshotStore.logEvent(.interfaceChanged, message: "Interface changed: \(fromLabel) → \(toLabel)")
-                onEventLogged?()
             }
         } else if let previous {
             // Transitioned from having a connection to having none — this
@@ -129,7 +123,6 @@ final class NetworkMonitorViewModel {
             // it into any persisted history at all.
             let label = previous.displayName ?? previous.interfaceName
             snapshotStore.logEvent(.interfaceDown, message: "Interface went down (was \(label))")
-            onEventLogged?()
         }
     }
 
