@@ -19,6 +19,7 @@ struct MenuBarView: View {
     var snmp: SNMPViewModel
     var saasMonitoring: SaaSMonitoringViewModel
     var firewallVisibility: FirewallVisibilityViewModel
+    var pathDiscoveryRunner: PathDiscoveryRunner
 
     /// Opens a diagnostic-server page in the system browser — see
     /// `NMSApp.openDiagnostics(path:)`. A plain closure, not a direct
@@ -243,8 +244,10 @@ struct MenuBarView: View {
     private func dispatch(_ test: NetworkTestCatalog.Test) {
         let interfaceName = viewModel.currentInterface?.interfaceName
         switch test.id {
-        case "pathDiscovery":
+        case "traceroute":
             traceroute.run()
+        case "pathDiscovery":
+            pathDiscoveryRunner.run()
         case "dnsCheck":
             // No standalone "just DNS" trigger exists -- `runDNSCheck` is
             // private to `ConnectivityViewModel`. Runs the full check

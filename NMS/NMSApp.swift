@@ -32,16 +32,14 @@ struct NMSApp: App {
     // via a default value, so `setSaaSMonitoring`/`setNetworkViewModels`
     // can run once at launch before it's wrapped in `State`.
     @State private var diagnosticServer: LocalDiagnosticServer
-    // Debug-only tooling, owned here (not `ContentView`) now that it's
-    // shared by `DebugToolsView`, a separate window — see that view's own
-    // doc comment for why debug action buttons moved out of the main
-    // footer. Still `#if DEBUG`: Path Discovery's own trigger stays
-    // behind the (still debug-only, for now) Debug Tools window until
-    // the popover conversion's later phase folds it into the popover's
-    // own Run Test menu and removes this window entirely.
-    #if DEBUG
-    @State private var globalpingService = GlobalpingReverseTraceService()
-    #endif
+    // Owns its own `GlobalpingReverseTraceService()` (a plain stateless
+    // struct, constructed fresh in `init()` below) rather than a
+    // separate `NMSApp`-level property for it -- popover conversion,
+    // Phase 5: Path Discovery's own trigger moved from the (deleted)
+    // debug-only Debug Tools window into the popover's own Run Test ▾
+    // menu, un-gated from `#if DEBUG` since it has to be constructible
+    // in Release too.
+    @State private var pathDiscoveryRunner: PathDiscoveryRunner
     /// Real, user-driven popover open/closed state — see `MenuBarView`'s
     /// own doc comment (once Phase 3 wires this through) for why this
     /// can't be `.task`/`.onAppear` on the popover's content instead;
@@ -170,6 +168,7 @@ struct NMSApp: App {
         _firewallVisibility = State(wrappedValue: firewallVisibility)
 
         let diagnosticServer = LocalDiagnosticServer()
+        diagnosticServer.setSnapshotStore(store)
         diagnosticServer.setSaaSMonitoring(saasMonitoring)
         diagnosticServer.setNetworkViewModels(.init(
             viewModel: networkMonitor,
@@ -184,6 +183,16 @@ struct NMSApp: App {
             ddns: ddns
         ))
         _diagnosticServer = State(wrappedValue: diagnosticServer)
+
+        _pathDiscoveryRunner = State(wrappedValue: PathDiscoveryRunner(
+            globalpingService: GlobalpingReverseTraceService(),
+            diagnosticServer: diagnosticServer,
+            snapshotStore: store,
+            publicIP: publicIP,
+            traceroute: traceroute,
+            networkIdentity: networkIdentity,
+            wifiSSID: wifiSSID
+        ))
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
@@ -633,6 +642,7 @@ struct NMSApp: App {
                 snmp: snmp,
                 saasMonitoring: saasMonitoring,
                 firewallVisibility: firewallVisibility,
+                pathDiscoveryRunner: pathDiscoveryRunner,
                 openDiagnostics: openDiagnostics
             )
         } label: {
@@ -651,23 +661,6 @@ struct NMSApp: App {
             KnownNetworksView(networkIdentity: networkIdentity, snapshotStore: snapshotStore)
         }
         .defaultSize(width: 460, height: 320)
-
-        // Debug-only action buttons, pulled out of the main footer — see
-        // `DebugToolsView`'s own doc comment for why.
-        #if DEBUG
-        Window("Debug Tools", id: "debug-tools") {
-            DebugToolsView(
-                diagnosticServer: diagnosticServer,
-                globalpingService: globalpingService,
-                snapshotStore: snapshotStore,
-                publicIP: publicIP,
-                traceroute: traceroute,
-                networkIdentity: networkIdentity,
-                wifiSSID: wifiSSID
-            )
-        }
-        .defaultSize(width: 360, height: 240)
-        #endif
 
         // A real `Settings` scene now, not a plain `Window` -- see
         // `PreferencesView`'s doc comment for why it used to avoid this

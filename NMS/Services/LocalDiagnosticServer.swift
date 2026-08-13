@@ -120,6 +120,21 @@ final class LocalDiagnosticServer {
         return base.appendingPathComponent("log")
     }
 
+    /// Registers `snapshotStore` without starting the listener or
+    /// returning a URL — `/log`/`/quickcheck` both read this lazily on
+    /// whatever request eventually arrives, so it just needs to be set
+    /// once at launch. Added when the old debug-only "Diagnostic Log…"
+    /// button (whose click handler used to call `start(snapshotStore:)`
+    /// above for this exact purpose, as a side effect of also opening the
+    /// browser) was deleted in the popover conversion, Phase 5 — without
+    /// this, nothing ever sets `snapshotStore` at all once that button's
+    /// gone, and `/log` silently shows its "not yet available" fallback
+    /// forever. Same "set once alongside the rest of `NMSApp`'s wiring"
+    /// shape as `setSaaSMonitoring`/`setNetworkViewModels`.
+    func setSnapshotStore(_ snapshotStore: SnapshotStore) {
+        self.snapshotStore = snapshotStore
+    }
+
     /// Registers the live SaaS view model `/saas` reads from — see that
     /// property's own doc comment for why this doesn't go through
     /// `SnapshotStore` the way everything else does. Safe to call any

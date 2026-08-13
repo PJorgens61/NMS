@@ -1,6 +1,7 @@
 {
   "tests": [
-    { "id": "pathDiscovery", "label": "Trace Now", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
+    { "id": "traceroute", "label": "Trace Now", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
+    { "id": "pathDiscovery", "label": "Path Discovery…", "includeInQuickCheck": false, "requiresConfirmation": false, "parameters": {} },
     { "id": "dnsCheck", "label": "Check DNS", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
     { "id": "dhcpStatus", "label": "Check DHCP Status", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
     {
