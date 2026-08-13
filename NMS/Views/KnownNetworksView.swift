@@ -10,6 +10,16 @@ import SwiftUI
 struct KnownNetworksView: View {
     var networkIdentity: NetworkIdentityViewModel
     let snapshotStore: SnapshotStore
+    /// Opens a diagnostic-server page in the system browser — see
+    /// `MenuBarView.openDiagnostics` for the identical shape/reasoning.
+    /// Used by "Compare Selected" (`PJorgens61/NMS#15`) to open
+    /// `/compare?fingerprints=...`.
+    var openDiagnostics: (String) -> Void
+
+    /// Fingerprints checked for comparison — separate from any rename/
+    /// review/delete state above, so selecting rows to compare doesn't
+    /// interact with editing a label mid-selection.
+    @State private var selectedFingerprints: Set<String> = []
 
     /// The network currently shown in the Review sheet — `nil` when
     /// closed. A `.sheet(item:)` rather than a new `Window` scene:
@@ -62,6 +72,17 @@ struct KnownNetworksView: View {
                     }
                 }
                 .listStyle(.inset)
+
+                Button("Compare Selected (\(selectedFingerprints.count))") {
+                    let query = selectedFingerprints
+                        .map { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0 }
+                        .joined(separator: ",")
+                    openDiagnostics("compare?fingerprints=\(query)")
+                }
+                .disabled(selectedFingerprints.count < 2)
+                .padding(12)
+                .accessibilityIdentifier("knownNetworks.compareSelected")
+                .help("Opens a side-by-side comparison of the checked networks' router, ISP edge, DHCP, and SNMP-device data")
             }
         }
         .frame(minWidth: 420, minHeight: 240)
@@ -99,6 +120,20 @@ struct KnownNetworksView: View {
     @ViewBuilder
     private func row(for network: KnownNetwork) -> some View {
         HStack {
+            Button {
+                if selectedFingerprints.contains(network.fingerprint) {
+                    selectedFingerprints.remove(network.fingerprint)
+                } else {
+                    selectedFingerprints.insert(network.fingerprint)
+                }
+            } label: {
+                Image(systemName: selectedFingerprints.contains(network.fingerprint) ? "checkmark.circle.fill" : "circle")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(selectedFingerprints.contains(network.fingerprint) ? Color.accentColor : Color.secondary)
+            .accessibilityLabel(selectedFingerprints.contains(network.fingerprint) ? "Deselect for comparison" : "Select for comparison")
+            .accessibilityIdentifier("knownNetworks.compare.\(network.fingerprint)")
+            .help("Check to include this network in a side-by-side comparison")
             VStack(alignment: .leading, spacing: 2) {
                 // The placeholder is the same fallback the row used to
                 // show as static text, so an unlabelled network still

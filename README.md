@@ -180,6 +180,16 @@ for the identical reason.
 - **`/path-discovery`** — a Globalping-based reverse traceroute from
   several external vantage points back toward this Mac's own public IP
   (see "Path Discovery" below), plus an ISP-topology diagram.
+- **`/compare`** — a side-by-side table of two or more previously-visited
+  networks, for spotting a recurring chain-store deployment across
+  separate visits (`PJorgens61/NMS#15`, "is every Starbucks the same
+  network?"). Router MAC prefix, confirmed ISP edge address, DHCP lease
+  shape, and discovered SNMP device descriptors only — no automatic
+  similarity scoring, and ISP org name/CGNAT status aren't included yet
+  (neither is a structured per-network fact today, only free text logged
+  on a later *change*, which a single visit never triggers). Reached via
+  Known Networks' multi-select "Compare Selected" button, not a
+  standalone nav destination.
 
 **Networks…** (in the popover) opens a separate window listing every
 network this Mac has connected to, with a way to forget one (and

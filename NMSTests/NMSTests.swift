@@ -2438,6 +2438,41 @@ struct LocalDiagnosticServerTests {
         #expect(!svg.contains("nan"))
         #expect(!svg.contains("inf"))
     }
+
+    // MARK: - /compare (PJorgens61/NMS#15)
+    //
+    // `macOUI` is a pure string slice, no SwiftData involved -- safe,
+    // covered below. `renderComparePage`'s empty-state branch is NOT --
+    // tried it directly (`SnapshotStore.fetchKnownNetworks()` against a
+    // fresh in-memory container, no `ProviderEdgeRecord` involved at all)
+    // and it crashed the whole test host mid-run ("Restarting after
+    // unexpected exit, crash, or test timeout"), the identical signature
+    // `PathDiscoveryEventLoggingTests` below already documents for
+    // `ProviderEdgeRecord` -- so this isn't specific to that one model
+    // the way the existing doc comment assumed; `KnownNetwork` fetches
+    // from a fresh in-memory container hit it too. Not root-caused
+    // further, matching this codebase's own established response to this
+    // exact class of SwiftData-framework crash (see
+    // `PathDiscoveryEventLoggingTests`'s own doc comment) -- disabled
+    // rather than chased.
+
+    @Test("a raw MAC's OUI is its first three colon-separated octets")
+    func macOUIFirstThreeOctets() {
+        #expect(LocalDiagnosticServer.macOUI("aa:bb:cc:dd:ee:ff") == "aa:bb:cc")
+    }
+
+    @Test(
+        "no fingerprints, or fewer than two that resolve to a real network, shows the empty state -- not a broken table",
+        .disabled("Crashes SwiftData.framework fetching KnownNetwork from a fresh in-memory container -- confirmed directly (crashed this suite's own test run), same signature as the ProviderEdgeRecord crash PathDiscoveryEventLoggingTests documents below, just a different model.")
+    )
+    func compareBelowTwoNetworksShowsEmptyState() throws {
+        let store = try makeSnapshotStore()
+        let empty = LocalDiagnosticServer.renderComparePage(fingerprints: [], snapshotStore: store)
+        #expect(empty.contains("Select at least two networks"))
+
+        let oneUnresolved = LocalDiagnosticServer.renderComparePage(fingerprints: ["not-a-real-fingerprint"], snapshotStore: store)
+        #expect(oneUnresolved.contains("Select at least two networks"))
+    }
 }
 
 // MARK: - SnapshotStore.recordPathDiscoveryRun event logging

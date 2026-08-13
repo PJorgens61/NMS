@@ -248,6 +248,16 @@ suggestion in `/network` looks wrong (see
 from **Run Test ▾ → Trace Now**, which just re-runs `/network`'s own
 outbound trace in place.
 
+### `/compare`
+
+Opened from **Known Networks…**'s multi-select "Compare Selected"
+button (check two or more networks, then click it) — a side-by-side
+table for spotting whether two visits look like the same underlying
+deployment (router MAC prefix, confirmed ISP edge, DHCP lease shape,
+discovered SNMP device descriptors). No automatic "these look similar"
+scoring — you're the judge, this just lays the facts out. See
+[Scenario F](#scenario-f--is-this-the-same-starbucks-as-last-time).
+
 ## 5. Usage scenarios
 
 ### Scenario A — First time on a new network
@@ -337,6 +347,22 @@ read-only history for that network specifically (its own Events, SNMP
 Devices, DHCP History, and Wi-Fi telemetry, exactly as it looked while
 you were last on it) — read-only, no export button. **Forget** removes a
 network and everything recorded on it, permanently.
+
+### Scenario F — Is this the same Starbucks as last time?
+
+Chain locations sometimes run identical or near-identical network
+deployments store to store. In **Known Networks…**, check the box next
+to two or more networks you've visited (a small circle to the left of
+each name) and click **Compare Selected** — opens
+[`/compare`](#compare) with a side-by-side table: router MAC prefix,
+confirmed ISP edge address, DHCP lease shape (server, lease/T1/T2
+timers, domain), and any SNMP devices discovered on each. There's no
+automatic "these match" verdict — read the table yourself. Two real
+limits worth knowing: SNMP devices are usually empty on customer-facing
+guest Wi-Fi (guest networks are typically walled off from the actual
+switches/APs), and ISP name/CGNAT status aren't in the table at all yet
+— neither is recorded as a structured fact for a single visit today,
+only as a free-text log entry the *next* time it changes.
 
 ## 6. Reference tables
 

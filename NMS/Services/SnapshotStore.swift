@@ -1102,6 +1102,19 @@ final class SnapshotStore {
         return (try? context.fetch(descriptor))?.first
     }
 
+    /// Explicit-fingerprint sibling of `latestProviderEdge()`, for the
+    /// network-comparison page (`PJorgens61/NMS#15`) — same shape as
+    /// `fetchDHCPLeaseHistory(for:)`/`fetchSNMPDevices(for:)`'s own
+    /// explicit-fingerprint siblings.
+    func latestProviderEdge(for fingerprint: String) -> ProviderEdgeRecord? {
+        var descriptor = FetchDescriptor<ProviderEdgeRecord>(
+            predicate: #Predicate { $0.networkFingerprint == fingerprint },
+            sortBy: [SortDescriptor(\.observedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
     /// Persists a new row only if the ISP edge router's address actually
     /// changed since the last recorded value — mirrors
     /// `recordPublicIPIfChanged`: a timeline of real changes, not a

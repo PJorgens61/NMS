@@ -659,7 +659,7 @@ struct NMSApp: App {
         // A separate window rather than a sheet — see
         // `KnownNetworksView`'s doc comment.
         Window("Known Networks", id: "known-networks") {
-            KnownNetworksView(networkIdentity: networkIdentity, snapshotStore: snapshotStore)
+            KnownNetworksView(networkIdentity: networkIdentity, snapshotStore: snapshotStore, openDiagnostics: openDiagnostics)
         }
         .defaultSize(width: 460, height: 320)
 

@@ -434,8 +434,24 @@ final class LocalDiagnosticServer {
         let prefix = "/\(pathToken)"
         let section = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
 
+        // Split off a query string before routing -- no route needed one
+        // until `/compare` (`PJorgens61/NMS#15`), which needs the
+        // selected fingerprints somehow, and a query string is the
+        // ordinary way to pass that rather than inventing a path-segment
+        // convention. Every existing route's own string has no "?" in it,
+        // so this is a no-op for all of them.
+        let route: String?
+        let query: String
+        if let section, let questionMark = section.firstIndex(of: "?") {
+            route = String(section[section.startIndex..<questionMark])
+            query = String(section[section.index(after: questionMark)...])
+        } else {
+            route = section
+            query = ""
+        }
+
         let response: Data
-        switch section {
+        switch route {
         case "":
             // Redirect to the trailing-slash form so the index page's own
             // relative nav links ("log", "path-discovery") resolve against
@@ -485,6 +501,29 @@ final class LocalDiagnosticServer {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderReverseTracePage(target: content.target, results: content.results, confirmedAddress: content.confirmedAddress, siblingAddresses: content.siblingAddresses, frontsideHops: content.frontsideHops, networkName: content.networkName, geoHints: content.geoHints, scamperVerdicts: content.scamperVerdicts))
             } else {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Path Discovery", message: "No run yet — click \u{201c}Path Discovery\u{2026}\u{201d} in Debug Tools."))
+            }
+        case "/compare":
+            if let snapshotStore {
+                // "fingerprints=A,B" -- each component percent-encoded
+                // individually by the client (KnownNetworksView) before
+                // joining with a bare "," (a fingerprint's own characters
+                // -- hex digits, ":", ".", "/", its own internal "|" --
+                // never include a literal ",", so splitting on it first is
+                // never ambiguous).
+                let fingerprints = query
+                    .split(separator: "&")
+                    .compactMap { pair -> String? in
+                        let parts = pair.split(separator: "=", maxSplits: 1)
+                        guard parts.count == 2, parts[0] == "fingerprints" else { return nil }
+                        return String(parts[1])
+                    }
+                    .first?
+                    .split(separator: ",")
+                    .compactMap { String($0).removingPercentEncoding }
+                    ?? []
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderComparePage(fingerprints: fingerprints, snapshotStore: snapshotStore))
+            } else {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Compare", message: "Not started yet."))
             }
         default:
             response = Self.httpResponse(status: "404 Not Found", contentType: "text/plain; charset=utf-8", body: "Not found.")
@@ -1383,6 +1422,132 @@ final class LocalDiagnosticServer {
         """
     }
 
+    /// Side-by-side comparison of already-visited networks, for spotting a
+    /// recurring chain-store deployment across separate visits
+    /// (`PJorgens61/NMS#15`). No automatic similarity scoring — the user
+    /// is the comparison engine, matching the issue's own "genuinely
+    /// testable with data already collected" framing; this just lays
+    /// already-persisted, fingerprint-scoped facts out side by side.
+    /// Triggered from `KnownNetworksView`'s multi-select "Compare
+    /// Selected" button, not a persistent nav destination — see
+    /// `navHTML(current: nil)` below.
+    ///
+    /// Not `private` — attempted a direct unit test of the empty-state
+    /// branch (`LocalDiagnosticServerTests.compareBelowTwoNetworksShowsEmptyState`,
+    /// `.disabled`), which crashed the whole test host mid-run fetching
+    /// plain `KnownNetwork` from a fresh in-memory container — the same
+    /// `SwiftData.framework` trap `PathDiscoveryEventLoggingTests`
+    /// documents for `ProviderEdgeRecord`, just not scoped to that one
+    /// model the way that doc comment assumed. Widened access anyway
+    /// (matching `sparklineSVG`'s precedent) in case a future container
+    /// configuration makes this safely testable; `macOUI` below is what's
+    /// actually covered today.
+    static func renderComparePage(fingerprints: [String], snapshotStore: SnapshotStore) -> String {
+        let allKnown = snapshotStore.fetchKnownNetworks()
+        // Silently drops any fingerprint that no longer resolves (e.g. a
+        // network deleted after the compare link was opened) rather than
+        // erroring — comparing whatever still exists is more useful than
+        // a hard failure over one stale entry.
+        let networks = fingerprints.compactMap { fingerprint in allKnown.first { $0.fingerprint == fingerprint } }
+
+        guard networks.count >= 2 else {
+            return """
+            <!doctype html>
+            <html>
+            <head>
+            <meta charset="utf-8">
+            <title>NMS — Compare</title>
+            <style>\(sharedCSS)</style>
+            </head>
+            <body>
+            <h1>NMS — Compare</h1>
+            \(navHTML(current: nil))
+            <p class="empty">Select at least two networks in Known Networks, then Compare Selected.</p>
+            </body>
+            </html>
+            """
+        }
+
+        func displayName(_ network: KnownNetwork) -> String {
+            if let label = network.label, !label.isEmpty { return label }
+            return "Unlabeled"
+        }
+
+        func headerCell(_ network: KnownNetwork) -> String {
+            "<th>\(escape(displayName(network)))<br><span class=\"secondary\">seen \(network.timesSeen)\u{00d7} \u{00b7} first \(network.firstSeenAt.formatted(date: .abbreviated, time: .omitted))</span></th>"
+        }
+
+        func macOUICell(_ network: KnownNetwork) -> String {
+            "<td>\(escape(macOUI(network.routerMAC)))</td>"
+        }
+
+        func edgeCell(_ network: KnownNetwork) -> String {
+            guard let edge = snapshotStore.latestProviderEdge(for: network.fingerprint) else {
+                return "<td class=\"secondary\">Not confirmed</td>"
+            }
+            let detail = edge.hostname.map { "\(edge.address) (\($0))" } ?? edge.address
+            return "<td>\(escape(detail))</td>"
+        }
+
+        func dhcpCell(_ network: KnownNetwork) -> String {
+            guard let lease = snapshotStore.fetchDHCPLeaseHistory(for: network.fingerprint, limit: 1).first else {
+                return "<td class=\"secondary\">No lease recorded</td>"
+            }
+            let domain = lease.domainName.map { " \u{00b7} \($0)" } ?? ""
+            return "<td>\(escape(lease.serverIdentifier)) \u{00b7} lease \(lease.leaseSeconds)s, T1 \(lease.t1Seconds)s, T2 \(lease.t2Seconds)s\(escape(domain))</td>"
+        }
+
+        func snmpCell(_ network: KnownNetwork) -> String {
+            let devices = snapshotStore.fetchSNMPDevices(for: network.fingerprint)
+            guard !devices.isEmpty else {
+                return "<td class=\"secondary\">None discovered</td>"
+            }
+            let descriptions = devices.map { $0.sysName ?? $0.sysDescr }.joined(separator: "; ")
+            return "<td>\(escape(descriptions))</td>"
+        }
+
+        func row(_ label: String, _ cell: (KnownNetwork) -> String) -> String {
+            "<tr><td>\(escape(label))</td>\(networks.map(cell).joined())</tr>"
+        }
+
+        let headerRow = "<tr><td></td>\(networks.map(headerCell).joined())</tr>"
+        let rows = [
+            row("Router MAC prefix", macOUICell),
+            row("ISP Edge", edgeCell),
+            row("DHCP", dhcpCell),
+            row("SNMP devices", snmpCell)
+        ].joined(separator: "\n")
+
+        return """
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>NMS — Compare</title>
+        <style>\(sharedCSS)</style>
+        </head>
+        <body>
+        <h1>NMS — Compare</h1>
+        \(navHTML(current: nil))
+        <div class="card">
+        <table>
+        \(headerRow)
+        \(rows)
+        </table>
+        </div>
+        <p class="secondary">ISP name and CGNAT status aren\u{2019}t included yet — neither is recorded as a structured per-network fact today, only as free text on a later *change*, which a single visit never triggers.</p>
+        </body>
+        </html>
+        """
+    }
+
+    /// First three colon-separated octets of a MAC address (the vendor
+    /// prefix, OUI) — a raw string slice, deliberately no vendor-name
+    /// lookup for v1 (`PJorgens61/NMS#15`'s own explicitly-deferred list).
+    static func macOUI(_ mac: String) -> String {
+        mac.split(separator: ":").prefix(3).joined(separator: ":")
+    }
+
     private static func renderNotYetAvailablePage(title: String, message: String) -> String {
         let current: String
         switch title {
@@ -1390,6 +1555,7 @@ final class LocalDiagnosticServer {
         case "Network": current = "network"
         case "SaaS Status": current = "saas"
         case "Quick Check": current = "quickcheck"
+        case "Compare": current = "compare"
         default: current = "path-discovery"
         }
         return """
