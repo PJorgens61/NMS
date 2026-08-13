@@ -449,11 +449,18 @@ final class LocalDiagnosticServer {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "SaaS Status", message: "SaaS monitoring hasn\u{2019}t reported in yet."))
             }
         case "/quickcheck":
-            // Real content needs `QuickCheckRunner` (Phase 3) to actually
-            // run the bundle and hand this server a result to render --
-            // stubbed here so the nav link and route both exist now
-            // rather than 404ing until that lands.
-            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Quick Check", message: "No Quick Check run yet — click \u{201c}Run Quick Check\u{201d} in the popover."))
+            // Still a stub -- see this file's own PUNCHLIST-style note in
+            // the popover conversion plan doc. "Run Quick Check" fires
+            // each bundled test's real trigger (same one-per-test call
+            // every native tile already used), but there's no shared
+            // "all done" signal across five independently-async view
+            // models to synchronize a combined report from without new
+            // plumbing across each of them -- results land on /network
+            // and /log as each test's own view model finishes instead,
+            // same as clicking each button individually would. A real
+            // synchronized report here is real follow-up work, not done
+            // in this pass.
+            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Quick Check", message: "Quick Check results land on Network and Diagnostic Log as each test finishes, not on a dedicated report here yet."))
         case "/path-discovery":
             if let content = reverseTraceContent {
                 // Not regenerated per-request the same way -- see

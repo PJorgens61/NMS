@@ -668,9 +668,26 @@ struct NMSApp: App {
         // has to run before `.menuBarExtraStyle` erases that to `some
         // Scene` (confirmed directly, RoonWatch already hit this).
         MenuBarExtra {
-            MenuBarView()
+            MenuBarView(
+                viewModel: networkMonitor,
+                connectivity: connectivity,
+                wifiSSID: wifiSSID,
+                ethernetLink: ethernetLink,
+                dhcpLease: dhcpLease,
+                traceroute: traceroute,
+                networkQuality: networkQuality,
+                wifiStressTest: wifiStressTest,
+                snmp: snmp,
+                saasMonitoring: saasMonitoring,
+                firewallVisibility: firewallVisibility,
+                openDiagnostics: openDiagnostics
+            )
         } label: {
-            MenuBarIcon(status: .normal)
+            MenuBarIcon(status: OverallStatus.computeForPopover(
+                interfaceIsDown: networkMonitor.currentInterface == nil,
+                checks: connectivity.checks,
+                dhcpIsAbnormal: dhcpLease.isFallenBackToLinkLocal || dhcpLease.isRenewalOverdue
+            ))
         }
         .menuBarExtraAccess(isPresented: $isMenuPresented)
         .menuBarExtraStyle(.window)
