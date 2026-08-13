@@ -155,8 +155,13 @@ actual path out of your Mac — read it that way when something's wrong,
 since a failure low in the list explains everything failing above it:
 Network, Local Router, Public IP, ISP Edge Router, Internet, DNS, HTTP,
 plus DHCP and DDNS status, each a colored dot and its latest reading.
-This page shows current status only — no trend history per check right
-now (see [What it deliberately won't do](#8-what-it-deliberately-wont-do)).
+The six pinged rows (Local Router, Public IP, ISP Edge Router, Internet,
+DNS, HTTP) also carry a small trend line — their last ~30 checks, each
+row scaled to its own range so a fast DNS lookup and a slower internet
+ping don't share an axis. A failed check breaks the line rather than
+smoothing across it, marked with a small dot. A failure that started
+right around a network change gets a `*` next to it — a 90-second
+time-proximity heuristic, not causal proof.
 
 Also on this page: your Wi-Fi (SSID, signal strength, channel and band,
 security) or Ethernet (speed, duplex) glance detail, and **Path to
@@ -342,6 +347,7 @@ network and everything recorded on it, permanently.
 | Red | Checked, and failing. Read `/network` bottom to top (see [Scenario B](#scenario-b--is-it-my-wi-fi-or-is-the-whole-internet-down)) to find the lowest failing row — that's almost always the root cause, not the ones above it, which every row's color treats identically regardless of whether it's the cause or a consequence. |
 | Gray | Not a failure — genuinely not evaluated yet (e.g. ISP Edge Router before you've confirmed a hop). |
 | Green | Checked, and reachable. |
+| `*` next to a row | That failure started right around a network change NMS also observed — a 90-second time-proximity heuristic, not proof it caused it. |
 
 ### How often things are checked
 
@@ -413,10 +419,10 @@ shows twice.
 - Watches from this one Mac's point of view only — it can't tell you
   whether a problem is local to this machine or affects the whole
   network.
-- No trend charts right now — `/network` shows each layer's latest
-  status only, not a short-term history the way the old popover's
-  sparklines did (dropped in the move to the web pages, not yet
-  replaced). Events remains a recent-activity log, not a trend graph.
+- Trend lines cover roughly the last 30 checks per layer (about 15
+  minutes on `/network`'s six pinged rows) — a short-term trend, not a
+  long-term historical dashboard. Events remains a recent-activity log,
+  not a trend graph.
 - SNMP discovery covers your current subnet only, strictly — never a
   routed/remote segment, and never a different network you've merely
   visited recently.

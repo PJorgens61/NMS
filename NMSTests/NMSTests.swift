@@ -2400,6 +2400,44 @@ struct LocalDiagnosticServerTests {
         #expect(!result.body.contains("No run yet"))
         }
     }
+
+    // MARK: - /network sparklines (PJorgens61/NMS#20)
+    //
+    // Unit-tested directly against the pure `sparklineSVG` function
+    // rather than through a real HTTP round trip -- `renderNetworkPage`
+    // now calls `ConnectivityViewModel.latencyHistory()`, a SwiftData
+    // fetch, which would risk the exact same real, documented
+    // `SwiftData.framework` trap `pathDiscoveryDoesNotBreakDiagnosticLog`
+    // above already hits for `/log`'s own SwiftData-backed fetches.
+
+    @Test("fewer than two values renders nothing -- nothing to chart yet, not an empty box")
+    func sparklineEmptyBelowTwoValues() {
+        #expect(LocalDiagnosticServer.sparklineSVG([]) == "")
+        #expect(LocalDiagnosticServer.sparklineSVG([12.0]) == "")
+    }
+
+    @Test("every value present draws one unbroken path and no gap dots")
+    func sparklineAllPresentDrawsOnePath() {
+        let svg = LocalDiagnosticServer.sparklineSVG([10, 20, 15])
+        #expect(svg.contains("<path"))
+        #expect(svg.components(separatedBy: "M").count == 2) // exactly one "move to" -- one unbroken segment
+        #expect(!svg.contains("<circle"))
+    }
+
+    @Test("a failed check (nil) breaks the line and draws a gap dot, rather than interpolating across it")
+    func sparklineGapBreaksLineAndMarksIt() {
+        let svg = LocalDiagnosticServer.sparklineSVG([10, nil, 15])
+        #expect(svg.components(separatedBy: "M").count == 3) // two segments, one on each side of the gap
+        #expect(svg.contains("<circle"))
+    }
+
+    @Test("a flat series (no range) still draws a mid-height line, not a division-by-zero collapse")
+    func sparklineFlatSeriesDoesNotDivideByZero() {
+        let svg = LocalDiagnosticServer.sparklineSVG([10, 10, 10])
+        #expect(svg.contains("<path"))
+        #expect(!svg.contains("nan"))
+        #expect(!svg.contains("inf"))
+    }
 }
 
 // MARK: - SnapshotStore.recordPathDiscoveryRun event logging

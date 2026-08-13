@@ -1087,6 +1087,69 @@ final class LocalDiagnosticServer {
         }
     }
 
+    /// A compact inline trend line for `/network`'s per-layer latency —
+    /// the web-page equivalent of the deleted `Sparkline.swift`
+    /// (`PJorgens61/NMS#20`, one of the real gaps the popover conversion
+    /// left behind: this data was still computed and threaded through
+    /// via `ConnectionLayer.correlatedWithChange`/`ConnectivityViewModel
+    /// .latencyHistory()`, just never rendered anywhere once the native
+    /// `Canvas`-drawn version was deleted).
+    ///
+    /// Same scaling/gap rules as the original: each series is scaled to
+    /// its *own* min/max (DNS's single-digit ms and a real internet
+    /// ping's tens would otherwise share an axis and flatten the smaller
+    /// one flat), and a failed check (`nil`) breaks the line rather than
+    /// interpolating across it, marked with a small dot at the bottom in
+    /// the same negative/red this app uses for failure everywhere else.
+    /// An SVG `<path>`, not a `<canvas>` — no JS needed to draw it, and
+    /// it's inline markup a browser's reader/inspector can still select
+    /// as text/attributes rather than opaque pixels.
+    /// Not `private` -- unit-tested directly (`LocalDiagnosticServerTests
+    /// .sparklineSVG...`), rather than through a real HTTP round trip
+    /// against `/network`, which would touch `SnapshotStore` from inside
+    /// this class's own `NWConnection` completion-handler chain -- the
+    /// same real, documented `SwiftData.framework` trap
+    /// `pathDiscoveryDoesNotBreakDiagnosticLog`'s doc comment already
+    /// describes for `/log`.
+    static func sparklineSVG(_ values: [Double?]) -> String {
+        guard values.count > 1 else { return "" }
+        let width = 48.0, height = 14.0
+        let present = values.compactMap { $0 }
+        let lowest = present.min() ?? 0
+        let highest = present.max() ?? 1
+        let span = highest - lowest
+        let step = width / Double(values.count - 1)
+
+        func point(_ index: Int, _ value: Double) -> (x: Double, y: Double) {
+            let x = Double(index) * step
+            let normalized = span > 0 ? (value - lowest) / span : 0.5
+            let y = height - (normalized * height)
+            return (x, y)
+        }
+
+        var pathData = ""
+        var penDown = false
+        for (index, value) in values.enumerated() {
+            guard let value else { penDown = false; continue }
+            let (x, y) = point(index, value)
+            pathData += penDown ? " L\(x),\(y)" : "M\(x),\(y)"
+            penDown = true
+        }
+
+        let gapDots = values.enumerated().compactMap { index, value -> String? in
+            guard value == nil else { return nil }
+            let x = Double(index) * step
+            return "<circle cx=\"\(x)\" cy=\"\(height - 1)\" r=\"1\" fill=\"var(--negative)\" />"
+        }.joined()
+
+        return """
+        <svg width="\(width)" height="\(height)" viewBox="0 0 \(width) \(height)" class="sparkline">
+        <path d="\(pathData)" fill="none" stroke="var(--secondary)" stroke-width="1" />
+        \(gapDots)
+        </svg>
+        """
+    }
+
     /// Full page: the core layer grid (ported from `NetworkTile`, above),
     /// plus DHCP status (ported from `DHCPStatusRow`), DDNS (ported from
     /// `DDNSRow`), a Wi-Fi/Ethernet glance card (ported from
@@ -1095,16 +1158,34 @@ final class LocalDiagnosticServer {
     /// native tile, now a page instead.
     private static func renderNetworkPage(_ vm: NetworkViewModels) -> String {
         let layers = connectionLayersLowToHigh(vm)
+        // Only the layers `ConnectivityViewModel.latencyHistory()` actually
+        // covers (the six timed-probe ones) get an entry -- Network/ISP
+        // Router aren't backed by a timed `ConnectivityCheck`, same split
+        // the deleted `Sparkline`'s call site already drew.
+        let latencyHistory = vm.connectivity.latencyHistory()
+        var sawCorrelatedFailure = false
         let layerRowsHTML = layers.map { layer in
             let label = layer.url.map { "<a href=\"\(escape($0))\">\(escape(layer.label))</a>" } ?? escape(layer.label)
+            let asterisk: String
+            if layer.correlatedWithChange {
+                sawCorrelatedFailure = true
+                asterisk = " <span class=\"secondary\" title=\"Started right around a network change this app also observed.\">*</span>"
+            } else {
+                asterisk = ""
+            }
+            let sparkline = latencyHistory[layer.id].map { sparklineSVG($0.map(\.latencyMs)) } ?? ""
             return """
             <tr>
               <td style="color: \(statusColor(layer.status))">●</td>
-              <td>\(label)</td>
+              <td>\(label)\(asterisk)</td>
               <td class="secondary">\(escape(layer.detail))</td>
+              <td>\(sparkline)</td>
             </tr>
             """
         }.joined(separator: "\n")
+        let correlationNote = sawCorrelatedFailure
+            ? "<p class=\"secondary\">* started right around a network change this app also observed — not causal proof, a 90-second time-proximity heuristic.</p>"
+            : ""
 
         // DHCP -- ported from DHCPStatusRow.color/detailText.
         let dhcpColor: String
@@ -1138,6 +1219,7 @@ final class LocalDiagnosticServer {
               <td style="color: \(ddnsColor)">●</td>
               <td>DDNS</td>
               <td class="secondary">\(escape(name))</td>
+              <td></td>
             </tr>
             """
         }
@@ -1199,10 +1281,12 @@ final class LocalDiagnosticServer {
           <td style="color: \(dhcpColor)">●</td>
           <td>DHCP</td>
           <td class="secondary">\(escape(dhcpDetail))</td>
+          <td></td>
         </tr>
         \(ddnsSection)
         </table>
         </div>
+        \(correlationNote)
         \(glanceBody)
         <h2>Path to Internet</h2>
         \(hopsBody)
