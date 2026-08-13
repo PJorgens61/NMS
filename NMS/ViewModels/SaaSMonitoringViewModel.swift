@@ -89,10 +89,6 @@ final class SaaSMonitoringViewModel {
     /// the way a LAN outage does.
     private static let checkInterval: TimeInterval = 300
 
-    /// Fired when an `AppEventRecord` gets logged (a service went down or
-    /// recovered), so the event log view can refresh.
-    var onEventLogged: (() -> Void)?
-
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
         // Inert if the flag is off — no timer, no checks, not just a
@@ -290,7 +286,6 @@ final class SaaSMonitoringViewModel {
         // key is set; see FailureInjector.
         let results = FailureInjector.applySaaSChanges(to: results)
         statuses = results
-        var loggedAny = false
         for result in results {
             if let previous = previousIndicators[result.name] {
                 let wasDown = previous != .none
@@ -305,10 +300,8 @@ final class SaaSMonitoringViewModel {
                     // real field lets it render as an actual clickable
                     // link instead of text `eventRows` would truncate.
                     snapshotStore.logEvent(.saasServiceDown, message: "\(prefix)\(result.name): \(result.description)", url: result.url)
-                    loggedAny = true
                 } else if !isDown, wasDown {
                     snapshotStore.logEvent(.saasServiceRecovered, message: "\(result.name) recovered")
-                    loggedAny = true
                 }
             }
             // `previous == nil` (first check for this service this
@@ -316,9 +309,6 @@ final class SaaSMonitoringViewModel {
             // launch as a baseline" convention every other check in this
             // app follows (e.g. `DHCPLeaseViewModel`'s `isFirstEver`).
             previousIndicators[result.name] = result.indicator
-        }
-        if loggedAny {
-            onEventLogged?()
         }
     }
 

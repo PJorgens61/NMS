@@ -1101,60 +1101,6 @@ struct NATLayerDetectionTests {
     }
 }
 
-// MARK: - SectionLayout
-
-/// Pins "declared, present, and not accidentally reverted to zero" for
-/// every fixed-height scroll box — a plainer check than this suite used
-/// to run back when there were two surfaces (a popover and a window)
-/// competing for a tight height budget. NMS is a single-window app now
-/// (see `NMSApp`), so there's no budget to guard, just a sanity check
-/// that every declared box still has a real, positive height.
-@Suite("SectionLayout")
-struct SectionLayoutTests {
-    @Test("every declared section has a positive box height", arguments: SectionLayout.allCases)
-    func everySectionHasAPositiveHeight(_ section: SectionLayout) {
-        #expect(section.boxHeight > 0)
-    }
-}
-
-// MARK: - SNMP Devices sysDescr splitting
-
-/// See `BUGS.md`'s "SNMP device sysDescr truncated to one line live"
-/// entry for why this exists instead of a single wrapping `Text`: every
-/// attempt to make `sysDescr` auto-wrap inside `NoBounceScrollView`
-/// reliably clipped this list's first row instead. Splitting into up to
-/// two fixed, single-line `Text`s sidesteps that entirely — these tests
-/// pin the splitting logic itself, independent of the AppKit rendering
-/// issue that motivated it.
-@Suite("ContentView.sysDescrLines")
-struct SysDescrLinesTests {
-    @Test("short strings come back unsplit")
-    func shortStringUnsplit() {
-        #expect(ContentView.sysDescrLines("Alta Route10 1.5b") == ["Alta Route10 1.5b"])
-    }
-
-    @Test("a real long sysDescr splits near its midpoint, at a space")
-    func longStringSplitsAtNearestSpace() {
-        let sysDescr = "GC108P 8-Port Gigabit Ethernet PoE+ Insight Managed Smart Cloud Switch with 8 PoE+ Ports (64W), Software Version 1.0.8.9, Boot Version 1.0.0.3"
-        let lines = ContentView.sysDescrLines(sysDescr)
-        #expect(lines.count == 2)
-        // Neither half starts or ends with whitespace, and rejoining
-        // with a single space reconstructs the original — the split
-        // point itself is a space that got consumed, not text that was
-        // dropped.
-        for line in lines {
-            #expect(line == line.trimmingCharacters(in: .whitespaces))
-        }
-        #expect(lines.joined(separator: " ") == sysDescr)
-    }
-
-    @Test("a string with no space near the midpoint comes back unsplit rather than mis-splitting")
-    func noNearbySpaceStaysUnsplit() {
-        let noSpaces = String(repeating: "x", count: 100)
-        #expect(ContentView.sysDescrLines(noSpaces) == [noSpaces])
-    }
-}
-
 // MARK: - KnownNetwork fingerprint derivation
 
 /// `routerMAC` and `subnet` are derived from `fingerprint` rather than

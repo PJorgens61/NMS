@@ -73,10 +73,6 @@ final class DHCPLeaseViewModel {
     /// enough that Signal 2 can't lag reality by more than that.
     private static let checkInterval: TimeInterval = 300
 
-    /// Fired when an `AppEventRecord` gets logged, so the event log view
-    /// can refresh.
-    var onEventLogged: (() -> Void)?
-
     init(snapshotStore: SnapshotStore, networkMonitor: NetworkMonitorViewModel) {
         self.snapshotStore = snapshotStore
         self.networkMonitor = networkMonitor
@@ -235,10 +231,9 @@ final class DHCPLeaseViewModel {
                 let changes = Self.fieldChanges(from: previous, to: lease)
                 if !changes.isEmpty {
                     snapshotStore.logEvent(.dhcpLeaseChanged, message: "DHCP lease changed: \(changes.joined(separator: ", "))")
-                    onEventLogged?()
                     // See this property's own doc comment: the narrower
-                    // signal `DHCPStatusRow`'s yellow needs, distinct
-                    // from "a new record exists."
+                    // "genuinely changed" signal, distinct from "a new
+                    // record exists."
                     lastGenuineChangeAt = lease.checkedAt
                 }
             }
@@ -325,7 +320,6 @@ final class DHCPLeaseViewModel {
         } else {
             snapshotStore.logEvent(.dhcpAddressRestored, message: "DHCP address restored")
         }
-        onEventLogged?()
     }
 
     /// The client should have started rebinding by T2 and hasn't. Reads
@@ -348,6 +342,5 @@ final class DHCPLeaseViewModel {
         } else {
             snapshotStore.logEvent(.dhcpRenewalRecovered, message: "DHCP lease renewed")
         }
-        onEventLogged?()
     }
 }

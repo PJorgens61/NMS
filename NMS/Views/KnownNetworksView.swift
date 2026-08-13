@@ -76,8 +76,23 @@ struct KnownNetworksView: View {
             else { return }
             commitLabel(for: network)
         }
-        .sheet(item: $reviewingNetwork) { network in
-            NetworkReviewView(network: network, snapshotStore: snapshotStore)
+        // `.sheet(isPresented:)`, not `.sheet(item:)` -- `KnownNetwork`'s
+        // `@Model`-synthesized `Identifiable` conformance stopped
+        // resolving for `.sheet(item:)`'s stricter `SendableMetatype`
+        // requirement once enough unrelated files were deleted elsewhere
+        // in the popover conversion's Phase 4 (confirmed directly:
+        // reproducible on a clean build, a real if unexplained Swift/
+        // SwiftData compiler quirk, not a logic error). `ForEach` above
+        // already sidesteps the same dependency via `id: \.fingerprint`
+        // rather than relying on `Identifiable` -- this does the
+        // equivalent for the sheet.
+        .sheet(isPresented: Binding(
+            get: { reviewingNetwork != nil },
+            set: { if !$0 { reviewingNetwork = nil } }
+        )) {
+            if let network = reviewingNetwork {
+                NetworkReviewView(network: network, snapshotStore: snapshotStore)
+            }
         }
     }
 

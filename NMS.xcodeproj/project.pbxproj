@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F94C944A299B9993B22C9BFD /* MenuBarExtraAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 1C6165353129FFC069A43BB4 /* MenuBarExtraAccess */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		1DDFCF1B3011D12C0069C74C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F94C944A299B9993B22C9BFD /* MenuBarExtraAccess in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -113,6 +118,7 @@
 			);
 			name = NMS;
 			packageProductDependencies = (
+				1C6165353129FFC069A43BB4 /* MenuBarExtraAccess */,
 			);
 			productName = NMS;
 			productReference = 1DDFCF0B3011D12A0069C74C /* NMS.app */;
@@ -196,6 +202,9 @@
 			);
 			mainGroup = 1DDFCF023011D12A0069C74C;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				578F19026BF1F6CDBB54B907 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1DDFCF0C3011D12A0069C74C /* Products */;
 			projectDirPath = "";
@@ -430,6 +439,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS reads your Mac's ARP table to list local devices and polls them via SNMP (using configured community strings) to discover and monitor routers, switches, and other network infrastructure.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
@@ -475,6 +485,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NMS reads your Mac's ARP table to list local devices and polls them via SNMP (using configured community strings) to discover and monitor routers, switches, and other network infrastructure.";
 				INFOPLIST_KEY_NSLocationUsageDescription = "NMS reads the current Wi-Fi network name (SSID) to label and recognize networks. macOS treats Wi-Fi network names as location-sensitive information.";
@@ -643,6 +654,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		578F19026BF1F6CDBB54B907 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/orchetect/MenuBarExtraAccess";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1C6165353129FFC069A43BB4 /* MenuBarExtraAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 578F19026BF1F6CDBB54B907 /* XCRemoteSwiftPackageReference "MenuBarExtraAccess" */;
+			productName = MenuBarExtraAccess;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1DDFCF033011D12A0069C74C /* Project object */;
 }

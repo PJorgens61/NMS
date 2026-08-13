@@ -55,4 +55,47 @@ nonisolated enum OverallStatus {
         }
         return .normal
     }
+
+    /// The popover's menu bar icon color — the single, aggregate signal a
+    /// glance at the icon needs, so it's `compute` plus the one real
+    /// signal `compute` alone can't see: DHCP link-local fallback/
+    /// overdue-renewal, which isn't itself a `ConnectivityCheck`. Was
+    /// dead code before the popover conversion (only this file's own
+    /// tests called `compute` directly) — this is the direct answer to
+    /// compressing `NetworkTile`'s whole 9-row grid into one icon color,
+    /// not a new aggregation invented for it.
+    static func computeForPopover(interfaceIsDown: Bool, checks: [ConnectivityCheck], dhcpIsAbnormal: Bool) -> OverallStatus {
+        let base = compute(interfaceIsDown: interfaceIsDown, checks: checks)
+        if dhcpIsAbnormal && base == .normal { return .marginal }
+        return base
+    }
+
+    /// Labels that represent *local* link health — reaching your own
+    /// router — as opposed to the internet actually being reachable
+    /// beyond it. Split out from `criticalLabels` specifically for the
+    /// popover's two separate status lines (Internet, MyWifi), each
+    /// needing its own independent signal rather than one merged one.
+    static let localLabels: Set<String> = [routerLabel]
+    /// The remaining critical labels once `localLabels` is set aside —
+    /// "is the internet actually reachable past your own router."
+    static let internetOnlyLabels: Set<String> = [internetLabel, dnsLabel, httpLabel, peRouterLabel, publicIPLabel]
+
+    /// The popover's MyWifi/Ethernet status line — local link health
+    /// only (interface up, router reachable), plus DHCP abnormality
+    /// (link-local fallback or overdue renewal — a local-link problem,
+    /// not an internet-reachability one).
+    static func computeLocal(interfaceIsDown: Bool, checks: [ConnectivityCheck], dhcpIsAbnormal: Bool) -> OverallStatus {
+        if interfaceIsDown { return .critical }
+        if checks.contains(where: { !$0.success && localLabels.contains($0.label) }) { return .critical }
+        if dhcpIsAbnormal { return .marginal }
+        return .normal
+    }
+
+    /// The popover's Internet status line — everything downstream of the
+    /// local router: the public internet, DNS, HTTP, the confirmed ISP
+    /// edge hop, and the gateway's own WAN-side reachability.
+    static func computeInternet(checks: [ConnectivityCheck]) -> OverallStatus {
+        if checks.contains(where: { !$0.success && internetOnlyLabels.contains($0.label) }) { return .critical }
+        return .normal
+    }
 }

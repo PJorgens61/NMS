@@ -1,7 +1,6 @@
 import Foundation
 import Network
 
-#if DEBUG
 /// A local-only, on-demand HTTP server serving a chronological log of
 /// recent diagnostic activity — Events, plus every test result
 /// (`NetworkQualityRecord`, `WiFiStressTestRecord`) and the SNMP device
@@ -12,9 +11,23 @@ import Network
 /// networkQuality report formatting, the Mermaid diagram privacy fix)
 /// build their own content generators on top of it.
 ///
-/// Debug-only, same category as `FailureInjector`/`UIStateLogger` — dev/
-/// testing tooling, not a shipped end-user feature, per that punchlist
-/// item's own "worth scoping as debug-only" reasoning.
+/// **Un-gated from `#if DEBUG`, 2026-08-12** — ships in Release now, a
+/// deliberate divergence from this file's own original "debug-only, dev/
+/// testing tooling" framing above (kept for history, no longer current).
+/// Part of the popover conversion: the main window's ten data-dense tiles
+/// are being replaced by a small `MenuBarExtra` popover
+/// (`MenuBarView.swift`) whose status lines/links open pages this server
+/// renders — so the server has to be a normal, always-available feature,
+/// not a dev tool, for the app to have anywhere to show that content at
+/// all. Matches RoonWatch's own explicit precedent and reasoning for the
+/// same choice: "a real end user needs the same drill-down an agent/
+/// developer would get" (`RoonWatch/RoonWatch/Platform/DiagnosticServer/
+/// LocalDiagnosticServer.swift`). Real, worth naming plainly: device
+/// names/IPs/network fingerprints become reachable via a shipped
+/// loopback HTTP server to end users now, not just during development —
+/// mitigated the same way it always was (loopback-only binding,
+/// ephemeral port, random per-launch token below), just now exposed to a
+/// wider audience than "whoever's running a debug build."
 ///
 /// Deliberately not named anything with "field test" in it —
 /// `FieldTestFrameReporter` already owns that term for a different,
@@ -71,6 +84,23 @@ final class LocalDiagnosticServer {
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var snapshotStore: SnapshotStore?
+    /// `/saas` reads this directly, live — unlike `/log`/`/network`,
+    /// SaaS status is current-state-only (no history worth persisting,
+    /// same reasoning `SaaSStatusTile` already had), so there's no
+    /// `SnapshotStore` fetch to read from instead. A real, deliberate
+    /// divergence from this server's normal "read fresh from disk on
+    /// every request" pattern, not an oversight — set once via
+    /// `setSaaSMonitoring(_:)` when the app starts (see `NMSApp`).
+    private var saasMonitoring: SaaSMonitoringViewModel?
+    /// `/network` reads these seven directly, live — same "current
+    /// status, not history" reasoning as `saasMonitoring` above.
+    /// Deliberately a port of `NetworkTile.connectionLayersLowToHigh`'s
+    /// logic (see that type's own doc comment), not a live shared
+    /// extraction — `NetworkTile.swift` is being deleted outright once
+    /// the popover conversion's tile migration reaches it, so this is
+    /// each piece of logic's actual permanent home, not a temporary
+    /// duplicate of it.
+    private var networkViewModels: NetworkViewModels?
     private var reverseTraceContent: ReverseTraceContent?
     private var pathToken = ""
     private var idleTimer: Timer?
@@ -88,6 +118,66 @@ final class LocalDiagnosticServer {
         self.snapshotStore = snapshotStore
         guard let base = await ensureRunning() else { return nil }
         return base.appendingPathComponent("log")
+    }
+
+    /// Registers `snapshotStore` without starting the listener or
+    /// returning a URL — `/log`/`/quickcheck` both read this lazily on
+    /// whatever request eventually arrives, so it just needs to be set
+    /// once at launch. Added when the old debug-only "Diagnostic Log…"
+    /// button (whose click handler used to call `start(snapshotStore:)`
+    /// above for this exact purpose, as a side effect of also opening the
+    /// browser) was deleted in the popover conversion, Phase 5 — without
+    /// this, nothing ever sets `snapshotStore` at all once that button's
+    /// gone, and `/log` silently shows its "not yet available" fallback
+    /// forever. Same "set once alongside the rest of `NMSApp`'s wiring"
+    /// shape as `setSaaSMonitoring`/`setNetworkViewModels`.
+    func setSnapshotStore(_ snapshotStore: SnapshotStore) {
+        self.snapshotStore = snapshotStore
+    }
+
+    /// Registers the live SaaS view model `/saas` reads from — see that
+    /// property's own doc comment for why this doesn't go through
+    /// `SnapshotStore` the way everything else does. Safe to call any
+    /// time before the server needs to render `/saas` (idempotent,
+    /// doesn't itself start the listener) — called once from `NMSApp`
+    /// alongside the rest of its view-model wiring.
+    func setSaaSMonitoring(_ saasMonitoring: SaaSMonitoringViewModel) {
+        self.saasMonitoring = saasMonitoring
+    }
+
+    /// Bundles every view model `/network` needs — same "set once
+    /// alongside the rest of `NMSApp`'s wiring, read live thereafter"
+    /// shape as `setSaaSMonitoring` above, just seven view models
+    /// instead of one.
+    struct NetworkViewModels {
+        let viewModel: NetworkMonitorViewModel
+        let connectivity: ConnectivityViewModel
+        let wifiSSID: WiFiSSIDViewModel
+        let networkIdentity: NetworkIdentityViewModel
+        let publicIP: PublicIPViewModel
+        let ispIdentity: ISPIdentityViewModel
+        let traceroute: TracerouteViewModel
+        let dhcpLease: DHCPLeaseViewModel
+        let ethernetLink: EthernetLinkViewModel
+        let ddns: DDNSViewModel
+    }
+
+    func setNetworkViewModels(_ networkViewModels: NetworkViewModels) {
+        self.networkViewModels = networkViewModels
+    }
+
+    /// Ensures the listener is up and returns its base URL, without
+    /// staging any particular page's content — used by callers (the
+    /// popover's status-line/link taps) that just need *a* URL to open a
+    /// specific `appendingPathComponent` path against, the same shape
+    /// RoonWatch's `AppCoordinator.diagnosticServerURL(path:)` already
+    /// uses. `start(snapshotStore:)` above stays as its own entry point
+    /// rather than being rewritten in terms of this one, since it also
+    /// has the one-time job of storing `snapshotStore` for every route
+    /// that needs it, not just `/log`.
+    func diagnosticServerURL(path: String = "") async -> URL? {
+        guard let base = await ensureRunning() else { return nil }
+        return path.isEmpty ? base : base.appendingPathComponent(path)
     }
 
     /// Makes a Path Discovery reverse-trace result set available and
@@ -361,6 +451,31 @@ final class LocalDiagnosticServer {
             } else {
                 response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Diagnostic Log", message: "Not started yet — click \u{201c}Diagnostic Log\u{2026}\u{201d} in Debug Tools."))
             }
+        case "/network":
+            if let networkViewModels {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNetworkPage(networkViewModels))
+            } else {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Network", message: "Network monitoring hasn\u{2019}t reported in yet."))
+            }
+        case "/saas":
+            if let saasMonitoring {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderSaaSPage(saasMonitoring: saasMonitoring))
+            } else {
+                response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "SaaS Status", message: "SaaS monitoring hasn\u{2019}t reported in yet."))
+            }
+        case "/quickcheck":
+            // Still a stub -- see this file's own PUNCHLIST-style note in
+            // the popover conversion plan doc. "Run Quick Check" fires
+            // each bundled test's real trigger (same one-per-test call
+            // every native tile already used), but there's no shared
+            // "all done" signal across five independently-async view
+            // models to synchronize a combined report from without new
+            // plumbing across each of them -- results land on /network
+            // and /log as each test's own view model finishes instead,
+            // same as clicking each button individually would. A real
+            // synchronized report here is real follow-up work, not done
+            // in this pass.
+            response = Self.httpResponse(status: "200 OK", contentType: "text/html; charset=utf-8", body: Self.renderNotYetAvailablePage(title: "Quick Check", message: "Quick Check results land on Network and Diagnostic Log as each test finishes, not on a dedicated report here yet."))
         case "/path-discovery":
             if let content = reverseTraceContent {
                 // Not regenerated per-request the same way -- see
@@ -547,11 +662,16 @@ final class LocalDiagnosticServer {
         // into the chronological log above.
         let devices = snapshotStore.fetchSNMPDevices(limit: 200)
         let deviceRowsHTML = devices.map { device in
-            """
+            let hostnameCell = device.hostname.map { escape($0) } ?? "<span class=\"secondary\">—</span>"
+            let webURLCell = device.webURL.map { url in "<a href=\"\(escape(url))\">\(escape(url))</a>" } ?? "<span class=\"secondary\">—</span>"
+            return """
             <tr>
               <td>\(escape(device.displayName))</td>
               <td class="secondary">\(escape(device.ipAddress))</td>
               <td class="secondary">\(escape(device.uptimeDescription))</td>
+              <td class="secondary">\(hostnameCell)</td>
+              <td class="secondary">\(webURLCell)</td>
+              <td class="secondary">\(escape(device.sysDescr))</td>
               <td class="ts">\(escape(device.lastSeenAt.formatted(date: .abbreviated, time: .standard)))</td>
             </tr>
             """
@@ -559,6 +679,25 @@ final class LocalDiagnosticServer {
         let deviceBody = devices.isEmpty
             ? "<p class=\"empty\">No SNMP devices recorded.</p>"
             : "<div class=\"card\"><table>\n\(deviceRowsHTML)\n</table></div>"
+
+        // New, 2026-08-12 -- DHCP lease history had no web route at all
+        // before this (confirmed: nothing in this file read
+        // fetchDHCPLeaseHistory). Same two-line-per-record shape
+        // `DHCPHistoryTile.historyRows` already renders natively, since
+        // that native tile is going away as part of the popover
+        // conversion and this is its only remaining home.
+        let leases = snapshotStore.fetchDHCPLeaseHistory(limit: 100)
+        let leaseRowsHTML = leases.map { lease in
+            """
+            <tr>
+              <td class="ts">\(escape(lease.observedAt.formatted(date: .abbreviated, time: .standard)))</td>
+              <td>\(escape(lease.primaryDetail))<br><span class="secondary">\(escape(lease.secondaryDetail))</span></td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+        let leaseBody = leases.isEmpty
+            ? "<p class=\"empty\">No DHCP lease observed yet.</p>"
+            : "<div class=\"card\"><table>\n\(leaseRowsHTML)\n</table></div>"
 
         return """
         <!doctype html>
@@ -575,6 +714,8 @@ final class LocalDiagnosticServer {
         \(logBody)
         <h2>SNMP Devices</h2>
         \(deviceBody)
+        <h2>DHCP History</h2>
+        \(leaseBody)
         </body>
         </html>
         """
@@ -816,6 +957,313 @@ final class LocalDiagnosticServer {
         """
     }
 
+    /// Ported directly from `NetworkTile.connectionLayersLowToHigh` (see
+    /// that property's own doc comment for the full per-layer reasoning
+    /// — kept there in full rather than repeated here, since it's the
+    /// authoritative version until `NetworkTile.swift` is deleted).
+    /// Ordered low (most fundamental) to high (most dependent on
+    /// everything below it working first).
+    private static func connectionLayersLowToHigh(_ vm: NetworkViewModels) -> [ConnectionLayer] {
+        let info = vm.viewModel.currentInterface
+
+        func checkDetail(for check: ConnectivityCheck) -> String {
+            check.success ? String(format: "%.0f ms", check.latencyMs ?? 0) : "unreachable"
+        }
+        func standardLayer(id: String, label: String) -> ConnectionLayer {
+            let check = vm.connectivity.checks.first { $0.label == label }
+            return ConnectionLayer(
+                id: id,
+                label: label,
+                detail: check.map(checkDetail) ?? "Not checked",
+                status: check.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: check?.correlatedWithChange ?? false
+            )
+        }
+        func networkDisplay(_ info: NetworkInterfaceInfo) -> String {
+            let type = info.isWiFi ? "Wi-Fi" : "Ethernet"
+            let label = vm.networkIdentity.currentNetwork?.label
+            let name: String? = info.isWiFi
+                ? vm.wifiSSID.currentSSID
+                : (label?.isEmpty == false ? label : nil)
+            guard let name else { return type }
+            return "\(name) \(type)"
+        }
+        func ipAddressDisplay(_ info: NetworkInterfaceInfo) -> String {
+            guard let ip = info.ipAddress else { return "—" }
+            guard let mask = info.subnetMask, let prefix = SubnetCalculator.prefixLength(subnetMask: mask) else {
+                return ip
+            }
+            return "\(ip)/\(prefix)"
+        }
+
+        let networkLayer: ConnectionLayer
+        if let info {
+            let hasName = vm.wifiSSID.currentSSID != nil
+            let knownNetworkSuffix = vm.networkIdentity.currentNetwork.map { network in
+                " · \(vm.networkIdentity.isNewNetwork ? "new" : "seen \(network.timesSeen)×")"
+            } ?? ""
+            let detail = networkDisplay(info) + " · \(ipAddressDisplay(info))" + knownNetworkSuffix
+            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: detail, status: (info.isWiFi && !hasName) ? .unknown : .healthy)
+        } else {
+            networkLayer = ConnectionLayer(id: "network", label: "Network", detail: "Down", status: .unhealthy)
+        }
+
+        let routerCheck = vm.connectivity.checks.first { $0.label == OverallStatus.routerLabel }
+        let localRouterLayer: ConnectionLayer
+        if info == nil {
+            localRouterLayer = ConnectionLayer(id: "localRouter", label: OverallStatus.routerLabel, detail: "—", status: .unhealthy)
+        } else {
+            let addressPrefix = info?.routerAddress.map { "\($0) · " } ?? ""
+            localRouterLayer = ConnectionLayer(
+                id: "localRouter",
+                label: OverallStatus.routerLabel,
+                detail: addressPrefix + (routerCheck.map(checkDetail) ?? "Not checked"),
+                status: routerCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: routerCheck?.correlatedWithChange ?? false,
+                url: info?.routerAddress.map { "http://\($0)" }
+            )
+        }
+
+        let publicIPCheck = vm.connectivity.checks.first { $0.label == OverallStatus.publicIPLabel }
+        let publicIPLayer: ConnectionLayer
+        if info == nil {
+            publicIPLayer = ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "—", status: .unhealthy)
+        } else if let currentPublicIP = vm.publicIP.currentIP {
+            publicIPLayer = ConnectionLayer(
+                id: "publicIP",
+                label: OverallStatus.publicIPLabel,
+                detail: "\(currentPublicIP) · " + (publicIPCheck.map(checkDetail) ?? "Not checked"),
+                status: publicIPCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: publicIPCheck?.correlatedWithChange ?? false
+            )
+        } else {
+            publicIPLayer = ConnectionLayer(id: "publicIP", label: OverallStatus.publicIPLabel, detail: "Not checked", status: .unknown)
+        }
+
+        let ispPrefix = vm.ispIdentity.shortOrganizationName.map { "\($0) · " } ?? ""
+        let peRouterLayer: ConnectionLayer
+        if info == nil {
+            peRouterLayer = ConnectionLayer(id: "peRouter", label: OverallStatus.peRouterLabel, detail: "—", status: .unhealthy)
+        } else if vm.traceroute.monitoredHop == nil {
+            peRouterLayer = ConnectionLayer(
+                id: "peRouter",
+                label: OverallStatus.peRouterLabel,
+                detail: ispPrefix + "Not confirmed",
+                status: .unknown,
+                url: vm.ispIdentity.statusPageURL
+            )
+        } else {
+            let peRouterCheck = vm.connectivity.checks.first { $0.label == OverallStatus.peRouterLabel }
+            peRouterLayer = ConnectionLayer(
+                id: "peRouter",
+                label: OverallStatus.peRouterLabel,
+                detail: ispPrefix + (peRouterCheck.map(checkDetail) ?? "Not checked"),
+                status: peRouterCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+                correlatedWithChange: peRouterCheck?.correlatedWithChange ?? false,
+                url: vm.ispIdentity.statusPageURL
+            )
+        }
+
+        let internetLayer = standardLayer(id: "internet", label: OverallStatus.internetLabel)
+        let dnsCheck = vm.connectivity.checks.first { $0.label == OverallStatus.dnsLabel }
+        let dnsAddressPrefix = info?.dnsServer.map { "\($0) · " } ?? ""
+        let dnsLayer = ConnectionLayer(
+            id: "dns",
+            label: OverallStatus.dnsLabel,
+            detail: dnsAddressPrefix + (dnsCheck.map(checkDetail) ?? "Not checked"),
+            status: dnsCheck.map { $0.success ? .healthy : .unhealthy } ?? .unknown,
+            correlatedWithChange: dnsCheck?.correlatedWithChange ?? false
+        )
+        let httpLayer = standardLayer(id: "http", label: OverallStatus.httpLabel)
+
+        return [networkLayer, localRouterLayer, publicIPLayer, peRouterLayer, internetLayer, dnsLayer, httpLayer]
+    }
+
+    private static func statusColor(_ status: LayerStatus) -> String {
+        switch status {
+        case .healthy: return "var(--positive)"
+        case .unhealthy: return "var(--negative)"
+        case .unknown: return "var(--secondary)"
+        }
+    }
+
+    /// Full page: the core layer grid (ported from `NetworkTile`, above),
+    /// plus DHCP status (ported from `DHCPStatusRow`), DDNS (ported from
+    /// `DDNSRow`), a Wi-Fi/Ethernet glance card (ported from
+    /// `WiFiTile`/`EthernetTile`), and Path to Internet's current hop
+    /// list — everything that used to be this app's most data-dense
+    /// native tile, now a page instead.
+    private static func renderNetworkPage(_ vm: NetworkViewModels) -> String {
+        let layers = connectionLayersLowToHigh(vm)
+        let layerRowsHTML = layers.map { layer in
+            let label = layer.url.map { "<a href=\"\(escape($0))\">\(escape(layer.label))</a>" } ?? escape(layer.label)
+            return """
+            <tr>
+              <td style="color: \(statusColor(layer.status))">●</td>
+              <td>\(label)</td>
+              <td class="secondary">\(escape(layer.detail))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+
+        // DHCP -- ported from DHCPStatusRow.color/detailText.
+        let dhcpColor: String
+        let dhcpDetail: String
+        if vm.dhcpLease.isFallenBackToLinkLocal {
+            dhcpColor = "var(--negative)"; dhcpDetail = "Link-local fallback"
+        } else if vm.dhcpLease.isRenewalOverdue {
+            dhcpColor = "var(--negative)"; dhcpDetail = "Renewal overdue"
+        } else if vm.dhcpLease.history.isEmpty {
+            dhcpColor = "var(--secondary)"; dhcpDetail = "Not checked"
+        } else if let lastChange = vm.dhcpLease.lastGenuineChangeAt, Date().timeIntervalSince(lastChange) < 600 {
+            dhcpColor = "var(--warning)"; dhcpDetail = "Changed recently"
+        } else {
+            dhcpColor = "var(--positive)"; dhcpDetail = "Nominal"
+        }
+
+        // DDNS -- ported from DDNSRow.summaryColor/summaryText.
+        let ddnsSection: String
+        if vm.ddns.statuses.isEmpty {
+            ddnsSection = ""
+        } else {
+            let states = vm.ddns.statuses.compactMap(\.syncState)
+            let ddnsColor: String
+            if states.contains(.stale) { ddnsColor = "var(--negative)" }
+            else if states.contains(.blockedByCGNAT) { ddnsColor = "var(--warning)" }
+            else if states.count == vm.ddns.statuses.count, states.allSatisfy({ $0 == .current }) { ddnsColor = "var(--positive)" }
+            else { ddnsColor = "var(--secondary)" }
+            let name = vm.ddns.statuses.count == 1 ? vm.ddns.statuses[0].hostname : "\(vm.ddns.statuses.count) hostnames"
+            ddnsSection = """
+            <tr>
+              <td style="color: \(ddnsColor)">●</td>
+              <td>DDNS</td>
+              <td class="secondary">\(escape(name))</td>
+            </tr>
+            """
+        }
+
+        // Wi-Fi/Ethernet glance -- ported from WiFiTile/EthernetTile.
+        let glanceBody: String
+        if let ssid = vm.wifiSSID.currentSSID {
+            let signal = vm.wifiSSID.currentRSSI.map { rssi -> String in
+                if let noise = vm.wifiSSID.currentNoise {
+                    return "\(rssi) dBm (SNR \(rssi - noise) dB)"
+                }
+                return "\(rssi) dBm"
+            } ?? "—"
+            let channel = vm.wifiSSID.currentChannelNumber.map { number -> String in
+                vm.wifiSSID.currentChannelBand.map { "\(number) (\($0))" } ?? "\(number)"
+            } ?? "—"
+            let security = vm.wifiSSID.currentSecurity ?? "—"
+            glanceBody = "<p class=\"secondary\">Wi-Fi \(escape(ssid)) · \(escape(signal)) · Ch \(escape(channel)) · \(escape(security))</p>"
+        } else if let speed = vm.ethernetLink.currentSpeedMbps {
+            let duplex = vm.ethernetLink.currentDuplex.map { " · \($0)" } ?? ""
+            glanceBody = "<p class=\"secondary\">Ethernet \(Int(speed)) Mbps\(escape(duplex))</p>"
+        } else {
+            glanceBody = "<p class=\"empty\">No active link.</p>"
+        }
+
+        // Path to Internet -- current confirmed hop list.
+        let hopRowsHTML = vm.traceroute.hops.map { hop -> String in
+            let address = hop.address ?? "*"
+            let hostname = hop.hostname.map { " (\(escape($0)))" } ?? ""
+            let rtt = hop.roundTripMs.map { String(format: "%.1f ms", $0) } ?? "—"
+            let confirmed = hop.hopNumber == vm.traceroute.monitoredHopNumber ? " <span class=\"secondary\">★ ISP edge</span>" : ""
+            return """
+            <tr>
+              <td class="secondary">\(hop.hopNumber)</td>
+              <td>\(escape(address))\(hostname)\(confirmed)</td>
+              <td class="secondary">\(escape(rtt))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+        let hopsBody = vm.traceroute.hops.isEmpty
+            ? "<p class=\"empty\">No trace run yet.</p>"
+            : "<div class=\"card\"><table>\n\(hopRowsHTML)\n</table></div>"
+
+        return """
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>NMS — Network</title>
+        <style>\(sharedCSS)</style>
+        </head>
+        <body>
+        <h1>NMS — Network</h1>
+        \(navHTML(current: "network"))
+        <div class="card">
+        <table>
+        \(layerRowsHTML)
+        <tr>
+          <td style="color: \(dhcpColor)">●</td>
+          <td>DHCP</td>
+          <td class="secondary">\(escape(dhcpDetail))</td>
+        </tr>
+        \(ddnsSection)
+        </table>
+        </div>
+        \(glanceBody)
+        <h2>Path to Internet</h2>
+        \(hopsBody)
+        </body>
+        </html>
+        """
+    }
+
+    /// Same curated/user-added split `SaaSStatusTile` already renders
+    /// natively — this is that tile's content moved to the web, not a
+    /// redesign, per the popover conversion (the tile itself is being
+    /// deleted; the popover's MyApps status line shows only a one-line
+    /// worst-of-N rollup, this page is where the full per-service detail
+    /// it used to show natively now lives).
+    private static func renderSaaSPage(saasMonitoring: SaaSMonitoringViewModel) -> String {
+        func rowsHTML(_ statuses: [SaaSMonitoringViewModel.ServiceStatus]) -> String {
+            statuses.map { status in
+                let color: String
+                switch status.indicator {
+                case .none: color = "var(--positive)"
+                case .minor, .maintenance: color = "var(--warning)"
+                case .major, .critical: color = "var(--negative)"
+                case .unknown: color = "var(--label)"
+                }
+                return """
+                <tr>
+                  <td><span style="color: \(color)">●</span> \(escape(status.name))</td>
+                  <td class="secondary">\(escape(status.description))</td>
+                  <td><a href="\(escape(status.url))">\(escape(status.url))</a></td>
+                </tr>
+                """
+            }.joined(separator: "\n")
+        }
+        let curatedBody = saasMonitoring.statuses.isEmpty
+            ? "<p class=\"empty\">No services monitored yet.</p>"
+            : "<div class=\"card\"><table>\n\(rowsHTML(saasMonitoring.statuses))\n</table></div>"
+        let userAddedSection = saasMonitoring.userAddedStatuses.isEmpty
+            ? ""
+            : """
+              <h2>Your Own Sites</h2>
+              <p class="secondary">A plain reachability check, not a real vendor status page — a genuinely weaker signal than the curated list above.</p>
+              <div class="card"><table>\n\(rowsHTML(saasMonitoring.userAddedStatuses))\n</table></div>
+              """
+        return """
+        <!doctype html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>NMS — SaaS Status</title>
+        <style>\(sharedCSS)</style>
+        </head>
+        <body>
+        <h1>NMS — SaaS Status</h1>
+        \(navHTML(current: "saas"))
+        \(curatedBody)
+        \(userAddedSection)
+        </body>
+        </html>
+        """
+    }
+
     /// Shared nav shown atop every page, so any one of them can jump to
     /// another without going back through Debug Tools -- the actual
     /// "single webpage with built-in selection" fix, not just pages that
@@ -829,7 +1277,7 @@ final class LocalDiagnosticServer {
             "<a href=\"\(href)\" class=\"\(href == current ? "active" : "")\">\(label)</a>"
         }
         return """
-        <div class="segmented">\(segment("log", "Diagnostic Log"))\(segment("path-discovery", "Path Discovery"))</div>
+        <div class="segmented">\(segment("network", "Network"))\(segment("saas", "SaaS"))\(segment("quickcheck", "Quick Check"))\(segment("log", "Diagnostic Log"))\(segment("path-discovery", "Path Discovery"))</div>
         """
     }
 
@@ -852,7 +1300,14 @@ final class LocalDiagnosticServer {
     }
 
     private static func renderNotYetAvailablePage(title: String, message: String) -> String {
-        let current = title == "Diagnostic Log" ? "log" : "path-discovery"
+        let current: String
+        switch title {
+        case "Diagnostic Log": current = "log"
+        case "Network": current = "network"
+        case "SaaS Status": current = "saas"
+        case "Quick Check": current = "quickcheck"
+        default: current = "path-discovery"
+        }
         return """
         <!doctype html>
         <html>
@@ -879,4 +1334,3 @@ final class LocalDiagnosticServer {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
-#endif

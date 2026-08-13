@@ -22,10 +22,6 @@ final class FirewallVisibilityViewModel {
     private(set) var isScanning = false
     private(set) var lastError: String?
 
-    /// Fired when an `AppEventRecord` gets logged, same convention every
-    /// other view model here uses.
-    var onEventLogged: (() -> Void)?
-
     private let snapshotStore: SnapshotStore
     private var timer: Timer?
     private var featureFlagObserver: NSObjectProtocol?
@@ -207,9 +203,6 @@ final class FirewallVisibilityViewModel {
                 .firewallExposureDecreased,
                 message: "Port \(result.port) on \(result.address) is no longer open."
             )
-        }
-        if !increased.isEmpty || !decreased.isEmpty {
-            onEventLogged?()
         }
     }
 

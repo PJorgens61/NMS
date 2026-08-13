@@ -1,19 +1,32 @@
 import SwiftUI
 
-/// A plain `Window`, not a SwiftUI `Settings` scene — `Settings` normally
-/// wires itself to the app's Preferences menu item and ⌘,, but that
-/// wiring doesn't reliably apply to `NMSApp`'s `.accessory` activation
-/// policy (no Dock icon, no standard app menu bar to attach a "Preferences…"
-/// item to). Opened via a footer button instead, the same pattern already
-/// proven for `KnownNetworksView`.
+/// A real SwiftUI `Settings` scene now (popover conversion, Phase 2,
+/// 2026-08-12) — this used to be a plain `Window` instead, because
+/// `Settings`'s automatic Preferences-menu/⌘, wiring didn't reliably
+/// apply to the app's then-current `.regular` activation policy (a
+/// standard Dock icon and app menu bar, but no `MenuBarExtra` for
+/// `Settings` to hook into the way it expects). `.accessory` +
+/// `MenuBarExtra` is exactly the configuration `Settings` was designed
+/// for, so that reasoning no longer applies — opened via
+/// `MenuBarView`'s "Preferences…" button calling
+/// `@Environment(\.openSettings)`, same `NSApp.activate()` foreground
+/// fix `ContentView.openWindowInFront` already needed.
 ///
 /// Deliberately narrow in scope: only `FeatureFlags`-shaped settings live
-/// here — a real on/off toggle, not a list. SNMP's community-string field
-/// stays inline in the popover (contextual, where you'd notice you need
-/// it), and Known Networks keeps its own window (a list with delete, not
-/// a toggle) — see DESIGN-NOTES.md's "Feature flags, now that friends are
-/// installing this too" for the reasoning on what does and doesn't belong
-/// here.
+/// here — a real on/off toggle, not a list — plus each toggle's own
+/// contextual sub-preferences (`SNMPCommunityStringsSection`,
+/// `SaaSServicePickerSection`/`UserAddedSitesSection`,
+/// `FirewallVisibilityServerSection`, `DDNSHostnamesSection`). Known
+/// Networks keeps its own window (a list with delete, not a toggle) — see
+/// DESIGN-NOTES.md's "Feature flags, now that friends are installing this
+/// too" for the reasoning on what does and doesn't belong here. SNMP's
+/// community-string field used to stay inline in the popover instead
+/// (contextual, where you'd notice you need it) — that field was deleted
+/// along with the rest of the old popover's tiles in the menu bar popover
+/// conversion and, until `PJorgens61/NMS#19`, never rebuilt anywhere;
+/// landed here rather than back in the popover since the popover has no
+/// budget left for a text field and this window already hosts every
+/// other feature-gated sub-preference.
 struct PreferencesView: View {
     // `@AppStorage`, not `FeatureFlags`' own plain `UserDefaults` reads —
     // this is the one place these values need to be *live*, so a toggle
@@ -70,6 +83,12 @@ struct PreferencesView: View {
                 description: "Active SNMP network probing against whatever LAN this Mac is on. Only turn this on if you're comfortable with that on your own network.",
                 identifier: "preferences.snmpDevices"
             )
+
+            // Same "only shown once the parent feature is on" reasoning as
+            // the SaaS/Firewall sub-sections below.
+            if snmpDevicesEnabled {
+                SNMPCommunityStringsSection()
+            }
 
             feature(
                 "SaaS Monitoring",

@@ -1,5 +1,7 @@
+import AppKit
 import SwiftUI
 import SwiftData
+import MenuBarExtraAccess
 
 @main
 struct NMSApp: App {
@@ -17,20 +19,32 @@ struct NMSApp: App {
     @State private var wifiStressTest: WiFiStressTestViewModel
     @State private var wifiSSID: WiFiSSIDViewModel
     @State private var ethernetLink: EthernetLinkViewModel
-    @State private var eventLog: EventLogViewModel
     @State private var traceroute: TracerouteViewModel
     @State private var snmp: SNMPViewModel
     @State private var saasMonitoring: SaaSMonitoringViewModel
     @State private var ddns: DDNSViewModel
     @State private var firewallVisibility: FirewallVisibilityViewModel
-    // Debug-only tooling, owned here (not `ContentView`) now that it's
-    // shared by `DebugToolsView`, a separate window — see that view's own
-    // doc comment for why debug action buttons moved out of the main
-    // footer. `#if DEBUG` because both types only exist in debug builds.
-    #if DEBUG
-    @State private var diagnosticServer = LocalDiagnosticServer()
-    @State private var globalpingService = GlobalpingReverseTraceService()
-    #endif
+    // Un-gated from `#if DEBUG`, 2026-08-12 -- `LocalDiagnosticServer`
+    // itself stopped being debug-only as part of the popover conversion
+    // (the popover's status lines/links need it in Release too, see that
+    // type's own doc comment), so this property has to be constructible
+    // in Release builds as well. Constructed in `init()` below, not here
+    // via a default value, so `setSaaSMonitoring`/`setNetworkViewModels`
+    // can run once at launch before it's wrapped in `State`.
+    @State private var diagnosticServer: LocalDiagnosticServer
+    // Owns its own `GlobalpingReverseTraceService()` (a plain stateless
+    // struct, constructed fresh in `init()` below) rather than a
+    // separate `NMSApp`-level property for it -- popover conversion,
+    // Phase 5: Path Discovery's own trigger moved from the (deleted)
+    // debug-only Debug Tools window into the popover's own Run Test ▾
+    // menu, un-gated from `#if DEBUG` since it has to be constructible
+    // in Release too.
+    @State private var pathDiscoveryRunner: PathDiscoveryRunner
+    /// Real, user-driven popover open/closed state — see `MenuBarView`'s
+    /// own doc comment (once Phase 3 wires this through) for why this
+    /// can't be `.task`/`.onAppear` on the popover's content instead;
+    /// same `MenuBarExtraAccess`-backed pattern RoonWatch already uses.
+    @State private var isMenuPresented: Bool = false
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -99,7 +113,6 @@ struct NMSApp: App {
         let wifiStressTest = WiFiStressTestViewModel(snapshotStore: store)
         let wifiSSID = WiFiSSIDViewModel(snapshotStore: store)
         let ethernetLink = EthernetLinkViewModel()
-        let eventLog = EventLogViewModel(snapshotStore: store)
         let traceroute = TracerouteViewModel(snapshotStore: store)
         let connectivity = ConnectivityViewModel(
             networkMonitor: networkMonitor,
@@ -129,7 +142,6 @@ struct NMSApp: App {
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
             ethernetLink: ethernetLink,
-            eventLog: eventLog,
             traceroute: traceroute,
             snmp: snmp,
             networkQuality: networkQuality,
@@ -149,12 +161,38 @@ struct NMSApp: App {
         _wifiStressTest = State(wrappedValue: wifiStressTest)
         _wifiSSID = State(wrappedValue: wifiSSID)
         _ethernetLink = State(wrappedValue: ethernetLink)
-        _eventLog = State(wrappedValue: eventLog)
         _traceroute = State(wrappedValue: traceroute)
         _snmp = State(wrappedValue: snmp)
         _saasMonitoring = State(wrappedValue: saasMonitoring)
         _ddns = State(wrappedValue: ddns)
         _firewallVisibility = State(wrappedValue: firewallVisibility)
+
+        let diagnosticServer = LocalDiagnosticServer()
+        diagnosticServer.setSnapshotStore(store)
+        diagnosticServer.setSaaSMonitoring(saasMonitoring)
+        diagnosticServer.setNetworkViewModels(.init(
+            viewModel: networkMonitor,
+            connectivity: connectivity,
+            wifiSSID: wifiSSID,
+            networkIdentity: networkIdentity,
+            publicIP: publicIP,
+            ispIdentity: ispIdentity,
+            traceroute: traceroute,
+            dhcpLease: dhcpLease,
+            ethernetLink: ethernetLink,
+            ddns: ddns
+        ))
+        _diagnosticServer = State(wrappedValue: diagnosticServer)
+
+        _pathDiscoveryRunner = State(wrappedValue: PathDiscoveryRunner(
+            globalpingService: GlobalpingReverseTraceService(),
+            diagnosticServer: diagnosticServer,
+            snapshotStore: store,
+            publicIP: publicIP,
+            traceroute: traceroute,
+            networkIdentity: networkIdentity,
+            wifiSSID: wifiSSID
+        ))
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
@@ -214,7 +252,6 @@ struct NMSApp: App {
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
         ethernetLink: EthernetLinkViewModel,
-        eventLog: EventLogViewModel,
         traceroute: TracerouteViewModel,
         snmp: SNMPViewModel,
         networkQuality: NetworkQualityViewModel,
@@ -259,7 +296,6 @@ struct NMSApp: App {
             ispIdentity: ispIdentity,
             dhcpLease: dhcpLease,
             wifiSSID: wifiSSID,
-            eventLog: eventLog,
             networkIdentity: networkIdentity,
             snmp: snmp,
             traceroute: traceroute,
@@ -499,9 +535,15 @@ struct NMSApp: App {
         }
     }
 
-    /// Every producer that can write an `AppEventRecord` tells the log view
-    /// to re-read — plus the one thing that makes *already-stored* history
-    /// readable at all.
+    /// Re-checks exposure on a router/firmware signal, plus the one thing
+    /// that makes *already-stored* history readable at all once a network
+    /// is recognized (see `onNetworkRecognized` below). Used to also fan
+    /// out an `onEventLogged` refresh to `EventLogViewModel` for every
+    /// producer that could write an `AppEventRecord` — removed alongside
+    /// `EventsTile`/`EventLogViewModel` themselves (popover conversion,
+    /// Phase 4): `/log` already reads `AppEventRecord` history directly
+    /// from `SnapshotStore` on every request, no view-model cache to
+    /// invalidate.
     private static func wireHistoryRefresh(
         networkMonitor: NetworkMonitorViewModel,
         connectivity: ConnectivityViewModel,
@@ -509,7 +551,6 @@ struct NMSApp: App {
         ispIdentity: ISPIdentityViewModel,
         dhcpLease: DHCPLeaseViewModel,
         wifiSSID: WiFiSSIDViewModel,
-        eventLog: EventLogViewModel,
         networkIdentity: NetworkIdentityViewModel,
         snmp: SNMPViewModel,
         traceroute: TracerouteViewModel,
@@ -519,38 +560,22 @@ struct NMSApp: App {
         ddns: DDNSViewModel,
         firewallVisibility: FirewallVisibilityViewModel
     ) {
-        networkMonitor.onEventLogged = { eventLog.refresh() }
-        connectivity.onEventLogged = { eventLog.refresh() }
-        publicIP.onEventLogged = { eventLog.refresh() }
-        ispIdentity.onEventLogged = { eventLog.refresh() }
-        dhcpLease.onEventLogged = { eventLog.refresh() }
-        wifiSSID.onEventLogged = { eventLog.refresh() }
-        snmp.onEventLogged = { eventLog.refresh() }
-        traceroute.onEventLogged = { eventLog.refresh() }
-        saasMonitoring.onEventLogged = { eventLog.refresh() }
-        ddns.onEventLogged = { eventLog.refresh() }
-        firewallVisibility.onEventLogged = { eventLog.refresh() }
         // See `FirewallVisibilityViewModel.handleRouterSignal()`'s doc
         // comment: a router reboot or firmware change can silently reset
         // port-forwarding rules, so it's worth re-checking exposure.
         snmp.onRouterOrFirewallSoftwareEvent = { firewallVisibility.handleRouterSignal() }
 
-        // Everything above fires on *new* data. This one covers stored
-        // data that was already there: all three view models fetch once
-        // in `init`, before the first LAN scan has resolved which network
-        // this is, so all three come back empty and — until now —
-        // nothing re-ran them. Events only re-read when a new event is
-        // logged, and events are logged on change, so a healthy network
-        // could sit showing "No events yet" over a full history
-        // indefinitely; DHCP history only re-read when a lease changed,
-        // typically a day out; Speed Test history only re-read after a
-        // fresh run, which may never happen this session.
+        // This covers stored data that was already there: these view
+        // models fetch once in `init`, before the first LAN scan has
+        // resolved which network this is, so they come back empty and —
+        // until now — nothing re-ran them. DHCP history only re-read when
+        // a lease changed, typically a day out; Speed Test history only
+        // re-read after a fresh run, which may never happen this session.
         //
         // SNMP needs no equivalent here: `rebuildDeviceList()` is already
         // called from `lanDiscovery.onScanCompleted`, the same scan whose
         // completion drives recognition in the first place.
         networkIdentity.onNetworkRecognized = {
-            eventLog.refresh()
             dhcpLease.reloadHistory()
             // `check()`, not just `reloadHistory()`: the launch/topology-
             // change check that raced ahead of recognition (see
@@ -579,53 +604,56 @@ struct NMSApp: App {
         }
     }
 
-    /// Built once here rather than at `body`'s own single call site —
-    /// matches the shape this had when there were two call sites (the
-    /// popover and the Expert Mode window), kept even now that there's
-    /// only one, since view-model wiring this dense is easier to read as
-    /// its own named step.
-    private func contentView() -> ContentView {
-        ContentView(
-            viewModel: networkMonitor,
-            lanDiscovery: lanDiscovery,
-            connectivity: connectivity,
-            networkIdentity: networkIdentity,
-            publicIP: publicIP,
-            ispIdentity: ispIdentity,
-            dhcpLease: dhcpLease,
-            networkQuality: networkQuality,
-            wifiStressTest: wifiStressTest,
-            wifiSSID: wifiSSID,
-            ethernetLink: ethernetLink,
-            eventLog: eventLog,
-            traceroute: traceroute,
-            snmp: snmp,
-            saasMonitoring: saasMonitoring,
-            ddns: ddns,
-            firewallVisibility: firewallVisibility,
-            buildInfo: buildInfo,
-            storeURL: storeURL,
-            snapshotStore: snapshotStore
-        )
+    /// Opens a diagnostic-server page in the system browser — same
+    /// `NSWorkspace.shared.open(url)`-via-`diagnosticServerURL(path:)`
+    /// shape RoonWatch's own `openDiagnostics` closure already uses, a
+    /// deliberate choice (not an embedded `WKWebView`) recorded in the
+    /// plan doc's "Decided, not open" list. Passed into `MenuBarView`
+    /// below, which calls it for every status line/link tap.
+    private func openDiagnostics(path: String) {
+        Task {
+            guard let url = await diagnosticServer.diagnosticServerURL(path: path) else { return }
+            NSWorkspace.shared.open(url)
+        }
     }
 
     var body: some Scene {
-        // The app's one main window — used to be "Expert Mode," opened on
-        // demand from a MenuBarExtra popover's footer button; now the
-        // whole app, open automatically at launch since it's the first
-        // scene declared. See DESIGN-NOTES.md for why the popover was
-        // dropped.
-        //
-        // An outer scroll container turned out not to be optional: without
-        // one, the window is floor-clamped to its full content height, and
-        // on the M1 MacBook Air's screen that's taller than the screen
-        // itself — no way to reach the lower half at all, confirmed
-        // directly. See `ContentView.body`, where that scroll container
-        // actually lives.
-        Window("NMS", id: "main-window") {
-            contentView()
+        // Popover conversion, Phase 2 (scene rewrite) -- the original
+        // `Window("NMS", ...)` this replaced (Phase 0's spike target) is
+        // gone for good now, not just swapped out temporarily; its
+        // replacement is `MenuBarView`/`MenuBarIcon`. `MenuBarView`
+        // itself is still Phase 0's placeholder content -- real view-model
+        // wiring is Phase 3's job, not this one.
+        // `.menuBarExtraAccess` must be the first scene modifier after
+        // `MenuBarExtra` -- it's declared as an extension on the concrete
+        // `MenuBarExtra` type, not the general `Scene` protocol, so it
+        // has to run before `.menuBarExtraStyle` erases that to `some
+        // Scene` (confirmed directly, RoonWatch already hit this).
+        MenuBarExtra {
+            MenuBarView(
+                viewModel: networkMonitor,
+                connectivity: connectivity,
+                wifiSSID: wifiSSID,
+                ethernetLink: ethernetLink,
+                dhcpLease: dhcpLease,
+                traceroute: traceroute,
+                networkQuality: networkQuality,
+                wifiStressTest: wifiStressTest,
+                snmp: snmp,
+                saasMonitoring: saasMonitoring,
+                firewallVisibility: firewallVisibility,
+                pathDiscoveryRunner: pathDiscoveryRunner,
+                openDiagnostics: openDiagnostics
+            )
+        } label: {
+            MenuBarIcon(status: OverallStatus.computeForPopover(
+                interfaceIsDown: networkMonitor.currentInterface == nil,
+                checks: connectivity.checks,
+                dhcpIsAbnormal: dhcpLease.isFallenBackToLinkLocal || dhcpLease.isRenewalOverdue
+            ))
         }
-        .defaultSize(width: 600, height: 700)
+        .menuBarExtraAccess(isPresented: $isMenuPresented)
+        .menuBarExtraStyle(.window)
 
         // A separate window rather than a sheet — see
         // `KnownNetworksView`'s doc comment.
@@ -634,38 +662,16 @@ struct NMSApp: App {
         }
         .defaultSize(width: 460, height: 320)
 
-        // Debug-only action buttons, pulled out of the main footer — see
-        // `DebugToolsView`'s own doc comment for why.
-        #if DEBUG
-        Window("Debug Tools", id: "debug-tools") {
-            DebugToolsView(
-                diagnosticServer: diagnosticServer,
-                globalpingService: globalpingService,
-                snapshotStore: snapshotStore,
-                publicIP: publicIP,
-                traceroute: traceroute,
-                networkIdentity: networkIdentity,
-                wifiSSID: wifiSSID
-            )
-        }
-        .defaultSize(width: 360, height: 240)
-        #endif
-
-        // A plain `Window`, not a `Settings` scene — see
-        // `PreferencesView`'s doc comment.
-        Window("Preferences", id: "preferences") {
+        // A real `Settings` scene now, not a plain `Window` -- see
+        // `PreferencesView`'s doc comment for why it used to avoid this
+        // (`.accessory` + `MenuBarExtra` makes `Settings`'s automatic
+        // Preferences-menu/⌘, wiring reliable, unlike the `.regular`,
+        // no-real-menu-bar situation that reasoning was written for).
+        // Still gets `PreferencesView.body`'s own `ScrollView` for a
+        // MacBook-Air-height window, same reasoning as before.
+        Settings {
             PreferencesView()
         }
-        // A real, freely resizable window, not `.contentSize` --
-        // reported directly: content-locked sizing meant this window
-        // couldn't be dragged smaller at all, and once the view grew
-        // (13 SaaS services, DDNS hostnames, several toggles) past a
-        // MacBook Air's screen height there was no way to shrink it or
-        // reach the rest, the exact failure `ContentView`'s own outer
-        // `ScrollView` already exists to prevent for the main window.
-        // `PreferencesView.body` now wraps its content in a `ScrollView`
-        // of its own, so a shorter window just scrolls instead.
-        .defaultSize(width: 380, height: 500)
     }
 
     /// Falls back to an in-memory store if the on-disk store can't be

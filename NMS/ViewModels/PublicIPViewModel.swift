@@ -17,10 +17,6 @@ final class PublicIPViewModel {
     /// `NMSApp`), so this doesn't need connectivity-check-level frequency.
     private static let checkInterval: TimeInterval = 300
 
-    /// Fired when an `AppEventRecord` gets logged (public IP changed), so
-    /// the event log view can refresh.
-    var onEventLogged: (() -> Void)?
-
     /// Fired when `currentIP` actually changes — including nil → a value,
     /// which is the case that matters most.
     ///
@@ -94,7 +90,6 @@ final class PublicIPViewModel {
         let changed = snapshotStore.recordPublicIPIfChanged(info)
         if changed, previousIP != nil {
             snapshotStore.logEvent(.publicIPChanged, message: "Public IP changed to \(info.ipAddress)")
-            onEventLogged?()
         }
     }
 }

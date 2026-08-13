@@ -36,11 +36,6 @@ final class ISPIdentityViewModel {
     private let service = ISPIdentityService()
     private let snapshotStore: SnapshotStore
 
-    /// Fired when an `AppEventRecord` gets logged (organization changed),
-    /// so the event log view can refresh — same shape as every other
-    /// producer `NMSApp.wireHistoryRefresh` wires up.
-    var onEventLogged: (() -> Void)?
-
     init(snapshotStore: SnapshotStore) {
         self.snapshotStore = snapshotStore
     }
@@ -66,7 +61,6 @@ final class ISPIdentityViewModel {
                     .ispOrganizationChanged,
                     message: "ISP identified as \(name) (was \(previousName))"
                 )
-                onEventLogged?()
             }
         }
     }
