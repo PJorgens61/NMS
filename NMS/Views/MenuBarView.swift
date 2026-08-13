@@ -20,6 +20,12 @@ struct MenuBarView: View {
     var saasMonitoring: SaaSMonitoringViewModel
     var firewallVisibility: FirewallVisibilityViewModel
     var pathDiscoveryRunner: PathDiscoveryRunner
+    /// For the footer's store-size line (`footerText`) — `StoreSizeService`
+    /// itself was untouched by the popover conversion, but nothing called
+    /// it anymore once `ContentView`'s footer was deleted in Phase 4
+    /// (`PJorgens61/NMS#22`). Passed in rather than read via some shared
+    /// app-state object, matching every other view model here.
+    var storeURL: URL
 
     /// Opens a diagnostic-server page in the system browser — see
     /// `NMSApp.openDiagnostics(path:)`. A plain closure, not a direct
@@ -55,7 +61,7 @@ struct MenuBarView: View {
                 statusLine(color: myAppsStatus.color, label: "MyApps", detail: myAppsDetail, path: "saas")
             }
             statusLine(color: internetStatus.color, label: "Internet", detail: internetDetail, path: "network")
-            statusLine(color: localStatus.color, label: "MyWifi", detail: localDetail, path: "network")
+            statusLine(color: localStatus.color, label: localLabel, detail: localDetail, path: "network")
             Text(glanceText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -130,7 +136,7 @@ struct MenuBarView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
 
-            Text(BuildInfoService.current().map { "Build \($0.shortHash)" } ?? "")
+            Text(footerText)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }
@@ -164,6 +170,16 @@ struct MenuBarView: View {
     private var localStatus: OverallStatus {
         OverallStatus.computeLocal(interfaceIsDown: viewModel.currentInterface == nil, checks: connectivity.checks, dhcpIsAbnormal: dhcpIsAbnormal)
     }
+    /// "MyWifi" on Wi-Fi, "Ethernet" when wired — same `currentSSID != nil`
+    /// condition `glanceText`/`localDetail` already branch on, kept as its
+    /// own property since the label needs it independently of either
+    /// (`PJorgens61/NMS#21` — this row used to say "MyWifi" even on
+    /// Ethernet, since the popover conversion's design called for the
+    /// swap but the follow-up never landed).
+    private var localLabel: String {
+        wifiSSID.currentSSID != nil ? "MyWifi" : "Ethernet"
+    }
+
     private var localDetail: String {
         if viewModel.currentInterface == nil { return "down" }
         if dhcpIsAbnormal { return "DHCP issue" }
@@ -182,6 +198,16 @@ struct MenuBarView: View {
             return "Ethernet \(Int(speed)) Mbps"
         }
         return "No active link"
+    }
+
+    /// Build hash plus real on-disk store size, read fresh on every
+    /// popover open — same "observable rather than theoretical" reasoning
+    /// the retention-pruning docs already give for why this line matters
+    /// (`README.md`'s "Network activity and privacy" section).
+    private var footerText: String {
+        let build = BuildInfoService.current().map { "Build \($0.shortHash)" }
+        let size = StoreSizeService.formattedSize(at: storeURL)
+        return [build, size].compactMap { $0 }.joined(separator: " · ")
     }
 
     // MARK: - Status line row

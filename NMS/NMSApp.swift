@@ -643,6 +643,7 @@ struct NMSApp: App {
                 saasMonitoring: saasMonitoring,
                 firewallVisibility: firewallVisibility,
                 pathDiscoveryRunner: pathDiscoveryRunner,
+                storeURL: storeURL,
                 openDiagnostics: openDiagnostics
             )
         } label: {
