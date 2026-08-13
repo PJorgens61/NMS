@@ -53,20 +53,10 @@ exactly what to check its answer against.
 - [Running it](#running-it)
 - [Developing across more than one Mac](#developing-across-more-than-one-mac)
 - [The popover](#the-popover)
-  - [Expert Mode](#expert-mode)
-  - [Network Health](#network-health)
-  - [Info](#info)
-  - [Path to Internet](#path-to-internet)
-  - [Speed Test](#speed-test)
-  - [Events](#events)
-  - [Wi-Fi](#wi-fi)
-  - [SNMP Devices](#snmp-devices)
-  - [DHCP History](#dhcp-history)
-  - [SaaS Status](#saas-status)
-  - [Correlation](#correlation)
-  - [What's hidden](#whats-hidden)
+- [The web pages](#the-web-pages)
+  - [Path Discovery](#path-discovery)
   - [Data retention](#data-retention)
-- [Debug tooling (DEBUG builds only)](#debug-tooling-debug-builds-only)
+- [Debug tooling](#debug-tooling)
 - [Project layout](#project-layout)
 - [System requirements](#system-requirements)
 - [Building a universal (Intel + Apple Silicon) binary](#building-a-universal-intel--apple-silicon-binary)
@@ -99,294 +89,126 @@ screen sizes or macOS versions.
 
 ## The popover
 
-560pt wide. Deliberately minimal — scoped to "can I work right now, and
-what's restricted," not full diagnostics (see "Expert Mode" below for
-where the rest lives):
+280pt wide, `MenuBarExtra(.window)`. This is the third UI shape this app
+has had — an original popover-only design, then a single resizable
+window (`ContentView`, since deleted), now back to a popover, this time
+deliberately paired with the local web pages below rather than trying to
+cram everything native. See `DESIGN-NOTES.md` for the two-tier
+history — the window shape wasn't a mistake, it's what proved out the
+web-page infrastructure this popover now leans on for anything
+data-dense.
 
-- **Network Health** and **Info** side by side, each its own bordered
-  box.
-- A footer: **Refresh**, a camera icon (screenshot), a ladybug icon (Bug
-  Report — a screenshot plus a state dump plus a comment field, for
-  describing what you're seeing), **Expert Mode…**, **Networks…**,
-  **Preferences…**, and **Quit**, with a small build-hash / store-size
-  line and, when a debug override is active, an orange warning line
-  beneath it.
+Three status lines, always visible, each a tap target that opens its
+detail page in your browser:
 
-### Expert Mode
+- **MyApps** (only shown if SaaS monitoring is on) — worst-of-N across
+  every monitored SaaS vendor. Opens `/saas`.
+- **Internet** — the public internet/DNS/HTTP/ISP-edge/gateway-WAN
+  layer, i.e. "is the internet actually reachable past my own router."
+  Opens `/network`.
+- **MyWifi** — local link health: interface up, router reachable, DHCP
+  nominal. Labeled "MyWifi" even on Ethernet today (the plan called for
+  swapping the label, that part just didn't get built) — the detail
+  text and glance line below still correctly describe whichever
+  interface is actually active. Opens `/network`.
 
-`MenuBarExtra(.window)` forces a fixed-height popover with no scrolling,
-which means every screen-fit problem has to be solved by trimming
-content rather than letting the container adapt — a recurring source of
-work documented at length in `DESIGN-NOTES.md`. **Expert Mode** opens
-the same live data in a real, resizable window instead, with every
-diagnostic section the popover deliberately doesn't carry: **Path to
-Internet**, **Speed Test**, **Events**, **Wi-Fi**, **SaaS Status**,
-**SNMP Devices**, and **DHCP History**. A permanent, always-available
-part of the app — not behind a feature flag the way it started out —
-both surfaces stay open to the same underlying state.
+Below that, a compact glance line (SSID/channel/security on Wi-Fi;
+speed/duplex on Ethernet — RSSI shows in the MyWifi status line's own
+detail text instead, not here), then a **Simple**/**Expert** toggle
+(`@AppStorage`, persisted):
 
-Network Health and Info stack full-width in the window, one above the
-other, along with Path to Internet and Speed Test — more room for text
-than the popover's side-by-side pair affords. Every history section
-(Events, SNMP Devices, DHCP History, Wi-Fi, SaaS Status, Speed Test,
-traceroute hops) scrolls independently in its own fixed-height box, and
-an always-visible scrollbar on the right reaches whatever doesn't fit
-on screen.
+- **Simple Mode**: two controls — **View Network Summary** (opens
+  `/network`) and **Run Quick Check**, a bundled, gentler run of five
+  tests (path discovery, DNS check, DHCP status, a probe-only speed
+  test, a Wi-Fi stress burst) behind one upfront confirmation. Deliberately
+  excludes DHCP Renew (a real lease-renewal side effect) and SNMP/
+  Firewall scanning (enterprise-oriented, slower, not relevant to a
+  non-technical user).
+- **Expert Mode**: the same two controls, plus a **Run Test ▾** menu
+  covering all nine individual tests — Trace Now, Check DNS, Check DHCP
+  Status, Run Speed Test, Run Apple Test, Run Wi-Fi Stress Test, Scan
+  (SNMP), Scan Now (Firewall), Renew (DHCP), each keeping its own
+  one-time "this has a real effect" confirmation where it already had
+  one natively. Collapsing every action into one `Menu` is a deliberate
+  fix for a real historical failure: this app's original popover
+  attempt crammed everything in directly and repeatedly outgrew a 13"
+  MacBook Air's screen — seven individual action buttons would have
+  risked the same thing, one `Menu` costs exactly one row regardless of
+  how many tests are behind it.
 
-Two sections carry an additional gate beyond being window-only:
+Every test's label, Quick Check membership, confirmation text, and
+runtime parameters live in `NMS/Services/NetworkTestCatalogAssets/
+test-catalog.json`, read fresh from disk — tuning a value (a byte size,
+a duration, a timeout) is a JSON edit, not a rebuild.
 
-- **SNMP Devices** is also behind `FeatureFlags.snmpDevices` (off by
-  default; see "Experimental features" below) — active network probing
-  against whatever LAN the Mac is on, not just a UI preference.
-- **SaaS Status** is also behind `FeatureFlags.saasMonitoring` (on by
-  default) — it reaches out to each service's own status page directly,
-  not just your own network.
+Below the tests: **Known Networks…** (opens the separate window, see
+below) and **Preferences…** (opens the `Settings` scene), then a
+build-hash line.
 
-### Network Health
+## The web pages
 
-Seven rows, ordered bottom-to-top as the actual dependency chain out of
-this Mac — read it that way when something's wrong, since a failure low
-in the list explains everything failing above it:
+Everything data-dense lives here now instead of in native SwiftUI —
+`SWIFTUI-NOTES.md`'s standing rule, learned the hard way from this
+project's own native-rendering interop bugs (`ImageRenderer` races,
+SwiftData traps, a compiler crash) in earlier UI iterations. Served by
+`LocalDiagnosticServer` — loopback-only (`127.0.0.1`), an ephemeral port
+plus a random per-launch path token (defense in depth on top of the
+loopback binding), stops itself after 10 minutes idle. Ships in Release
+now, not gated to debug builds — a real end user needs the same
+drill-down an agent/developer would get, the same choice RoonWatch (a
+sibling project this pattern was ported from, and back to) already made
+for the identical reason.
 
-| Row (bottom → top) | What it checks |
-|---|---|
-| Network | Is there an active interface, and do we know what it's connected to |
-| Local Router | Ping to the gateway's LAN address |
-| Public IP | Ping to the router's own WAN-facing address — catches a dead modem/ONT a LAN-side check can't see |
-| ISP Edge Router | Ping to the traceroute hop you've confirmed as the ISP's own router — "Not confirmed" until you do |
-| Internet Ping by address | Ping to a fixed public address (`1.1.1.1`) — bypasses DNS entirely |
-| DNS | A fresh, cache-busting name resolution |
-| HTTP | A real HTTPS fetch — catches a captive portal or filtering that a raw ping wouldn't |
+- **`/network`** — the full local-link/internet health picture: Network,
+  Local Router, Public IP, ISP Edge Router, Internet, DNS, HTTP, DHCP,
+  and DDNS status, ordered bottom-to-top as the actual dependency chain
+  (a failure low in the list explains everything failing above it),
+  plus a Wi-Fi/Ethernet glance card and Path to Internet's current hop
+  list.
+- **`/saas`** — every monitored SaaS vendor's status (green/yellow/red/
+  blue-for-maintenance/gray-for-unparseable), plus "Your Own Sites" (a
+  plain reachability check, not a real vendor status API, in Preferences).
+- **`/log`** — the Diagnostic Log: a merged, chronological view of
+  Events, Speed Test/Apple Test/Wi-Fi Stress Test history, plus standing
+  inventories for SNMP Devices and DHCP lease history.
+- **`/quickcheck`** — the Simple Mode bundle's landing page. Currently a
+  stub: each bundled test fires for real, but there's no synchronized
+  combined report yet (each of the five tests is independently
+  fire-and-forget, same as clicking its own button — building a real
+  report needs new plumbing across all five). Results land on `/network`
+  and `/log` as each test finishes in the meantime.
+- **`/path-discovery`** — a Globalping-based reverse traceroute from
+  several external vantage points back toward this Mac's own public IP
+  (see "Path Discovery" below), plus an ISP-topology diagram.
 
-Each of the six probe-backed rows carries an inline sparkline of its
-last 30 checks, scaled independently per row so a sub-millisecond row
-and a tens-of-milliseconds row don't share an axis. A failed check
-breaks the line rather than interpolating across it, and gets a red
-mark along the bottom — an outage should never render as a fast
-response. The **Network** row gets a sparkline too, on Wi-Fi only — signal
-strength (RSSI) in place of the name, since that name already reads
-correctly from the Info tile's own row; on Ethernet it still just shows
-the network's name.
+**Networks…** (in the popover) opens a separate window listing every
+network this Mac has connected to, with a way to forget one (and
+everything it was the source of) entirely, or **Review** one to see its
+recorded Events/SNMP Devices/DHCP History/Wi-Fi telemetry read-only —
+no Scan or Refresh, since you aren't actually connected to it. Useful
+for a field technician revisiting a site who wants to see what this Mac
+last saw there. Kept as a native window deliberately — real CRUD
+(rename/delete/mark-home) has no good popover fit, and this is data a
+user actively manages, not just reads.
 
-**If you're watching DNS query logs on this network, here's why you'll
-see nonsense lookups against `apple.com` every 30 seconds (5s during an
-outage): that's this app, not malware.** A plain repeated resolution of
-a fixed hostname would get served from macOS's own resolver cache after
-the first lookup — successful answers are cached for their record's TTL,
-so a later check could report "healthy" using a stale, cached answer with
-no actual network round trip at all. The DNS row instead resolves a
-freshly randomized subdomain every time (`nms-check-<random>.apple.com`)
-and treats the resulting `NXDOMAIN` as the successful result, not a
-failure — a label that's never been queried before can't be served from
-a cache entry that doesn't exist yet, so this forces a genuine round trip
-on every check. This is deliberately *not* a reserved-invalid TLD like
-`.invalid`/`.test`/`.example`, even though those are guaranteed to never
-resolve: macOS's resolver short-circuits those locally in a couple of
-milliseconds with no real network traffic, which would report "reachable"
-identically whether the network was actually up or down.
+### Path Discovery
 
-When several rows fail together, only the lowest shows full-intensity
-red; everything above it shows a dimmed red, since it's presumed a
-consequence rather than an independent problem. A `*` next to a failure
-means it landed within 90 seconds of a network change this app also
-observed (see Correlation, below).
-
-**Local CPU load can look like a network outage, and is filtered out.**
-If every path-critical ping (Router, Public IP, ISP Edge Router, Internet)
-fails in the same round while DNS or HTTP still succeeds, the network is
-demonstrably up — DNS resolves a random subdomain and HTTP fetches a real
-host, so a contradiction like that means something local (most often a
-CPU-saturating build) starved the ping subprocesses, not a real outage.
-Such a round writes no events and doesn't accelerate the polling cadence,
-though the raw measurements are still persisted and still show up in the
-sparklines. Every round also records normalized CPU load
-(`getloadavg`, core-count-normalized) for exactly this diagnosis.
-
-Checks run every 30s, dropping to 5s while anything in the table above is
-unhealthy, and settle back to 30s once everything recovers. The first
-transition into failure triggers an immediate extra round rather than
-waiting out even the 5s interval.
-
-### Info
-
-Network name and type, IP address in CIDR notation, router and DNS
-server addresses, current public IP, and — on Wi-Fi — the BSSID. A
-"Known network" / "New network (seen N×)" line tracks how often this app
-has recognized the current network before — identified by gateway MAC
-*and* subnet, so a main LAN and a guest VLAN on the same router (which
-share a MAC) still count as distinct networks.
-
-Events, SNMP Devices, DHCP History, Wi-Fi samples, and Speed Test
-history are all scoped to whichever network is current — visiting
-another network never mixes its data into your own history.
-**Networks…** in the footer opens a list of every network this Mac has
-connected to, with a way to forget one (and every event/lease/device it
-was the source of) entirely, or **Review** one to see its recorded
-Events/SNMP Devices/DHCP History/Wi-Fi telemetry read-only — no Scan or
-Refresh, since you aren't actually connected to it (Speed Test history
-isn't part of Review's four sections). Useful for a field technician
-revisiting a site who wants to see what this Mac last saw there.
-
-**Printer monitoring is the one exception to that scoping, deliberately.**
-Every configured printer (System Settings → Printers & Scanners) is
-pinged for reachability and checked for CUPS fault alerts every round,
-on whatever network happens to be current — it is never re-discovered
-per network the way SNMP devices or DHCP leases are, because a printer
-comes from local Mac configuration, not from anything found on the LAN.
-Leave your home network and this Mac will keep trying your home printer
-and logging its up/down and alert events under whichever network you're
-actually on now. This is unlikely to change: scoping it correctly would
-mean deciding, every round, whether a configured printer actually
-belongs to the current network (e.g. by resolving its host), which is
-real added complexity for a case (a printer moving between networks
-mid-session) that's rare in practice.
-
-### Path to Internet
-
-*Window-only.* Traces the route to the internet (`traceroute -n -q 1 -w 1 -m 4`) and
-suggests the first non-private hop as the likely ISP edge — a starting
-point, not an auto-trusted answer, since a campus/enterprise network can
-hand out public address space before traffic reaches the real ISP. Tap
-the star next to the correct hop to confirm it; from then on that
-address is pinged on the same cadence as the rest of Network Health
-("ISP Edge Router" above), not re-traced from scratch each time.
-"Trace Now" re-runs the trace on demand; it also re-runs automatically on
-every topology change, every 10 minutes, right when internet
-reachability changes in either direction, and right after the confirmed
-hop's ISP-edge ping itself transitions.
+Traces the route to the internet (`traceroute -n -q 1 -w 1 -m 4`) via
+**Trace Now**, and separately, **Path Discovery…** runs a reverse
+traceroute from several external Globalping vantage points back toward
+this Mac's own public IP, checking whether any of them corroborate
+the confirmed ISP edge hop. Also folds in a Firewall-visibility vantage
+point when configured, a Scamper "same device, different interface"
+second opinion when installed (`brew install scamper`, plus a one-time
+setuid step — no in-app UI for this setup step, by design; see
+`ScamperService`), and Hoiho geo hints for the topology diagram. Not
+gated behind confirmation — matches its native precedent, which was
+just disabled until a public IP is known.
 
 Every trace also checks for **more than one non-private hop before
-reaching the real internet** — an extra NAT layer between this Mac and
-the internet, either an extra router of your own or your ISP's own
-carrier-grade NAT (CGNAT). Shown right in the tile as an orange "NAT"
-row whenever it applies ("CGNAT — shared public IP" or "Multiple layers
-(N hops)", depending on how confident the detection is), and logged as
-an Events entry only when it changes (not on every trace, and not on
-the very first one). Traceroute can't always tell whether the extra hop
-is your own second router or your ISP's own CGNAT — the confident
-"CGNAT" wording only appears when a hop actually falls in the
-carrier-grade NAT address range; otherwise it hedges rather than
-guessing.
-
-### Speed Test
-
-*Window-only.* Two independent sources, one shared history list:
-
-- **Cloudflare** (`Run Speed Test`): a plain HTTPS GET/POST against
-  Cloudflare's public speed-test endpoint, sequential (never concurrent,
-  so the two numbers don't understate each other). Each direction starts
-  with a small 2MB probe and only escalates to a full 25MB transfer if
-  the probe suggests a fast-enough link that the small one would
-  understate it — accurate on a fast connection, and no longer minutes
-  (or a timeout) on a slow one, like DSL. Takes about a second on a fast
-  connection.
-- **Apple** (`Run Network Quality`, next to the "up to ~50MB per run" label):
-  shells out to `/usr/bin/networkQuality -c -s -M 45`, for the one signal
-  Cloudflare's plain transfer can't produce — responsiveness under load
-  (RPM, round-trips-per-minute while the link is saturated — a
-  bufferbloat measurement), always in sequential mode, since RPM is only
-  emitted that way. Takes 25–40 seconds.
-
-Both write to the same history list (10 most recent, newest first,
-scoped to whichever network is current — see Info above) and share one
-"running" state, so they can't contend for the link at the same time. A
-Cloudflare row is one line; an Apple-sourced row gets a second line for
-RPM and idle base latency.
-
-### Events
-
-*Window-only.* A transition log, not a stream of every check — one line
-when something starts failing, one when it recovers, nothing while a
-state persists. Recoveries render in green, failures in red, neutral
-changes (`interfaceChanged`, `publicIPChanged`, `dhcpLeaseChanged`,
-`screenshotCaptured`) in the default text color. A long message wraps
-to multiple lines rather than truncating, and a SaaS-outage entry
-carries a clickable link icon straight to the incident. Scrolls
-independently in its own fixed-height box.
-
-### Wi-Fi
-
-*Window-only, visible only on Wi-Fi.* BSSID, signal strength (RSSI,
-with a short trend line, plus SNR when the adapter reports noise),
-channel number and band, negotiated PHY rate, and security type.
-
-### SNMP Devices
-
-*Window-only, and behind `FeatureFlags.snmpDevices` (off by default).*
-Discovers switches, APs, routers, and printers that answer SNMP
-(`snmpget`, community string `public` by default — editable as an
-ordered, comma-separated list under "Change," tried in sequence). Each
-row shows a live reachability dot (from the same ping cadence Network
-Health uses), name, uptime, and software descriptor. An uptime that
-resets logs a restart; a changed descriptor logs a software change; both
-together (a reboot following an upgrade) log as the latter, not the
-alarming former.
-
-"Scan" clears and re-sweeps the subnet (up to ~15–20s on a full /24) —
-discovery is manual, never automatic at launch. Already-known devices
-are re-polled every 60s automatically. Two addresses that resolve to the
-same MAC (a VRRP virtual address answered from the master's own
-hardware) are shown as one entry with every address listed, not two
-separate devices.
-
-### DHCP History
-
-*Window-only.* Every real lease change (server, address, or timing
-actually differed), newest first — the newest entry doubles as the
-current lease. Each entry is two lines: server + assigned address +
-timestamp on the first, every other parsed field (broadcast, gateway,
-DNS, domain, lease/T1/T2 timers, transaction ID) on the second, with a
-tooltip explaining T1/T2 and the transaction ID. Checked every 5
-minutes. Two failure signals fire independently of a normal renewal:
-falling back to a self-assigned `169.254.x.x` address, and the
-transaction ID failing to change past its own lease's T2 (rebinding)
-deadline.
-
-### SaaS Status
-
-*Window-only, and behind `FeatureFlags.saasMonitoring` (on by
-default).* Periodically checks the public status pages of a fixed list
-of business SaaS services — Slack, Claude, ChatGPT, Jira/Confluence,
-Zendesk, Zoom, Trello, Asana, Notion, Dropbox, Discord, GitHub,
-Cloudflare, Figma, HubSpot, Docusign, Google Cloud, and Google
-Workspace — a different question from the rest of this app: "are the
-specific services this business depends on reachable," not "is my own
-network healthy." Reaches out to each service directly over the
-internet, not just your own LAN.
-
-Each row shows a colored status dot (green for healthy, yellow for a
-minor issue, red for major/critical, blue for a scheduled maintenance
-window, gray if a service's status page couldn't be parsed at all), the
-current status description, and a link icon straight to that service's
-status page. Which services are checked is configurable in
-Preferences — see "Experimental features" below.
-
-**"Your Own Sites"** (also in Preferences) adds any URL you choose, in
-a visually separate group below the curated list. A different, weaker
-signal on purpose: there's no real status API for an arbitrary site, so
-this is a plain reachability check ("did it answer at all"), not a
-parsed vendor incident — and unlike the curated list, it's genuinely
-network-dependent (a restrictive network can make a perfectly healthy
-site look unreachable), so a failure here deliberately never logs an
-Events entry the way a curated-list outage does.
-
-### Correlation
-
-A connectivity failure gets a `*` when it lands within 90 seconds (either
-direction) of a topology change this app observed — a coarse
-time-proximity heuristic, not causal proof. Only failures on Local
-Router, Internet, DNS, or HTTP can carry it.
-
-### What's hidden
-
-LAN Devices has no popover section — removed entirely to fit a 13"
-MacBook Air's shorter screen, not just collapsed. `LANDiscoveryViewModel`'s
-ARP-based scan keeps running regardless (it still feeds network
-recognition and SNMP's discovery candidates). Bonjour discovery was
-removed from the app entirely (not just hidden) — see DESIGN-NOTES.md's
-"mDNS/Bonjour" section for why: it was never actually being triggered to
-run, and even when it had been, found nothing the SNMP subnet sweep
-didn't already cover.
+reaching the real internet** — an extra NAT layer, either an extra
+router of your own or your ISP's own carrier-grade NAT (CGNAT) — logged
+as an Events entry only when it changes, not on every trace.
 
 ### Data retention
 
@@ -441,60 +263,54 @@ Expert Mode (see above) used to live here too, behind
 `FeatureComparisonWindow` — that flag is gone; it's a permanent,
 always-on part of the app now, not an experiment.
 
-## Debug tooling (DEBUG builds only)
+## Debug tooling
 
-Everything below compiles out entirely in Release — every method body is
-`#if DEBUG`, verified to leave zero trace in a Release binary. All of it
-writes to `~/Library/Logs/NMS/`, which `sysdiagnose` collects, so it
-matters that a shipping build cannot be made to produce it.
+Not gated to `#if DEBUG` builds the way it once was — since the popover
+no longer carries the dense, hard-to-screenshot content that made a
+live UI-state log the only reliable way to verify a change (that
+content lives in the web pages now, which a browser's own dev tools
+already cover), what remains here is smaller and genuinely
+always-available diagnostics, not a Debug-only surface:
 
-- **UI state log** (`ui-state.log`) — one line per value pushed into the
-  UI (`ConnectivityViewModel.checks`, `NetworkMonitorViewModel
-  .currentInterface`, and a handful of others), plus subprocess start/end
-  events and a 20s main-thread heartbeat, all in one ordered, sequenced
-  stream. Exists because the popover (`MenuBarExtra(.window)`) dismisses
-  on any focus loss, making screenshot-based verification a timing race;
-  reading a log isn't. Truncated at each launch, not appended across
-  runs.
-- **Store dumps** — the camera button also writes a plain-text snapshot
-  of every SwiftData table (row count, time span, newest rows) to
-  `~/Library/Logs/NMS/state-dumps/`, sharing the screenshot's timestamp
-  so the two can be checked against each other.
-- **Live-height tracking** — the camera button also logs the popover's
-  real, on-screen height (`ContentView.liveHeight`) before the capturing
-  copy swaps every scrollable section for an unclipped list — a
-  screenshot's own height is always the *uncapped* size, never the
-  actual on-screen one, so this is the only way to track whether the
-  popover still fits a given screen.
-- **Store size** — the footer shows the store's real on-disk size
-  (summing the base SQLite file plus its WAL and shared-memory sidecars),
-  read fresh on every render.
+- **UI state log** (`~/Library/Logs/NMS/ui-state.log`) — one line per
+  value pushed into the UI (`ConnectivityViewModel.checks`,
+  `NetworkMonitorViewModel.currentInterface`, and a handful of others),
+  plus subprocess start/end events (`SubprocessTracer`) and a 20s
+  main-thread heartbeat, all in one ordered, sequenced stream. Truncated
+  at each launch, not appended across runs. `sysdiagnose` collects
+  `~/Library/Logs/NMS/`.
 - **Failure injection** (`FailureInjector`) — forces connectivity checks,
-  interface-down, DHCP signals, or SNMP restart/software-change, via
-  `defaults write ~/Library/Preferences/Thistle.NMS.plist <key> ...`
-  rather than any in-app UI. Injected events carry an `[injected]` prefix
-  so a test is never mistaken for a real outage later. `NMSPollSpeedup`
-  divides every poll interval (a divisor, preserving the ratio between
-  the 30s/5s connectivity cadence); `NMSStorePath` points the whole app
-  at a scratch SwiftData store so scripted runs never touch real history.
+  interface-down, DHCP signals, SNMP restart/software-change, SaaS
+  outages, or DDNS staleness, via `defaults write
+  ~/Library/Preferences/Thistle.NMS.plist <key> ...` rather than any
+  in-app UI. Injected events carry an `[injected]` prefix so a test is
+  never mistaken for a real outage later. `NMSPollSpeedup` divides every
+  poll interval (a divisor, preserving the ratio between the 30s/5s
+  connectivity cadence); `NMSStorePath` points the whole app at a
+  scratch SwiftData store so scripted runs never touch real history.
+  `FailureInjector.activeOverridesSummary()` is logged to the UI state
+  log at launch and on every change, but — unlike the old single-window
+  app's orange footer banner, which had no popover-row budget to spare —
+  has no dedicated popover surface right now; check the log if a stale
+  override is suspected.
 - **`script/scenarios.sh`** — drives the injection keys above and asserts
-  on the results, 11 checks across connectivity, DHCP, and SNMP in about
-  a minute. Seeds a scratch store from the real one, runs at 30×, and
+  on the results across connectivity, DHCP, and SNMP in about a minute.
+  Seeds a scratch store from the real one, runs at high speed, and
   restores normal operation on exit (including on failure or Ctrl-C).
-- **Active-overrides banner** — a single method
-  (`FailureInjector.activeOverridesSummary()`) answers "is anything
-  debug-injected right now," logged at launch and on every change, and
-  shown directly in the popover footer in orange whenever anything is
-  active — so a forgotten override can't go unnoticed the way it
-  previously did.
 
 ## Project layout
+
+Services/ViewModels/Models below cover every file that exists today, but
+some descriptions are lighter-touch than a from-scratch audit would give —
+this pass prioritized getting the popover conversion's own additions and
+deletions exactly right (Views, and everything that moved because of it)
+over re-verifying every pre-existing one-liner untouched by this work.
 
 ```
 NMS/
 ├── NMS.xcodeproj
 ├── NMS/
-│   ├── NMSApp.swift                          # App entry point, menu bar scene, model container
+│   ├── NMSApp.swift                          # App entry point, MenuBarExtra scene, model container
 │   ├── Assets.xcassets
 │   ├── Models/
 │   │   ├── AppEventRecord.swift               # SwiftData model, the event log (+ AppEventKind)
@@ -505,8 +321,9 @@ NMS/
 │   │   ├── DHCPLeaseRecord.swift              # SwiftData model, persisted DHCP lease history
 │   │   ├── DiscoveredDevice.swift             # LAN device value type
 │   │   ├── DiscoveredDeviceRecord.swift       # SwiftData model, persisted per-snapshot device list
+│   │   ├── FirewallScanRecord.swift           # SwiftData model, persisted FW visibility-scan history
 │   │   ├── KnownNetwork.swift                 # SwiftData model, one row per recognized network
-│   │   ├── LatencySample.swift                # Sparkline data point value type
+│   │   ├── LatencySample.swift                # Sparkline-shaped data point value type
 │   │   ├── NetworkInterfaceInfo.swift         # Interface snapshot value type
 │   │   ├── NetworkQualityRecord.swift         # SwiftData model, persisted speed-test history
 │   │   ├── NetworkQualityResult.swift         # Speed-test result value type (Cloudflare or Apple)
@@ -517,47 +334,63 @@ NMS/
 │   │   ├── SNMPDevice.swift                   # SNMP-discovered infrastructure device value type
 │   │   ├── SNMPDeviceRecord.swift             # SwiftData model, current state per SNMP device
 │   │   ├── TracerouteHop.swift                # One hop's value type (+ RFC1918 classification)
-│   │   └── WiFiSampleRecord.swift             # SwiftData model, periodic Wi-Fi signal/link history
+│   │   ├── WiFiSampleRecord.swift             # SwiftData model, periodic Wi-Fi signal/link history
+│   │   ├── WiFiStressTestRecord.swift         # SwiftData model, persisted stress-test run history
+│   │   └── WiFiStressTestResult.swift         # Stress-test run summary value type
 │   ├── Services/
 │   │   ├── AppleNetworkQualityService.swift   # networkQuality CLI wrapper (RPM/responsiveness)
 │   │   ├── BlockingWork.swift                 # Runs a genuinely blocking call off the async context
-│   │   ├── BugReportExportService.swift       # Zips a bug report's screenshot + comment to the Desktop
 │   │   ├── BuildInfoService.swift             # Reads git HEAD from the known checkout
 │   │   ├── ConnectivityService.swift          # Pings a target via /sbin/ping
 │   │   ├── CorrelationService.swift           # Time-proximity failure/change matching
-│   │   ├── DebugArtifactRetention.swift       # Shared pruning for the debug-artifact directories
+│   │   ├── CPULoadSampler.swift               # Samples system-wide CPU load (for stress-test attribution)
+│   │   ├── DDNSResolutionService.swift        # Resolves a configured DDNS hostname via dig
 │   │   ├── DeviceWebDetectionService.swift    # Probes a LAN IP for an admin web server
 │   │   ├── DHCPLeaseService.swift             # Reads the cached lease via ipconfig getpacket
 │   │   ├── DNSResolutionService.swift         # Resolves a hostname via getaddrinfo
-│   │   ├── FailureInjector.swift              # DEBUG-only failure/override injection
+│   │   ├── EthernetLinkService.swift          # Reads negotiated Ethernet speed/duplex via networksetup
+│   │   ├── FailureInjector.swift              # Failure/override injection (defaults-backed)
 │   │   ├── FeatureFlags.swift                 # UserDefaults-backed experimental-feature gating
+│   │   ├── FWClient.swift                     # Async client for the FW companion service
+│   │   ├── FWKeychain.swift                   # Stores FW's device bearer token in the login Keychain
+│   │   ├── FWTraceService.swift               # Converts an FW trace into GlobalpingReverseTraceService's shape
+│   │   ├── GlobalpingReverseTraceService.swift + Assets/  # Reverse traceroute via Globalping's public API
+│   │   ├── HoihoService.swift                 # Router-hostname geo hints via CAIDA's Hoiho API
 │   │   ├── HTTPCheckService.swift             # Real HTTP fetch via Apple's captive-portal probe
 │   │   ├── IPClassifier.swift                 # RFC 1918 private-address classification
 │   │   ├── ISPIdentityService.swift           # Identifies the ISP behind the public IP via RDAP
 │   │   ├── LANDiscoveryService.swift          # Enumerates LAN devices via arp -n -a
+│   │   ├── LocalDiagnosticServer.swift + Assets/  # Loopback HTTP server: /network, /saas, /log, /quickcheck
 │   │   ├── LocationAuthorizationService.swift # Requests Core Location auth (for SSID)
 │   │   ├── NetworkQualityService.swift        # Cloudflare-endpoint throughput measurement
-│   │   ├── OverallStatus.swift                # Menu bar severity: normal/marginal/critical
+│   │   ├── NetworkTestCatalog.swift + Assets/ # Loads test-catalog.json — labels/params/Quick-Check membership
+│   │   ├── OverallStatus.swift                # Menu bar + popover severity: normal/marginal/critical
+│   │   ├── PathDiscoveryRunner.swift          # Runs Path Discovery (Globalping + FW + scamper + Hoiho), opens the result page
 │   │   ├── PrinterDiscoveryService.swift      # Configured-printer discovery via lpstat -v
 │   │   ├── PublicIPService.swift              # Looks up WAN IP via api.ipify.org
 │   │   ├── ReverseDNSService.swift            # PTR lookup via getnameinfo
 │   │   ├── SaaSStatusService.swift            # Checks business SaaS vendors' public status pages
+│   │   ├── ScamperService.swift               # Second-opinion alias resolution via CAIDA's scamper
 │   │   ├── SNMPService.swift                  # SNMP GET/sweep via /usr/bin/snmpget
-│   │   ├── ScreenshotService.swift            # ImageRenderer capture + live-height measurement
 │   │   ├── SnapshotStore.swift                # Reads/writes all persisted history, retention/pruning
-│   │   ├── StoreInspector.swift               # DEBUG-only plain-text dump of every SwiftData table
 │   │   ├── StoreSizeService.swift             # Real on-disk store size (base + WAL + shm)
 │   │   ├── SubnetCalculator.swift             # IPv4 subnet host enumeration (with a size guard)
-│   │   ├── SubprocessTracer.swift             # DEBUG-only trace of every shelled-out command
+│   │   ├── SubprocessTracer.swift             # Traces every shelled-out command to the UI state log
 │   │   ├── SystemConfigurationService.swift   # Reads/observes network state
 │   │   ├── SystemLoadService.swift            # Normalized CPU load via getloadavg
+│   │   ├── TopologyBuilder.swift              # Merges frontside + backside traces into one topology
 │   │   ├── TracerouteService.swift            # Walks the path via /usr/sbin/traceroute
-│   │   ├── UIStateLogger.swift                # DEBUG-only log of every value pushed into the UI
-│   │   └── WiFiSSIDService.swift               # Reads current Wi-Fi SSID/BSSID via CoreWLAN
+│   │   ├── UIStateLogger.swift                # Sequenced log of every value pushed into the UI
+│   │   ├── UntrustedText.swift                # Length ceiling for network-supplied strings (SNMP, etc.)
+│   │   ├── WiFiSSIDService.swift              # Reads current Wi-Fi SSID/BSSID via CoreWLAN
+│   │   ├── WiFiStressTestAggregator.swift     # Turns a stress-test burst's raw RTTs/CPU into summary stats
+│   │   └── WiFiStressTestService.swift        # Runs a bounded local-hop latency-under-load burst
 │   ├── ViewModels/
 │   │   ├── ConnectivityViewModel.swift        # Bridges ConnectivityService -> SwiftUI
+│   │   ├── DDNSViewModel.swift                # Bridges DDNSResolutionService -> SwiftUI
 │   │   ├── DHCPLeaseViewModel.swift           # Bridges DHCPLeaseService -> SwiftUI
-│   │   ├── EventLogViewModel.swift            # Fetches/exposes the event log
+│   │   ├── EthernetLinkViewModel.swift        # Bridges EthernetLinkService -> SwiftUI
+│   │   ├── FirewallVisibilityViewModel.swift  # Bridges FWClient/FWTraceService -> SwiftUI
 │   │   ├── ISPIdentityViewModel.swift         # Bridges ISPIdentityService -> SwiftUI
 │   │   ├── LANDiscoveryViewModel.swift        # Bridges LANDiscoveryService -> SwiftUI
 │   │   ├── NetworkIdentityViewModel.swift     # Recognizes/labels the current network
@@ -567,21 +400,21 @@ NMS/
 │   │   ├── PublicIPViewModel.swift            # Bridges PublicIPService -> SwiftUI
 │   │   ├── SaaSMonitoringViewModel.swift      # Periodic checks against SaaSStatusService's vendor list
 │   │   ├── SNMPViewModel.swift                # SNMP discovery, polling, restart/upgrade events
-│   │   ├── ScreenshotViewModel.swift          # Screenshot + store-dump + live-height capture action
 │   │   ├── TracerouteViewModel.swift          # Bridges TracerouteService -> SwiftUI
-│   │   └── WiFiSSIDViewModel.swift            # Bridges WiFiSSIDService -> SwiftUI
+│   │   ├── WiFiSSIDViewModel.swift            # Bridges WiFiSSIDService -> SwiftUI
+│   │   └── WiFiStressTestViewModel.swift      # Bridges WiFiStressTestService -> SwiftUI, filters history by medium
 │   └── Views/
-│       ├── ContentView.swift                  # Menu bar popover UI (+ what's shared with the window)
-│       ├── ContentView+Window.swift           # Window-only sections: Path to Internet, Speed Test,
-│       │                                      #   Events, Wi-Fi, SNMP Devices, DHCP History
+│       ├── DDNSHostnamesSection.swift         # Preferences sub-section: configured DDNS hostnames
+│       ├── FirewallVisibilityServerSection.swift  # Preferences sub-section: FW server URL/token
 │       ├── KnownNetworksView.swift            # Known-networks list window, with delete + Review
+│       ├── MenuBarIcon.swift                  # Menu bar glyph, tinted by OverallStatus
+│       ├── MenuBarView.swift                  # The popover: status lines, glance line, Simple/Expert controls
 │       ├── NetworkReviewView.swift            # Read-only Events/SNMP/DHCP/Wi-Fi view of a past network
-│       ├── NoBounceScrollView.swift           # AppKit-backed non-bouncing scroll container
-│       ├── PreferencesView.swift              # Experimental-feature toggles window
-│       ├── SectionLayout.swift                # Which sections appear on which surface, and their box heights
-│       ├── Sparkline.swift                    # Hand-drawn Canvas latency sparkline
-│       └── ToolTip.swift                      # AppKit-backed tooltip (SwiftUI's .help() doesn't render here)
-├── NMSTests/                                  # 105 unit tests (Swift Testing)
+│       ├── PreferencesView.swift              # Experimental-feature toggles window (Settings scene)
+│       ├── SaaSServicePickerSection.swift     # Preferences sub-section: which SaaS vendors to monitor
+│       ├── TileHelpers.swift                  # Shared row()/.help(optional:) view helpers
+│       └── UserAddedSitesSection.swift        # Preferences sub-section: "Your Own Sites" URL+nickname pairs
+├── NMSTests/                                  # 209 unit tests (Swift Testing)
 └── NMSUITests/                                # 3 UI tests (XCTest)
 ```
 
@@ -761,7 +594,7 @@ script/test-max.sh     # NMSTests + NMSUITests + script/scenarios.sh — a
                         # (which runs this tier itself as a preflight step)
 ```
 
-**`NMSTests`** (105 tests, Swift Testing, runs in well under a second)
+**`NMSTests`** (209 tests, Swift Testing, runs in well under a second)
 covers the logic that is *pure* — no network, no SwiftData container, no
 `@MainActor` view model construction, so it runs anywhere including CI:
 `SubnetCalculator`'s sweep-size guard and subnet math, `IPClassifier`'s
@@ -837,8 +670,13 @@ Events, DHCP lease history and SNMP device state are **not** pruned, by
 design — they're change logs, not telemetry, so they only grow when
 something actually changes. On a stable network that is a handful of rows
 a day; on a flapping one it is bounded by how often the network flaps
-rather than by the clock. The footer shows live store size, so this is
-observable rather than theoretical.
+rather than by the clock. `StoreSizeService` can still compute the real
+on-disk figure (base SQLite file plus WAL/shm sidecars), but nothing in
+the current popover or web pages calls it — the popover's old footer
+line that showed this live was dropped in the move away from
+`ContentView` and hasn't been re-added, so this is currently only
+verifiable by inspecting `~/Library/Application Support/NMS/` directly,
+not observable in the running app.
 
 **Network use is deliberately small**: per round, one ICMP echo per
 target (8 here), one DNS query for a randomized subdomain, and one HTTP
