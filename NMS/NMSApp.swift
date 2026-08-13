@@ -610,22 +610,21 @@ struct NMSApp: App {
     }
 
     var body: some Scene {
-        // The app's one main window — used to be "Expert Mode," opened on
-        // demand from a MenuBarExtra popover's footer button; now the
-        // whole app, open automatically at launch since it's the first
-        // scene declared. See DESIGN-NOTES.md for why the popover was
-        // dropped.
-        //
-        // An outer scroll container turned out not to be optional: without
-        // one, the window is floor-clamped to its full content height, and
-        // on the M1 MacBook Air's screen that's taller than the screen
-        // itself — no way to reach the lower half at all, confirmed
-        // directly. See `ContentView.body`, where that scroll container
-        // actually lives.
-        Window("NMS", id: "main-window") {
-            contentView()
+        // PHASE 0 SPIKE (menubar-popover-conversion branch): temporarily
+        // replaces the main window with a MenuBarExtra popover to de-risk
+        // the popover conversion plan before committing to it further —
+        // see the plan doc's Phase 0. Placeholder content only
+        // (`MenuBarView`/`MenuBarIcon`), not wired to real view models
+        // yet. The original `Window("NMS", ...)` this replaces is
+        // preserved in git history, not deleted for good — restored (or
+        // evolved into the real Phase 2/3 implementation) once the spike
+        // passes.
+        MenuBarExtra {
+            MenuBarView()
+        } label: {
+            MenuBarIcon(status: .normal)
         }
-        .defaultSize(width: 600, height: 700)
+        .menuBarExtraStyle(.window)
 
         // A separate window rather than a sheet — see
         // `KnownNetworksView`'s doc comment.
