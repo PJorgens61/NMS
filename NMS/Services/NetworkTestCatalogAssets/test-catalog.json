@@ -1,0 +1,55 @@
+{
+  "tests": [
+    { "id": "pathDiscovery", "label": "Trace Now", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
+    { "id": "dnsCheck", "label": "Check DNS", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
+    { "id": "dhcpStatus", "label": "Check DHCP Status", "includeInQuickCheck": true, "requiresConfirmation": false, "parameters": {} },
+    {
+      "id": "speedTest",
+      "label": "Run Speed Test",
+      "includeInQuickCheck": true,
+      "requiresConfirmation": true,
+      "confirmationText": "This sends real network traffic -- downloads and uploads test data to measure your connection speed.",
+      "parameters": { "fullBytes": 25000000, "probeBytes": 2000000, "probeTimeoutSeconds": 10, "fullTimeoutSeconds": 45 },
+      "quickCheckParameters": { "bytes": 2000000, "timeoutSeconds": 10 }
+    },
+    {
+      "id": "appleNetworkQuality",
+      "label": "Run Apple Test",
+      "includeInQuickCheck": true,
+      "requiresConfirmation": true,
+      "confirmationText": "This sends real network traffic -- uses Apple's networkQuality tool, which can use over 1GB on a fast connection.",
+      "parameters": { "budgetSeconds": 45 },
+      "quickCheckParameters": { "budgetSeconds": 5 }
+    },
+    {
+      "id": "wifiStressTest",
+      "label": "Run Wi-Fi Stress Test",
+      "includeInQuickCheck": true,
+      "requiresConfirmation": true,
+      "confirmationText": "This sends real network traffic -- many concurrent ping streams at your router for about 1-2 seconds.",
+      "parameters": { "durationSeconds": 1.0, "wifiStreamCount": 8, "ethernetStreamCount": 4 }
+    },
+    {
+      "id": "snmpScan",
+      "label": "Scan",
+      "includeInQuickCheck": false,
+      "requiresConfirmation": false,
+      "parameters": { "perHostTimeoutSeconds": 1, "retries": 5 }
+    },
+    {
+      "id": "firewallScan",
+      "label": "Scan Now",
+      "includeInQuickCheck": false,
+      "requiresConfirmation": false,
+      "parameters": { "pollCount": 30 }
+    },
+    {
+      "id": "dhcpRenew",
+      "label": "Renew",
+      "includeInQuickCheck": false,
+      "requiresConfirmation": true,
+      "confirmationText": "This will renew your DHCP lease, which may briefly interrupt your network connection.",
+      "parameters": {}
+    }
+  ]
+}
