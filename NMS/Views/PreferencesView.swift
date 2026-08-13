@@ -1,11 +1,16 @@
 import SwiftUI
 
-/// A plain `Window`, not a SwiftUI `Settings` scene — `Settings` normally
-/// wires itself to the app's Preferences menu item and ⌘,, but that
-/// wiring doesn't reliably apply to `NMSApp`'s `.accessory` activation
-/// policy (no Dock icon, no standard app menu bar to attach a "Preferences…"
-/// item to). Opened via a footer button instead, the same pattern already
-/// proven for `KnownNetworksView`.
+/// A real SwiftUI `Settings` scene now (popover conversion, Phase 2,
+/// 2026-08-12) — this used to be a plain `Window` instead, because
+/// `Settings`'s automatic Preferences-menu/⌘, wiring didn't reliably
+/// apply to the app's then-current `.regular` activation policy (a
+/// standard Dock icon and app menu bar, but no `MenuBarExtra` for
+/// `Settings` to hook into the way it expects). `.accessory` +
+/// `MenuBarExtra` is exactly the configuration `Settings` was designed
+/// for, so that reasoning no longer applies — opened via
+/// `MenuBarView`'s "Preferences…" button calling
+/// `@Environment(\.openSettings)`, same `NSApp.activate()` foreground
+/// fix `ContentView.openWindowInFront` already needed.
 ///
 /// Deliberately narrow in scope: only `FeatureFlags`-shaped settings live
 /// here — a real on/off toggle, not a list. SNMP's community-string field

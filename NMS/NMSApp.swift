@@ -1,5 +1,7 @@
+import AppKit
 import SwiftUI
 import SwiftData
+import MenuBarExtraAccess
 
 @main
 struct NMSApp: App {
@@ -23,14 +25,29 @@ struct NMSApp: App {
     @State private var saasMonitoring: SaaSMonitoringViewModel
     @State private var ddns: DDNSViewModel
     @State private var firewallVisibility: FirewallVisibilityViewModel
+    // Un-gated from `#if DEBUG`, 2026-08-12 -- `LocalDiagnosticServer`
+    // itself stopped being debug-only as part of the popover conversion
+    // (the popover's status lines/links need it in Release too, see that
+    // type's own doc comment), so this property has to be constructible
+    // in Release builds as well. Constructed in `init()` below, not here
+    // via a default value, so `setSaaSMonitoring`/`setNetworkViewModels`
+    // can run once at launch before it's wrapped in `State`.
+    @State private var diagnosticServer: LocalDiagnosticServer
     // Debug-only tooling, owned here (not `ContentView`) now that it's
     // shared by `DebugToolsView`, a separate window — see that view's own
     // doc comment for why debug action buttons moved out of the main
-    // footer. `#if DEBUG` because both types only exist in debug builds.
+    // footer. Still `#if DEBUG`: Path Discovery's own trigger stays
+    // behind the (still debug-only, for now) Debug Tools window until
+    // the popover conversion's later phase folds it into the popover's
+    // own Run Test menu and removes this window entirely.
     #if DEBUG
-    @State private var diagnosticServer = LocalDiagnosticServer()
     @State private var globalpingService = GlobalpingReverseTraceService()
     #endif
+    /// Real, user-driven popover open/closed state — see `MenuBarView`'s
+    /// own doc comment (once Phase 3 wires this through) for why this
+    /// can't be `.task`/`.onAppear` on the popover's content instead;
+    /// same `MenuBarExtraAccess`-backed pattern RoonWatch already uses.
+    @State private var isMenuPresented: Bool = false
 
     // SwiftData requires the container to be kept alive for as long as
     // anything derived from it (like `mainContext`) is in use. Without this
@@ -155,6 +172,22 @@ struct NMSApp: App {
         _saasMonitoring = State(wrappedValue: saasMonitoring)
         _ddns = State(wrappedValue: ddns)
         _firewallVisibility = State(wrappedValue: firewallVisibility)
+
+        let diagnosticServer = LocalDiagnosticServer()
+        diagnosticServer.setSaaSMonitoring(saasMonitoring)
+        diagnosticServer.setNetworkViewModels(.init(
+            viewModel: networkMonitor,
+            connectivity: connectivity,
+            wifiSSID: wifiSSID,
+            networkIdentity: networkIdentity,
+            publicIP: publicIP,
+            ispIdentity: ispIdentity,
+            traceroute: traceroute,
+            dhcpLease: dhcpLease,
+            ethernetLink: ethernetLink,
+            ddns: ddns
+        ))
+        _diagnosticServer = State(wrappedValue: diagnosticServer)
 
         // Recognize whatever network we're already on at launch, rather
         // than waiting for the next topology change to fire a scan.
@@ -609,21 +642,37 @@ struct NMSApp: App {
         )
     }
 
+    /// Opens a diagnostic-server page in the system browser — same
+    /// `NSWorkspace.shared.open(url)`-via-`diagnosticServerURL(path:)`
+    /// shape RoonWatch's own `openDiagnostics` closure already uses, a
+    /// deliberate choice (not an embedded `WKWebView`) recorded in the
+    /// plan doc's "Decided, not open" list. `MenuBarView` calls this once
+    /// Phase 3 wires its status lines/links through.
+    private func openDiagnostics(path: String) {
+        Task {
+            guard let url = await diagnosticServer.diagnosticServerURL(path: path) else { return }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     var body: some Scene {
-        // PHASE 0 SPIKE (menubar-popover-conversion branch): temporarily
-        // replaces the main window with a MenuBarExtra popover to de-risk
-        // the popover conversion plan before committing to it further —
-        // see the plan doc's Phase 0. Placeholder content only
-        // (`MenuBarView`/`MenuBarIcon`), not wired to real view models
-        // yet. The original `Window("NMS", ...)` this replaces is
-        // preserved in git history, not deleted for good — restored (or
-        // evolved into the real Phase 2/3 implementation) once the spike
-        // passes.
+        // Popover conversion, Phase 2 (scene rewrite) -- the original
+        // `Window("NMS", ...)` this replaced (Phase 0's spike target) is
+        // gone for good now, not just swapped out temporarily; its
+        // replacement is `MenuBarView`/`MenuBarIcon`. `MenuBarView`
+        // itself is still Phase 0's placeholder content -- real view-model
+        // wiring is Phase 3's job, not this one.
+        // `.menuBarExtraAccess` must be the first scene modifier after
+        // `MenuBarExtra` -- it's declared as an extension on the concrete
+        // `MenuBarExtra` type, not the general `Scene` protocol, so it
+        // has to run before `.menuBarExtraStyle` erases that to `some
+        // Scene` (confirmed directly, RoonWatch already hit this).
         MenuBarExtra {
             MenuBarView()
         } label: {
             MenuBarIcon(status: .normal)
         }
+        .menuBarExtraAccess(isPresented: $isMenuPresented)
         .menuBarExtraStyle(.window)
 
         // A separate window rather than a sheet — see
@@ -650,21 +699,16 @@ struct NMSApp: App {
         .defaultSize(width: 360, height: 240)
         #endif
 
-        // A plain `Window`, not a `Settings` scene — see
-        // `PreferencesView`'s doc comment.
-        Window("Preferences", id: "preferences") {
+        // A real `Settings` scene now, not a plain `Window` -- see
+        // `PreferencesView`'s doc comment for why it used to avoid this
+        // (`.accessory` + `MenuBarExtra` makes `Settings`'s automatic
+        // Preferences-menu/⌘, wiring reliable, unlike the `.regular`,
+        // no-real-menu-bar situation that reasoning was written for).
+        // Still gets `PreferencesView.body`'s own `ScrollView` for a
+        // MacBook-Air-height window, same reasoning as before.
+        Settings {
             PreferencesView()
         }
-        // A real, freely resizable window, not `.contentSize` --
-        // reported directly: content-locked sizing meant this window
-        // couldn't be dragged smaller at all, and once the view grew
-        // (13 SaaS services, DDNS hostnames, several toggles) past a
-        // MacBook Air's screen height there was no way to shrink it or
-        // reach the rest, the exact failure `ContentView`'s own outer
-        // `ScrollView` already exists to prevent for the main window.
-        // `PreferencesView.body` now wraps its content in a `ScrollView`
-        // of its own, so a shorter window just scrolls instead.
-        .defaultSize(width: 380, height: 500)
     }
 
     /// Falls back to an in-memory store if the on-disk store can't be

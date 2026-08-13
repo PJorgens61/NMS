@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Phase 0 spike content — placeholder data throughout, wired to real
@@ -9,6 +10,12 @@ import SwiftUI
 /// (Simple: 9, Expert: 10) actually fits without overflow.
 struct MenuBarView: View {
     @State private var isExpertMode = false
+    /// Real for Phase 2's `Settings` scene conversion, unlike everything
+    /// else in this file (still Phase 0's placeholder content) — a plain
+    /// SwiftUI environment value, available in any view once the app
+    /// declares a `Settings {}` scene, so this doesn't need threading
+    /// through from `NMSApp` the way `openDiagnostics` will in Phase 3.
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -65,7 +72,19 @@ struct MenuBarView: View {
             Button("Known Networks…") {}
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
-            Button("Preferences…") {}
+            Button("Preferences…") {
+                openSettings()
+                // Deferred one run-loop turn, same confirmed-working fix
+                // `ContentView.openWindowInFront` already needed:
+                // `NSApp.activate(ignoringOtherApps:)` is deprecated
+                // since macOS 14 and confirmed to actually stop doing
+                // anything after that; the modern, no-parameter
+                // `NSApplication.activate()` needs no availability guard
+                // since this app's deployment target is already 14+.
+                DispatchQueue.main.async {
+                    NSApp.activate()
+                }
+            }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
 
